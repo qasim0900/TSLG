@@ -9,7 +9,7 @@ Operaciones disponibles:
 """
 
 import re
-import random
+import secrets
 import string
 from datetime import date as _date
 from core.db import get_connection
@@ -20,7 +20,8 @@ VALID_LEAD_STATUSES = {"new", "contacted", "meeting", "converted", "lost"}
 
 def _generate_lead_id() -> str:
     """Genera un ID único para leads manuales (formato L_XXXXXX)."""
-    return "L_" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    alphabet = string.ascii_uppercase + string.digits
+    return "L_" + "".join(secrets.choice(alphabet) for _ in range(6))
 
 
 def insert_lead(

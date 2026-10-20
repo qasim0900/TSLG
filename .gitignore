@@ -1,0 +1,50 @@
+
+# Environment variables and secrets — all directories
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+
+# Python cache — all directories
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments — all directories
+venv/
+.venv/
+env/
+ENV/
+**/venv/
+**/.venv/
+**/env/
+
+# Python testing and coverage
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+**/.mypy_cache/
+.ruff_cache/
+**/.ruff_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# IDE and editor files
+.vscode/
+.idea/
+
+# Operating system files
+.DS_Store
+Thumbs.db

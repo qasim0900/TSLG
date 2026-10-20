@@ -6,13 +6,10 @@ Usa matplotlib para crear gráficos estáticos que se insertan como base64 en HT
 import base64
 import io
 import textwrap
-import matplotlib.pyplot as plt
-import matplotlib
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 from matplotlib import rcParams
 from matplotlib.ticker import FuncFormatter, MaxNLocator
-
-# Usar backend sin interfaz gráfica
-matplotlib.use('Agg')
 
 # Configurar estilo
 rcParams['font.family'] = 'sans-serif'
@@ -23,6 +20,18 @@ rcParams['axes.titlesize'] = 15
 rcParams['axes.labelsize'] = 12
 rcParams['xtick.labelsize'] = 11
 rcParams['ytick.labelsize'] = 11
+
+
+def _subplots(*, figsize: tuple[float, float]):
+    """Create an isolated Agg figure without changing the process backend.
+
+    Techset LeadGen also embeds native Qt canvases.  Using ``pyplot`` or
+    globally switching Matplotlib to Agg would mutate that GUI backend and can
+    destabilize interpreter shutdown after mixed report/UI tests.
+    """
+    figure = Figure(figsize=figsize)
+    FigureCanvasAgg(figure)
+    return figure, figure.subplots()
 
 
 def _truncate(text: str, max_len: int = 28) -> str:
@@ -68,7 +77,7 @@ def _get_base64_image(fig):
     buffer.seek(0)
     image_base64 = base64.b64encode(buffer.read()).decode()
     buffer.close()
-    plt.close(fig)
+    fig.clear()
     return image_base64
 
 def _configure_time_axis(ax, labels: list[str]):
@@ -120,7 +129,7 @@ def generate_pie_chart(labels, values, title=None, percentages=None):
     Returns:
         string base64 de la imagen PNG
     """
-    fig, ax = plt.subplots(figsize=(8.4, 4.8))
+    fig, ax = _subplots(figsize=(8.4, 4.8))
 
     colors = ['#39B54A', '#FFCB4A', '#FF6F00', '#C62828', '#6A1B9A', '#00796B']
     colors = colors[:len(labels)]  # Limitar colores si hay más de 6
@@ -188,7 +197,7 @@ def generate_bar_chart(labels, values, title="Bar chart", ylabel="Value"):
     Returns:
         string base64 de la imagen PNG
     """
-    fig, ax = plt.subplots(figsize=(10.5, 6.5))
+    fig, ax = _subplots(figsize=(10.5, 6.5))
     
     colors = ['#39B54A', '#FFCB4A', '#FF6F00', '#C62828', '#6A1B9A']
     colors = colors[:len(labels)]
@@ -233,7 +242,7 @@ def generate_horizontal_bar_chart(labels, values, title=None, xlabel="Sales (€
     Returns:
         string base64 de la imagen PNG
     """
-    fig, ax = plt.subplots(figsize=(12.0, 7.6))
+    fig, ax = _subplots(figsize=(12.0, 7.6))
 
     # Paleta con buen contraste y consistente
     base_colors = ['#39B54A', '#32CD32', '#2F9E44', '#238636', '#176B2C']
@@ -307,7 +316,7 @@ def generate_evolution_line_chart(evolution_points) -> str:
     except AttributeError as e:
         raise ValueError(f"evolution_points has items missing required attributes (label, value_a, value_b): {e}")
     
-    fig, ax = plt.subplots(figsize=(12.0, 5.0))
+    fig, ax = _subplots(figsize=(12.0, 5.0))
 
     x_pos = list(range(len(labels)))
     
@@ -372,7 +381,7 @@ def generate_evolution_bar_chart(
     if len(labels) != len(values):
         raise ValueError(f"labels ({len(labels)}) and values ({len(values)}) have different lengths")
 
-    fig, ax = plt.subplots(figsize=(12.0, 5.0))
+    fig, ax = _subplots(figsize=(12.0, 5.0))
     x_pos = list(range(len(labels)))
 
     ax.bar(
@@ -396,7 +405,7 @@ def generate_compare_bar_chart(labels, values_a, values_b, title="A vs. B compar
     Genera un gráfico de barras comparativo A vs B.
     Snapshot-only: no calcula, no transforma.
     """
-    fig, ax = plt.subplots(figsize=(10.5, 6.0))
+    fig, ax = _subplots(figsize=(10.5, 6.0))
 
     x = range(len(labels))
     width = 0.35

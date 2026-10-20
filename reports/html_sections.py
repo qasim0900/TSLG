@@ -29,13 +29,19 @@ def render_chart_container(
     Returns:
         HTML string listo para insertar en el reporte
     """
-    subtitle_html = f'<p style="color: #666; font-size: 12px; margin: 4px 0 12px 0;">{subtitle}</p>' if subtitle else ""
+    safe_title = escape(str(title))
+    subtitle_html = (
+        f'<p style="color: #666; font-size: 12px; margin: 4px 0 12px 0;">'
+        f'{escape(str(subtitle))}</p>'
+        if subtitle
+        else ""
+    )
     
     return f'''
     <div class="chart-container">
-        <h3>{title}</h3>
+        <h3>{safe_title}</h3>
         {subtitle_html}
-        <img src="data:image/png;base64,{image_base64}" style="width: 100%;">
+        <img src="data:image/png;base64,{image_base64}" alt="{safe_title}" style="width: 100%;">
     </div>
     '''
 
@@ -108,7 +114,10 @@ def render_charts_section(rows, clients_stats, percentages=None):
             labels = [row[0] for row in rows]
             values = [float(row[1]) for row in rows]
             pie_base64 = generate_pie_chart(labels, values, percentages=percentages)
-            pie_chart_html = f'<img src="data:image/png;base64,{pie_base64}" style="width: 100%;">'
+            pie_chart_html = (
+                f'<img src="data:image/png;base64,{pie_base64}" '
+                'alt="Sales distribution by product" style="width: 100%;">'
+            )
         except Exception as e:
             pie_chart_html = f'<p style="color: red;">Could not build the product chart: {escape(str(e))}</p>'
     if clients_stats is not None and isinstance(clients_stats, list) and len(clients_stats) > 0:
@@ -121,7 +130,10 @@ def render_charts_section(rows, clients_stats, percentages=None):
                 title=None,
                 xlabel="Amount spent (€)"
             )
-            top_clients_html = f'<img src="data:image/png;base64,{bars_base64}" style="width: 100%;">'
+            top_clients_html = (
+                f'<img src="data:image/png;base64,{bars_base64}" '
+                'alt="Top five clients by sales amount" style="width: 100%;">'
+            )
         except Exception as e:
             top_clients_html = f'<p style="color: red;">Could not build the client chart: {escape(str(e))}</p>'
     if not pie_chart_html:

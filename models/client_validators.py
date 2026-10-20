@@ -103,20 +103,16 @@ def client_exists_by_name(name, exclude_id=None):
     Returns:
         True si existe otro cliente con ese nombre
     """
+    # SQLite's LOWER() only folds ASCII, so "CAFÉ MÜLLER" slipped past an
+    # existing "Café Müller". Compare with Unicode case folding instead.
+    target = name.strip().casefold()
     conn = get_connection()
-    cursor = conn.cursor()
-
-    if exclude_id:
-        cursor.execute(
-            "SELECT id FROM clients WHERE LOWER(name) = LOWER(?) AND id != ?",
-            (name.strip(), exclude_id)
-        )
-    else:
-        cursor.execute(
-            "SELECT id FROM clients WHERE LOWER(name) = LOWER(?)",
-            (name.strip(),)
-        )
-
-    result = cursor.fetchone()
-    conn.close()
-    return result is not None
+    try:
+        rows = conn.execute("SELECT id, name FROM clients").fetchall()
+    finally:
+        conn.close()
+    return any(
+        str(existing or "").strip().casefold() == target
+        and not (exclude_id and client_id == exclude_id)
+        for client_id, existing in rows
+    )

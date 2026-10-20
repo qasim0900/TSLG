@@ -29,21 +29,46 @@ select = ["E9", "F63", "F7", "F82", "F811", "F841", "B006", "B008", "B011", "B01
 python_version = "3.15"
 ignore_missing_imports = true
 explicit_package_bases = true
-files = ["core", "models", "controllers", "services", "analysis", "domain", "utils", "reports"]
+files = ["core", "models", "controllers", "services", "analysis", "domain", "utils", "reports", "desktop_ui", "main.py", "branding.py"]
 exclude = ["analysis/tests/"]
 
 [tool.bandit]
 exclude_dirs = [".venv", "tests", "analysis/tests"]
 
+[tool.poetry]
+# The application intentionally uses the repository's existing flat module
+# layout. Listing its runtime modules explicitly lets `poetry build` create a
+# reproducible source archive and wheel without moving or renaming imports.
+exclude = [
+    "assets/fdt_logo.ico",
+    "assets/fdt_logo.png",
+    "assets/fdt_logo_light.png",
+    "assets/WhatsApp Image 2026-10-01 at 4.58.20 PM.jpeg",
+]
+packages = [
+    { include = "main.py" },
+    { include = "branding.py" },
+    { include = "analysis" },
+    { include = "assets" },
+    { include = "controllers" },
+    { include = "core" },
+    { include = "desktop_ui" },
+    { include = "domain" },
+    { include = "models" },
+    { include = "reports" },
+    { include = "services" },
+    { include = "utils" },
+]
+
 [project]
 name = "tslg"
 version = "0.1.0"
-description = ""
+description = "Techset LeadGen desktop sales, client, and lead intelligence application."
 authors = [
     {name = "qasim0900",email = "qasim_kamran2007@yahoo.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.12,<4.0"
+requires-python = ">=3.12,<3.16"
 dependencies = [
     "flet (>=1.0.4,<2.0.0)",
     "flet-desktop (>=1.0.4,<2.0.0)",
@@ -52,7 +77,8 @@ dependencies = [
     "openpyxl (>=3.1.5,<4.0.0)",
     "python-dateutil (>=2.9.0.post0,<3.0.0)",
     "matplotlib (>=3.11.2,<4.0.0)",
-    "numpy (>=2.5.4,<3.0.0)"
+    "numpy (>=2.5.4,<3.0.0)",
+    "pyside6 (>=6.12.0,<7.0.0)"
 ]
 
 
@@ -67,5 +93,10 @@ dev = [
     "ruff (>=0.17.1,<0.18.0)",
     "mypy (>=2.4.0,<3.0.0)",
     "bandit (>=1.9.4,<2.0.0)",
-    "pip-audit (>=2.10.1,<3.0.0)"
+    "pip-audit (>=2.10.1,<3.0.0)",
+    "flet-cli (>=1.0.4,<2.0.0)",
+    "flet-web (>=1.0.4,<2.0.0)",
+    # Flet Web 1.0.4 still passes `openapi_prefix`; FastAPI removed that
+    # compatibility argument in 0.145. Keep the web smoke-test stack usable.
+    "fastapi (>=0.115.12,<0.145.0)"
 ]

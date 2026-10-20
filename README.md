@@ -1,271 +1,216 @@
-# FDT Sales Manager 📊
+# Techset LeadGen
 
-**Desktop CRM application for sales pipeline management, client tracking, and lead analysis — built with Python + Flet**
+**Techset LeadGen** is a local desktop application for importing sales and lead data, understanding pipeline performance, maintaining client records, and exporting shareable HTML reports. It is built with Python, PySide6 (Qt Widgets), Polars, Matplotlib, and SQLite.
 
-![Python](https://img.shields.io/badge/Python-3.13+-blue?style=flat-square) ![Flet](https://img.shields.io/badge/Flet-0.82.0+-purple?style=flat-square) ![SQLite](https://img.shields.io/badge/SQLite-3-green?style=flat-square) ![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white)
+![PySide6](https://img.shields.io/badge/PySide6-6.12-39B54A?style=flat-square)
+![SQLite](https://img.shields.io/badge/SQLite-3-0A1414?style=flat-square&logo=sqlite&logoColor=white)
+![Poetry](https://img.shields.io/badge/Poetry-managed-FFCB4A?style=flat-square&logo=poetry&logoColor=0A1414)
 
----
+The application is local-first: the desktop process owns the interface and business logic, while a local SQLite database stores the data. The current repository does not contain a web backend, REST API, account system, browser router, PWA manifest, or cloud synchronization.
 
-## 📸 Screenshots
+## What the application does
 
-Captured from the current build with fictional demo data (200 sales, 62 leads).
+| Area | Current capability |
+|---|---|
+| **Dashboard** | Shows sales-record, client, lead, conversion, meeting, recent-import, and current-month KPIs. It also provides import shortcuts, sample templates, navigation actions, and confirmed data-clearing actions. |
+| **Sales** | Filters sales by date, client, and product; calculates totals and average ticket; displays product distribution, time evolution, and top clients; and compares period A with period B. |
+| **Leads** | Filters the pipeline by source, stage, date, and search text; shows funnel conversion, meetings, source performance, upcoming meetings, CPL, CAC, attributed revenue, and ROI; updates lead status or meeting date; and adds, corrects, or deletes marketing spend records. |
+| **Clients** | Searches and manages client records, shows linked sales and lead information, opens client profiles, merges duplicate names, and exports an individual client report. |
+| **Import** | Detects sales, leads, mixed sales-and-leads, or marketing-spend files; previews their schema; validates rows; writes accepted rows in a transaction; and records rejected rows separately. |
+| **Reports** | Produces self-contained branded HTML reports for sales analysis, lead performance, and client profiles. Matplotlib charts are embedded as base64 images. |
+| **Appearance** | Provides light and dark themes (remembered between sessions) using the official Techset Solutions logo, Inter typography, and centralized brand tokens. |
 
-### Dashboard
-| Light | Dark |
-|:---:|:---:|
-| ![Dashboard with KPI cards, quick actions and recent activity](screenshots/en/dashboard.png) | ![Dashboard in dark mode](screenshots/en/dashboard-dark.png) |
-| *KPI cards, quick actions, import guide and recent activity* | *Dark theme* |
+For a module-by-module explanation and workflow diagrams, read [Architecture](docs/ARCHITECTURE.md). For asset provenance and design tokens, read [Branding](docs/BRANDING.md).
 
-### Data Import
-| Import Preview |
-|:---:|
-| ![Import preview showing 140 rows, 138 valid and 2 invalid](screenshots/en/import-preview.png) |
-| *Detected file type, valid and invalid rows, and the file's columns before anything is written* |
+## Runtime overview
 
-### Sales Analytics
-| Filters & Presets | Summary & Distribution | Period A vs. B | 1024 px Window |
-|:---:|:---:|:---:|:---:|
-| ![Sales KPI cards, date filters and comparison presets](screenshots/en/sales-filters.png) | ![Product summary table and sales distribution donut](screenshots/en/sales-summary-and-distribution.png) | ![Comparison cards and chart for this year vs. last year](screenshots/en/sales-compare.png) | ![Sales view in a 1024 by 700 window](screenshots/en/sales-1024px.png) |
-| *KPI cards, date filters, quick ranges and comparison presets* | *Per-product totals and share of sales* | *This year vs. last year: totals, transactions and average sale, each scaled to the higher period* | *KPI cards wrap on narrow windows* |
-
-### Lead Management
-| Funnel | Lead List | Lead List (Dark) |
-|:---:|:---:|:---:|
-| ![Lead funnel and pipeline metrics](screenshots/en/leads-funnel.png) | ![Recent leads with stage badges and upcoming meetings](screenshots/en/leads-list.png) | ![Recent leads in dark mode](screenshots/en/leads-list-dark.png) |
-| *Filters, funnel and pipeline metrics* | *Lead age, source, stage and upcoming meetings* | *Dark theme* |
-
-### Client Management
-| Client List | Client Profile | Edit Client |
-|:---:|:---:|:---:|
-| ![Client list with totals and lead information](screenshots/en/clients.png) | ![Client profile with lead and sales statistics](screenshots/en/client-profile.png) | ![Client edit form with lead information](screenshots/en/client-edit.png) |
-| *Lifetime totals, lead source and stage per client* | *Client information, linked lead and sales history* | *Client details and lead status in one form* |
-
----
-
-## 🚀 What this project demonstrates
-
-- Data processing & analytics with Polars on top of SQLite
-- Layered architecture (UI → controllers → services → analysis → core), Flet only in the UI layers
-- 586 automated pytest tests, including headless GUI tests of the real Flet control tree
-- Real-world data handling: CSV/Excel import with encoding detection, validation and per-row error reports
-- Measured performance: a full sales snapshot over 50,000 sales builds in ~0.4 s (see [Performance](#-performance))
-
-## 🎯 Problem Statement
-
-Sales teams waste hours managing spreadsheets, tracking pipeline progress manually, and losing visibility into client relationships. **FDT Sales Manager** centralizes all sales data—clients, leads, sales history, and performance metrics—in a single, interactive desktop application with real-time analytics.
-
----
-
-## 💡 Why This Project Matters
-
-Building a full desktop CRM from scratch in Python required solving real software engineering challenges: layered architecture, reactive UI state, Polars-powered analytics, safe data import, and a comprehensive automated test suite. This project demonstrates practical **Python backend development** skills applied to a real business domain.
-
----
-
-## ✨ Key Features
-
-- **Dashboard**: sales record and client counts, total leads, lead conversion rate, meetings, leads this month, last import, import guide with downloadable CSV templates, and guarded "clear data" actions
-- **Data Import**: CSV/XLSX import of sales, leads, marketing spend, or mixed files; the file type is detected automatically and previewed before import
-- **Sales Analytics**: filters by date range (with quick ranges), client and product; KPI cards, product summary table, product distribution, top clients and sales evolution grouped by day/week/month/quarter/year
-- **Period Comparison (A vs. B)**: presets such as "Same period, previous year" or "This month vs. last month", aligned evolution chart and metric deltas
-- **Lead Management**: lead funnel (stored statuses `new → contacted → meeting → converted / lost`, shown as Lead, Contacted, Meeting, Client and Lost), per-source conversion, filters (source, stage, date, search), editable lead status and meeting date
-- **Marketing Performance**: CPL, CAC and ROI per source with first-touch attribution, and an editor for marketing spend
-- **Client Management**: searchable client list with lifetime totals, client profile with sales history, create / edit / delete, and merge of duplicate clients by name
-- **HTML Reports**: sales (normal and compare mode), client profile and leads reports with embedded Matplotlib charts
-- **Dark/Light Theme**
-
-## 🌐 Language and Formats
-
-The interface, reports, notifications and log messages are in American English. Amounts are in euros and use US separators: `€1,234.56`, negative `-€1,234.56`. Dates in text are written `Oct 20, 2026 6:14 PM`; compact chart labels are month first (`10/20`). Tables and date pickers show ISO dates (`2026-10-20`). Stored data and import files are unchanged by this: the database keeps ISO dates, and Spanish column headers in import files are still recognized.
-
-## 🏗️ Architecture
-
-```
-Layered architecture
-├── main.py         (initialization, logging)
-├── ui/             (routing & navigation)
-├── views/          (dashboard, sales, clients, leads)
-├── components/     (reusable Flet widgets)
-├── controllers/    (input validation, service coordination, import threading)
-├── services/       (analysis orchestration, snapshot building)
-├── analysis/       (Polars/SQL metrics calculation)
-├── models/         (CRUD for clients, leads, marketing spend)
-├── domain/         (pure data models)
-├── reports/        (HTML report generation)
-└── core/           (database, schema & migrations, importer, date ranges)
+```mermaid
+flowchart LR
+    User[Desktop user] --> Qt[PySide6 main window]
+    Qt --> Views[Dashboard / Sales / Leads / Clients]
+    Views --> Controllers[Controllers and filters]
+    Controllers --> Services[Snapshot and KPI services]
+    Controllers --> Models[Client / lead / spend models]
+    Services --> Analysis[Polars and SQL analysis]
+    Models --> DB[(SQLite sales.db)]
+    Analysis --> DB
+    Views --> Reports[HTML and Matplotlib reports]
 ```
 
-**Key principle**: lower layers never import Flet or the UI packages (`components/`, `views/`, `ui/`). Long-running imports run in a background thread, and their result callbacks are marshalled back onto the Flet event loop (`utils/ui_dispatch.py`).
+## Technology and supported versions
 
-## 🛠️ Tech Stack
+The project metadata requires Python `>=3.12,<3.16`, matching the supported range of the latest PySide6 release. The current lock file resolves the principal packages as follows:
 
-| Component | Technology | Version |
-|-----------|-----------|---------|
-| **Framework** | Flet (Flutter Desktop) | 0.82.0 |
-| **Language** | Python | 3.13 |
-| **Database** | SQLite3 | Built-in |
-| **Data Analysis** | Polars | 1.44.2 |
-| **Charts** | flet-charts | 0.82.0 |
-| **Excel/CSV Import** | openpyxl | 3.1.5 |
-| **HTML Reports** | Matplotlib | 3.11.2 |
-| **Testing** | pytest | 9.1.1 |
+| Purpose | Package | Locked version |
+|---|---|---:|
+| Desktop UI | `pyside6` | 6.12.0 |
+| Legacy UI (declared, no longer imported) | `flet`, `flet-desktop`, `flet-charts` | 1.0.4 |
+| Dataframes | `polars` | 2.0.0 |
+| Excel import | `openpyxl` | 3.1.5 |
+| Date parsing utilities | `python-dateutil` | 2.9.0.post0 |
+| Report charts | `matplotlib` | 3.11.2 |
+| Numerical support | `numpy` | 2.5.4 |
+| Tests | `pytest`, `pytest-cov` | 9.1.1, 7.1.0 |
+| Quality and security | `ruff`, `mypy`, `bandit`, `pip-audit` | 0.17.1, 2.4.0, 1.9.4, 2.10.1 |
+| Legacy Flet web smoke tests (no longer used) | `flet-cli`, `flet-web`, compatible `fastapi` | 1.0.4, 1.0.4, 0.144.0 |
 
-## 🚀 Quick Start
+`pyproject.toml` and `poetry.lock` are the dependency sources of truth.
+The Flet packages and the FastAPI pin (below 0.145, for Flet Web 1.0.4) date from
+the retired Flet interface. No module imports them any more; they are candidates
+for removal with `poetry remove`, which will also regenerate the lock file.
 
-Requires **Python 3.13**. On Linux the Flet desktop client also needs `libmpv` (Ubuntu/Debian: `sudo apt install libmpv1`).
+## Setup with Poetry
+
+Prerequisites:
+
+- Python 3.12 or newer, but lower than Python 4
+- Poetry 2.x
+- A desktop session supported by Qt 6 (Windows, macOS, or Linux on X11 or Wayland)
+
+From the project root:
 
 ```bash
-git clone https://github.com/EduardoRaffo/flet-sales-manager
-cd flet-sales-manager
-python3.13 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python main.py
+poetry install
+poetry run python main.py
 ```
 
-With [uv](https://docs.astral.sh/uv/): `uv venv --python 3.13 .venv && uv pip install -r requirements.txt`.
+Poetry installs both runtime and development dependency groups from the lock file. On Linux, if Qt reports that it could not load the `xcb` platform plugin, install the distribution's Qt runtime libraries (on Debian/Ubuntu: `libxcb-cursor0`).
 
-### First Run
-1. The application creates `data/sales.db` automatically on first launch
-2. Use **Import data** on the dashboard to load data from CSV/Excel (templates are available in the import guide)
-3. Navigate Dashboard → Sales → Leads → Clients
-4. Set date filters to analyze specific periods
+### First run
 
-## ⚙️ Configuration
+1. `main.py` creates and migrates `data/sales.db` automatically.
+2. The application opens on **Dashboard**; the sidebar switches between Dashboard, Sales, Leads, and Clients (Ctrl+1 to Ctrl+4).
+3. Choose **Import data** (or press Ctrl+I), select a `.csv` or `.xlsx` file, inspect the preview, and confirm the import.
+4. Use the Sales and Leads filters to build analytics, then export an HTML report when needed.
+
+The window opens at 1360 × 860 px and can shrink to 760 × 600 px. Below 980 px wide the sidebar collapses to icons with tooltips.
+
+## Import formats
+
+The interface accepts `.csv` and `.xlsx`; the importer also understands `.xlsm` when invoked directly. The maximum file size is 50 MB.
+
+| Detected type | Required logical columns | Optional logical columns |
+|---|---|---|
+| Sales | `client_name`, `client_id`, `product_type`, `price` | `date` |
+| Leads | `created_at`, `source` | `external_id`, `status`, `meeting_date`, `client_id` |
+| Marketing spend | `source`, `amount` | `date` |
+| Mixed | A single file satisfying both the Sales and Leads required-column sets | The optional Sales and Leads columns above |
+
+Sales and marketing-spend imports recognize common English and Spanish aliases; lead imports recognize their documented platform-oriented aliases. CSV encoding and delimiter detection supports UTF-8, UTF-8 with BOM, Windows-1252, comma, semicolon, tab, and pipe-separated input.
+
+Import behavior:
+
+- A missing sales or marketing-spend date defaults to the current date.
+- Sales imports create missing clients using the imported client ID and name.
+- Sources such as Facebook, Instagram, Google, LinkedIn, and TikTok are normalized to stable source codes.
+- Lead imports use `(external_id, source)` to avoid repeat imports when an external ID exists. Leads can remain unlinked when their `client_id` is absent from the client table.
+- Mixed imports write sales first, making imported clients available before their leads are processed.
+- Invalid rows are skipped and written to `data/failed_*.csv` with a reason. Accepted rows remain importable even when other rows fail validation.
+- A process-wide lock permits only one import job at a time.
+- Re-importing sales or marketing spend adds another set of records; those types are not de-duplicated.
+
+Use ISO `YYYY-MM-DD` dates for unambiguous imports. Slash dates are interpreted day-first.
+
+## Storage, backup, and recovery
+
+The database is SQLite in WAL mode with foreign keys enabled. Its schema is documented in [core/SCHEMA.md](core/SCHEMA.md).
+
+- The default database path is `data/sales.db`.
+- Import history is stored in `import_metadata`.
+- Application and importer logs rotate at 1 MB with three backups.
+- Deleting a client also deletes its sales because the foreign key uses `ON DELETE CASCADE`; linked leads are retained and their `client_id` becomes `NULL`.
+- To back up safely, close the application and copy `sales.db` together with `sales.db-wal` and `sales.db-shm` when those files exist.
+- `poetry run python scripts/audit_db.py` prints a read-only database summary.
+
+## Configuration
+
+The following environment-variable names are retained as **legacy compatibility interfaces**. Renaming them would break existing deployments even though the visible product name is Techset LeadGen.
 
 | Variable | Default | Purpose |
-|----------|---------|---------|
-| `FDT_DATA_DIR` | `<project or .exe folder>/data` | Folder containing `sales.db` and the `failed_*.csv` reports of rejected rows |
-| `FDT_LOG_DIR` | `<project or .exe folder>/logs` | Folder for `app.log` and `importer.log` (rotating, 1 MB × 3) |
-| `FDT_LOG_LEVEL` | `INFO` | Level of `app.log` (`DEBUG`, `INFO`, `WARNING`, …) |
+|---|---|---|
+| `FDT_DATA_DIR` | `<project>/data` | Overrides the directory containing `sales.db` and rejected-row CSV files. |
+| `FDT_LOG_DIR` | `<project>/logs` | Overrides the directory containing `app.log` and `importer.log`. |
+| `FDT_LOG_LEVEL` | `INFO` | Sets the application log level. `TSLG_LOG_LEVEL` takes precedence when both are set. |
 
-When running as a compiled executable the default folders are created next to the executable, so it must be installed in a user-writable location (or `FDT_DATA_DIR` / `FDT_LOG_DIR` must point to one).
-
-## 📥 Import Formats
-
-| Type | Required columns | Optional columns |
-|------|------------------|------------------|
-| Sales | `client_name`, `client_id`, `product_type`, `price` | `date` (today if absent) |
-| Leads | `created_at`, `source` | `status` (default `new`), `external_id`, `meeting_date`, `client_id` |
-| Marketing spend | `source`, `amount` | `date` |
-
-- Spanish header aliases are accepted (`cliente`, `producto`, `precio`, `fecha`, `importe`, `gasto`, …).
-- CSV files may be UTF-8 (with or without BOM) or Windows-1252; the delimiter (`,` `;` tab `|`) is detected automatically.
-- Dates: `YYYY-MM-DD`, `DD/MM/YYYY`, ISO 8601 timestamps from ad platforms (`2024-03-01T12:34:56+0000`) and native Excel dates. Slash dates are read **day first**, so US-style `MM/DD/YYYY` values are misread or rejected: use `YYYY-MM-DD` when in doubt.
-- Invalid rows are skipped and written to `data/failed_<type>_<timestamp>.csv` with the reason.
-- Re-importing a leads file does not duplicate leads. Sales and marketing spend imports are **not** de-duplicated: importing the same sales file twice adds the rows twice.
-- Leads whose `client_id` does not exist yet are imported without a client link (the result message says how many). In mixed files sales are imported first, so their clients exist when the leads are linked.
-- Only one import can run at a time.
-
-## 🧪 Testing
+Example:
 
 ```bash
-pip install -r requirements-dev.txt
-pytest                      # all 586 tests (tests/ and analysis/tests/)
-pytest --cov                # with coverage report
-pytest -m gui               # only the headless GUI tests
+FDT_DATA_DIR=/path/to/writable/data \
+FDT_LOG_DIR=/path/to/writable/logs \
+FDT_LOG_LEVEL=DEBUG \
+poetry run python main.py
 ```
 
-The suite never touches `data/` or `logs/`: the root `conftest.py` redirects `FDT_DATA_DIR` and `FDT_LOG_DIR` to a temporary folder that is removed at the end.
+When packaged as an executable, the default data and log folders are resolved beside the executable. That location must be writable, or the legacy directory overrides must point to writable folders.
 
-The GUI tests (`tests/test_gui_smoke.py`) build the real application against a Flet session with an in-memory connection: every view is constructed, serialized and navigated, the theme is toggled, and an import is run end-to-end. They do not render pixels; visual checks still require running the desktop app.
+## Reports
 
-## 🔍 Static Analysis
+Reports are generated locally and do not upload data. The save dialog chooses the destination. After a Sales export, **Open report** opens the file in the default browser; Leads and Client exports are saved to the chosen path.
+
+- Sales reports consume the same `AnalysisSnapshot` displayed by the Sales page, including normal or comparison mode.
+- Lead reports consume the active filtered lead set and include funnel, source, and optional marketing-efficiency sections. The lead-detail table is limited to the first 50 records.
+- Client reports use the selected client record and the most recent sales returned by the client statistics query.
+- Client tax ID, email, and contact fields are masked in branded HTML until hover or keyboard focus.
+
+## Development checks
+
+Run checks from the project root through Poetry so they use the locked environment:
 
 ```bash
-ruff check .                         # lint (rules in pyproject.toml)
-mypy                                 # type check of the non-UI packages (list in pyproject.toml)
-bandit -c pyproject.toml -r . --severity-level medium --confidence-level high   # security lint gate
-pip-audit -r requirements.txt        # known vulnerabilities in dependencies
+poetry check
+poetry build
+poetry run pytest
+poetry run pytest --cov
+poetry run ruff check .
+poetry run mypy
+poetry run bandit -c pyproject.toml -r . --severity-level medium --confidence-level high
+poetry run pip-audit
 ```
 
-The same checks run in GitHub Actions on every push to `main` and on pull requests (`.github/workflows/ci.yml`). The bandit gate fails on medium- or high-severity findings reported with high confidence; the remaining lower-confidence findings (SQL strings built only from fixed clauses, `?` placeholders or a table whitelist) were reviewed and are not exploitable.
+The root `conftest.py` redirects `FDT_DATA_DIR`, `FDT_LOG_DIR`, and `XDG_CONFIG_HOME` to a temporary folder during pytest runs, so tests never modify the normal database, logs, or saved theme. GUI tests run headless (`QT_QPA_PLATFORM=offscreen`) against the real widgets, and `tests/qt_helpers.py` answers the production dialogs instead of mocking them. `tests/test_audit_regressions.py` covers the defects recorded in [docs/quality/DEFECT_LOG.md](docs/quality/DEFECT_LOG.md). Test counts are intentionally not recorded here because they change with the suite.
 
-## ⚡ Performance
+`poetry build` produces a Python wheel and source archive in `dist/`. The project
+also runs directly from source with `poetry run python main.py`. A platform-native
+desktop-installer configuration is not defined in this repository, so the wheel,
+source archive, headless GUI tests, and source startup are the applicable
+build checks.
 
-Measured on an 8-core x86_64 Linux machine with synthetic data (50 clients, 20 products, 5 years), median of 5 runs:
+## Project map
 
-| Sales rows | Import (CSV) | Sales snapshot (cold) | Compare A vs B | Clients list |
-|-----------:|-------------:|----------------------:|---------------:|-------------:|
-| 10,000 | 0.17 s | 0.06 s | 0.10 s | 0.05 s |
-| 50,000 | 0.64 s (40,000 rows) | 0.41 s | 0.50 s | 0.28 s |
-
-Repeated snapshots with the same filters are served from an in-memory cache. Benchmark your own database (read-only) with `python scripts/benchmark_queries.py`.
-
-UI patch cost (a `page.update()` with no changes, 140 sales / 60 leads, median of 7): Dashboard 8 ms, Sales 23 ms, Leads 47 ms, Clients 4 ms. Flet 0.82–1.0.4 builds eager debug f-strings that `repr()` whole control lists during every diff; `utils/flet_perf.py` (called from `main()`) keeps control `repr()` short, which brought Leads down from 3.5 s.
-
-## 💾 Backup & Recovery
-
-- All data lives in `data/sales.db`. Close the application and copy `sales.db` (plus `sales.db-wal` / `sales.db-shm` if present) to back it up; restore by copying the files back while the app is closed.
-- `python scripts/audit_db.py` prints a read-only summary of every table.
-- "Clear clients" on the dashboard also deletes all sales of those clients (`ON DELETE CASCADE`); the confirmation dialog says so.
-
-## 🛟 Troubleshooting
-
-| Symptom | Fix |
-|---------|-----|
-| `libmpv.so.1: cannot open shared object file` on Linux | `sudo apt install libmpv1` |
-| Exported reports do not open automatically on Linux | Install `xdg-utils`; the file is saved anyway at the chosen path |
-| "The application could not start" window | Details are in `logs/app.log`; usually the data folder is not writable (set `FDT_DATA_DIR`) |
-| Rows rejected during import | See the `data/failed_*.csv` file named in `logs/importer.log` |
-
-## ⚠️ Known Limitations
-
-- Sales and marketing-spend imports are not de-duplicated.
-- Comma decimals (`1200,50`) are accepted in the marketing-spend editor but not in CSV imports, where `1,200` would be ambiguous.
-- Imported slash dates are read day first (`DD/MM/YYYY`); see [Import Formats](#-import-formats).
-- Pie-chart slice labels can overflow small slices; the legend next to the chart always lists every product, amount and share.
-- The headless GUI tests do not cover pixel rendering, file pickers or native dialogs.
-- `utils/flet_perf.py` works around an upstream Flet performance issue; re-measure it when upgrading Flet.
-
-## 📈 Future Roadmap
-
-- [ ] Team Collaboration: Multi-user support with role-based access
-- [ ] Forecasting: Predictive analytics for pipeline forecast
-- [ ] Mobile App: Companion app for iOS/Android
-- [ ] API: RESTful API for third-party integrations (Slack, Zapier)
-- [ ] Reporting Automation: Scheduled email reports
-
-## 📝 Project Structure
-
-```
-flet-sales-manager/
-├── main.py                # Application entry point
-├── requirements.txt       # Runtime dependencies (pinned)
-├── requirements-dev.txt   # Test & analysis tools
-├── pyproject.toml         # pytest, coverage, ruff, mypy and bandit configuration
-├── .github/workflows/     # CI quality gates
-├── conftest.py            # Test sandbox for data/ and logs/
-├── data/                  # sales.db and rejected-row reports (auto-created, git-ignored)
-├── logs/                  # app.log, importer.log (auto-created, git-ignored)
-├── assets/                # Icons and logos
-├── screenshots/en/        # App screenshots (current English UI)
-├── analysis/              # Metrics calculation (Polars/SQL)
-├── components/            # Flet widgets
-├── controllers/           # Input validation & coordination
-├── core/                  # Database, schema (SCHEMA.md), import, date ranges
-├── domain/                # Pure data models
-├── models/                # CRUD for clients, leads, marketing spend
-├── reports/               # HTML report generation
-├── scripts/               # DB audit, import diagnosis, query benchmark
-├── services/              # Analysis orchestration
-├── theme/                 # Color system & theming
-├── ui/                    # Navigation & routing
-├── utils/                 # Formatting, dialogs, notifications, UI-thread dispatch
-├── views/                 # Dashboard, sales, clients, leads
-└── tests/                 # pytest suite
+```text
+TSLG/
+├── main.py                 # Logging, QApplication, database initialization, startup errors
+├── branding.py             # Product copy and branded asset names
+├── pyproject.toml          # Python constraints, dependencies, and quality-tool config
+├── poetry.lock             # Reproducible dependency resolution
+├── assets/                 # Official logos, app icons, and bundled Inter font
+├── desktop_ui/             # PySide6 shell, theme, import bridge, shared widgets
+│   └── pages/              # Dashboard, Sales, Leads, Clients pages and their dialogs
+├── controllers/            # UI state, validation, filtering, and workflow coordination
+├── services/               # Dashboard KPIs and sales snapshot assembly
+├── analysis/               # SQL/Polars analytics and time grouping
+├── domain/                 # UI-independent snapshot and filter data contracts
+├── models/                 # Client, lead, marketing-spend persistence operations
+├── core/                   # SQLite schema/migrations, import engine, and date ranges
+├── reports/                # Branded HTML templates and Matplotlib chart generation
+├── utils/                  # Locale-independent formatting and import templates
+├── scripts/                # Database audit, diagnostics, and benchmarks
+├── tests/                  # pytest suites and Qt dialog helpers
+└── docs/                   # Architecture, branding, and quality reports (docs/quality/)
 ```
 
-## 📄 License
+## Current boundaries
 
-MIT License - free for personal and commercial use.
+- The database and application are designed for a single local desktop process; there is no multi-user concurrency or authentication layer.
+- The UI is written in English, while several internal module names and comments remain Spanish for compatibility with the existing codebase.
+- Amounts render in euros and dates are stored as ISO text.
+- Sales and marketing-spend imports are additive. Individual spend records can be corrected or deleted under **Leads → Marketing efficiency → Manage spend**.
+- Headless tests render and drive the real widgets offscreen; behavior owned by the window manager or operating system (native file pickers, opening reports in a browser) still needs a desktop smoke run.
+- When installed from the wheel rather than run from source or a frozen executable, the default `data/` and `logs/` folders resolve inside `site-packages`. Set `FDT_DATA_DIR` and `FDT_LOG_DIR` to writable folders for wheel installs.
+- The wheel installs generic top-level packages (`core`, `utils`, `models`, and others); install it into a dedicated virtual environment to avoid name collisions.
+- `funnel_events` exists in the schema as a reserved table; current workflows do not write funnel events.
 
-## 👤 Author
+## Licensing note
 
-**Eduardo Raffo** - Python Developer  
-- GitHub: [github.com/EduardoRaffo](https://github.com/EduardoRaffo)
-- LinkedIn: [linkedin.com/in/eduardo-raffo-benitez](https://linkedin.com/in/eduardo-raffo-benitez)
-
----
-
-*Made with ❤️ for sales teams who want to work smarter*
+The repository currently has no root software-license file. The bundled Inter font is covered by the SIL Open Font License in `assets/fonts/OFL.txt`. Techset Solutions brand assets remain subject to the brand owner's rights and usage rules.

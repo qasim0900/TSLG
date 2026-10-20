@@ -135,7 +135,8 @@ def generate_leads_html_report(
                 source_chart_html = f'''
                 <div class="chart-container">
                     <h3>Distribution by source</h3>
-                    <img src="data:image/png;base64,{pie_b64}" style="width:100%;">
+                    <img src="data:image/png;base64,{pie_b64}"
+                         alt="Lead distribution by source" style="width:100%;">
                 </div>
                 '''
             except Exception:

@@ -14,6 +14,12 @@ from models.lead_manager import (
     validate_lead_status,
     validate_meeting_date,
 )
+from models.marketing_spend_manager import (
+    delete_spend,
+    get_all_spend,
+    insert_spend,
+    update_spend,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -185,12 +191,13 @@ class LeadsController:
         try:
             if leads is None:
                 from analysis.marketing_analysis import (
-                    get_marketing_efficiency_summary,
+                    compute_marketing_summary_from_metrics,
                     get_marketing_metrics,
                 )
+                metrics = get_marketing_metrics() or []
                 return {
-                    "summary": get_marketing_efficiency_summary() or {},
-                    "metrics": get_marketing_metrics() or [],
+                    "summary": compute_marketing_summary_from_metrics(metrics),
+                    "metrics": metrics,
                 }
             else:
                 from analysis.marketing_analysis import (
@@ -207,6 +214,60 @@ class LeadsController:
         except Exception:
             logger.exception("Could not load marketing data")
             return {"summary": {}, "metrics": []}
+
+    @staticmethod
+    def get_marketing_spend_entries() -> list[dict]:
+        """Return individual spend records for the native spend editor."""
+        try:
+            return list(get_all_spend() or [])
+        except Exception:
+            logger.exception("Could not load marketing spend records")
+            return []
+
+    @staticmethod
+    def create_marketing_spend(
+        source: str,
+        amount: float,
+        date_str: str,
+    ) -> tuple[bool, str, int | None]:
+        """Validate and persist one marketing spend record."""
+        try:
+            spend_id = insert_spend(source, amount, date_str)
+            return True, "Spend record saved.", spend_id
+        except ValueError as exc:
+            return False, str(exc), None
+        except Exception:
+            logger.exception("Could not create marketing spend record")
+            return False, "Could not save the spend record.", None
+
+    @staticmethod
+    def update_marketing_spend(
+        spend_id: int,
+        source: str,
+        amount: float,
+        date_str: str,
+    ) -> tuple[bool, str]:
+        """Validate and update one marketing spend record."""
+        try:
+            if update_spend(spend_id, source, amount, date_str):
+                return True, "Spend record updated."
+            return False, "Spend record not found."
+        except ValueError as exc:
+            return False, str(exc)
+        except Exception:
+            logger.exception("Could not update marketing spend record %s", spend_id)
+            return False, "Could not update the spend record."
+
+    @staticmethod
+    def delete_marketing_spend(spend_id: int) -> tuple[bool, str]:
+        """Delete one marketing spend record after UI confirmation."""
+        try:
+            if delete_spend(spend_id):
+                return True, "Spend record deleted."
+            return False, "Spend record not found."
+        except Exception:
+            logger.exception("Could not delete marketing spend record %s", spend_id)
+            return False, "Could not delete the spend record."
 
     @staticmethod
     def update_lead_info(lead_id: str, status: str, meeting_date: str | None):

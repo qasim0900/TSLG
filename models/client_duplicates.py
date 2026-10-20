@@ -1,7 +1,8 @@
-"""
-Módulo para detección y fusión de clientes duplicados.
-Maneja la lógica de encontrar y fusionar clientes con nombres duplicados.
-"""
+"""Detection and transactional merging of duplicate client identities."""
+
+import json
+from collections import defaultdict
+
 from core.db import get_connection
 from utils.formatting import pluralize
 
@@ -17,22 +18,33 @@ def find_duplicate_names_in_sales():
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Buscar nombres que aparecen con diferentes client_id
-    cursor.execute("""
-        SELECT client_name, GROUP_CONCAT(DISTINCT client_id) as ids, COUNT(DISTINCT client_id) as id_count
+    # Return one row per distinct client ID and group in Python. This avoids
+    # GROUP_CONCAT parsing, which corrupts legitimate IDs containing commas.
+    cursor.execute(
+        """
+        SELECT LOWER(client_name), MIN(client_name), client_id
         FROM sales
-        GROUP BY LOWER(client_name)
-        HAVING COUNT(DISTINCT client_id) > 1
-        ORDER BY id_count DESC
-    """)
-    
-    duplicates = []
-    for row in cursor.fetchall():
-        duplicates.append({
-            'name': row[0],
-            'client_ids': row[1].split(','),
-            'count': row[2]
-        })
+        GROUP BY LOWER(client_name), client_id
+        ORDER BY LOWER(client_name), client_id
+        """
+    )
+    grouped_ids: defaultdict[str, list[str]] = defaultdict(list)
+    display_names: dict[str, str] = {}
+    for normalized_name, display_name, client_id in cursor.fetchall():
+        normalized = str(normalized_name)
+        display_names[normalized] = str(display_name)
+        grouped_ids[normalized].append(str(client_id))
+
+    duplicates = [
+        {
+            "name": display_names[normalized],
+            "client_ids": client_ids,
+            "count": len(client_ids),
+        }
+        for normalized, client_ids in grouped_ids.items()
+        if len(client_ids) > 1
+    ]
+    duplicates.sort(key=lambda item: int(item["count"]), reverse=True)
     
     conn.close()
     return duplicates
@@ -49,26 +61,32 @@ def _get_client_data_for_merge(cursor, client_ids):
     Returns:
         Tupla (ids_with_data, ids_without_data, client_data_map)
     """
-    ids_with_data = []
-    ids_without_data = []
-    client_data_map = {}
-    
-    for client_id in client_ids:
-        cursor.execute("SELECT * FROM clients WHERE id = ?", (client_id,))
-        client_row = cursor.fetchone()
-        
-        if client_row:
-            # Tiene datos: (id, name, cif, address, contact_person, email)
-            ids_with_data.append(client_id)
-            client_data_map[client_id] = {
-                'name': client_row[1],
-                'cif': client_row[2],
-                'address': client_row[3],
-                'contact_person': client_row[4],
-                'email': client_row[5]
-            }
-        else:
-            ids_without_data.append(client_id)
+    ordered_ids = [str(client_id) for client_id in client_ids]
+    if not ordered_ids:
+        return [], [], {}
+
+    # JSON is passed as a bound value; json_each expands it without SQL interpolation.
+    rows = cursor.execute(
+        """
+        SELECT id, name, cif, address, contact_person, email
+        FROM clients
+        WHERE id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
+        """,
+        (json.dumps(ordered_ids),),
+    ).fetchall()
+    rows_by_id = {str(row[0]): row for row in rows}
+    ids_with_data = [client_id for client_id in ordered_ids if client_id in rows_by_id]
+    ids_without_data = [client_id for client_id in ordered_ids if client_id not in rows_by_id]
+    client_data_map = {
+        client_id: {
+            "name": rows_by_id[client_id][1],
+            "cif": rows_by_id[client_id][2],
+            "address": rows_by_id[client_id][3],
+            "contact_person": rows_by_id[client_id][4],
+            "email": rows_by_id[client_id][5],
+        }
+        for client_id in ids_with_data
+    }
     
     return ids_with_data, ids_without_data, client_data_map
 
@@ -135,26 +153,56 @@ def _merge_single_duplicate(cursor, dup):
             (primary_id, name)
         )
     
-    # Actualizar ventas y eliminar registros secundarios
-    for sec_id in secondary_ids:
-        cursor.execute(
-            "UPDATE sales SET client_id = ? WHERE client_id = ?",
-            (primary_id, sec_id)
+    # Reassign the entire duplicate set in four bounded statements. Query count
+    # is constant whether the group contains two IDs or hundreds.
+    if secondary_ids:
+        payload = json.dumps(secondary_ids)
+        sale_counts = dict(
+            cursor.execute(
+                """
+                SELECT client_id, COUNT(*)
+                FROM sales
+                WHERE client_id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
+                GROUP BY client_id
+                """,
+                (payload,),
+            ).fetchall()
         )
-        rows_updated = cursor.rowcount
+        for statement in (
+            """UPDATE sales
+                SET client_id = ?
+                WHERE client_id IN (
+                    SELECT CAST(value AS TEXT) FROM json_each(?)
+                )""",
+            """UPDATE leads
+                SET client_id = ?
+                WHERE client_id IN (
+                    SELECT CAST(value AS TEXT) FROM json_each(?)
+                )""",
+            """UPDATE funnel_events
+                SET client_id = ?
+                WHERE client_id IN (
+                    SELECT CAST(value AS TEXT) FROM json_each(?)
+                )""",
+        ):
+            cursor.execute(
+                statement,
+                (primary_id, payload),
+            )
+        cursor.execute(
+            """
+            DELETE FROM clients
+            WHERE id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
+            """,
+            (payload,),
+        )
 
-        cursor.execute(
-            "UPDATE leads SET client_id = ? WHERE client_id = ?",
-            (primary_id, sec_id)
-        )
-        cursor.execute(
-            "UPDATE funnel_events SET client_id = ? WHERE client_id = ?",
-            (primary_id, sec_id)
-        )
-
-        cursor.execute("DELETE FROM clients WHERE id = ?", (sec_id,))
-        
-        details.append(f"'{name}': {sec_id} -> {primary_id} ({pluralize(rows_updated, 'sale')})")
+        for secondary_id in secondary_ids:
+            rows_updated = int(sale_counts.get(secondary_id, 0))
+            details.append(
+                f"'{name}': {secondary_id} -> {primary_id} "
+                f"({pluralize(rows_updated, 'sale')})"
+            )
     
     return details
 

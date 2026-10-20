@@ -10,6 +10,8 @@ No depende de UI, Flet ni base de datos.
 from datetime import datetime, timedelta
 from typing import List, TypedDict
 
+from utils.formatting import month_abbr
+
 class TimeSeriesRow(TypedDict):
     key: str
     label: str
@@ -67,7 +69,7 @@ def group_time_series(
         # ---------------------------
         elif grouping == "month":
             key = date_obj.strftime("%Y-%m")
-            label = date_obj.strftime("%b %y")
+            label = f"{month_abbr(date_obj.month)} {date_obj:%y}"
 
         # ---------------------------
         # QUARTER
@@ -132,7 +134,7 @@ def _get_group_key_and_range(date_obj, grouping: str):
         end = next_month - timedelta(days=1)
 
         key = start.strftime("%Y-%m")
-        label = start.strftime("%b %y")
+        label = f"{month_abbr(start.month)} {start:%y}"
 
     elif grouping == "quarter":
         quarter = (date_obj.month - 1) // 3 + 1

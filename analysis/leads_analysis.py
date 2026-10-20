@@ -146,39 +146,54 @@ def get_leads_with_client_info(start_date=None, end_date=None, source=None, stat
             status=status,
         )
 
-        # Data consistency warnings — status vs supporting fields
-        for lead in leads:
-            s = (lead.get("status") or "").lower().strip()
-            if s and s not in _VALID_STATUSES:
-                logger.warning(
-                    "Lead %s: unknown status value '%s'", lead.get("id"), lead.get("status")
-                )
-            if s == "meeting" and not lead.get("meeting_date"):
-                logger.warning(
-                    "Lead %s: status='meeting' but meeting_date is NULL", lead.get("id")
-                )
-            if s == "converted" and not lead.get("client_id"):
-                logger.warning(
-                    "Lead %s: status='converted' but client_id is NULL", lead.get("id")
-                )
-            if s == "new" and lead.get("meeting_date"):
-                logger.warning(
-                    "Lead %s: status='new' but meeting_date is set", lead.get("id")
-                )
-            if s == "new" and lead.get("client_id"):
-                logger.warning(
-                    "Lead %s: status='new' but client_id is set", lead.get("id")
-                )
-            if s == "contacted" and lead.get("client_id"):
-                logger.warning(
-                    "Lead %s: status='contacted' but client_id is set", lead.get("id")
-                )
-
+        _log_lead_consistency(leads)
         return leads
 
     except Exception:
         logger.exception("Error enriqueciendo leads")
         return []
+
+
+_CONSISTENCY_EXAMPLES = 3
+
+
+def _log_lead_consistency(leads: list) -> None:
+    """Log status/field inconsistencies once per load instead of once per lead.
+
+    One WARNING per lead on every refresh produced hundreds of lines per visit
+    to the Leads page, rotating real errors out of the size-limited log.
+    Per-lead detail remains available at DEBUG level.
+    """
+    issues: dict[str, list[str]] = {}
+
+    def note(issue: str, lead: dict) -> None:
+        lead_id = str(lead.get("id"))
+        issues.setdefault(issue, []).append(lead_id)
+        logger.debug("Lead %s: %s", lead_id, issue)
+
+    for lead in leads:
+        s = (lead.get("status") or "").lower().strip()
+        if s and s not in _VALID_STATUSES:
+            note(f"unknown status value '{lead.get('status')}'", lead)
+        if s == "meeting" and not lead.get("meeting_date"):
+            note("status='meeting' but meeting_date is NULL", lead)
+        if s == "converted" and not lead.get("client_id"):
+            note("status='converted' but client_id is NULL", lead)
+        if s == "new" and lead.get("meeting_date"):
+            note("status='new' but meeting_date is set", lead)
+        if s == "new" and lead.get("client_id"):
+            note("status='new' but client_id is set", lead)
+        if s == "contacted" and lead.get("client_id"):
+            note("status='contacted' but client_id is set", lead)
+
+    if issues:
+        logger.warning(
+            "Lead data consistency: %s",
+            "; ".join(
+                f"{len(ids)} with {issue} (e.g. {', '.join(ids[:_CONSISTENCY_EXAMPLES])})"
+                for issue, ids in issues.items()
+            ),
+        )
 
 
 def get_unique_sources():

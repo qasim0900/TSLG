@@ -1,5 +1,5 @@
 """
-Template base para informes HTML del CRM.
+Template base para informes HTML de Techset LeadGen.
 
 Proporciona estilos CSS unificados usados por todos los informes:
 - Ventas (normal y comparación)
@@ -30,7 +30,8 @@ def get_html_base(content: str, title: str = "Techset LeadGen Report") -> str:
             --clr-accent:        #FFCB4A;
             --clr-action:        #176B2C;
             --clr-text:          #0A1414;
-            --clr-muted:         #757693;
+            --clr-brand-muted:   #757693;
+            --clr-muted:         #62637A;
             --clr-surface:       #FBFAF8;
             --clr-border:        rgba(117,118,147,.24);
             --radius:            14px;
@@ -473,9 +474,12 @@ def get_html_base(content: str, title: str = "Techset LeadGen Report") -> str:
             border-radius: 3px;
             display: inline-block;
         }}
-        .sensitive:hover {{
+        .sensitive:hover,
+        .sensitive:focus {{
             filter: blur(0);
             user-select: auto;
+            outline: 2px solid var(--clr-action);
+            outline-offset: 3px;
         }}
 
         /* ── Print styles ──────────────────────────────────────── */
@@ -503,6 +507,12 @@ def get_html_base(content: str, title: str = "Techset LeadGen Report") -> str:
             body {{ padding: 8px; }}
             .content {{ padding: 24px 20px; }}
             .header {{ padding: 36px 24px; }}
+            table {{
+                display: block;
+                overflow-x: auto;
+                white-space: nowrap;
+                -webkit-overflow-scrolling: touch;
+            }}
             .metrics {{
                 grid-template-columns: 1fr 1fr;
                 gap: 12px;

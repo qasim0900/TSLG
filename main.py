@@ -1,117 +1,111 @@
-"""Punto de entrada de Techset LeadGen.
+"""Techset LeadGen native PySide6 application entry point."""
 
-Inicializa la base de datos, configura la página Flet (tema, icono, dimensiones)
-y lanza la aplicación principal. Ejecutar con: python main.py
-"""
+from __future__ import annotations
 
 import logging
 import os
+import sys
+from collections.abc import Sequence
 from logging.handlers import RotatingFileHandler
 
-import flet as ft
-from branding import FAVICON_ASSET, FONT_ASSET, FONT_FAMILY, PRODUCT_NAME
-from ui.user_ui import FDTApp
-from theme import build_light_theme, build_dark_theme
-from core.db import init_db, get_base_path, get_logs_dir
-from utils.flet_perf import install_cheap_control_repr
+from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtWidgets import QApplication
 
-logger = logging.getLogger("fdt.app")
+from branding import PARENT_BRAND, PRODUCT_NAME
+from core.db import get_logs_dir, init_db
+from desktop_ui.dialogs import show_message
+from desktop_ui.main_window import MainWindow
+from desktop_ui.theme import ThemeManager
+
+logger = logging.getLogger("techset.leadgen")
 
 _LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+_HANDLER_NAME = "techset-leadgen"
 
 
 def configure_logging() -> None:
+    """Configure console and rotating local application logs once."""
     root = logging.getLogger()
-    if any(getattr(handler, "_fdt_handler", False) for handler in root.handlers):
+    if any(handler.get_name() == _HANDLER_NAME for handler in root.handlers):
         return
 
-    level = getattr(logging, os.environ.get("FDT_LOG_LEVEL", "INFO").upper(), logging.INFO)
+    configured_level = getattr(
+        logging,
+        os.environ.get("TSLG_LOG_LEVEL", os.environ.get("FDT_LOG_LEVEL", "INFO")).upper(),
+        logging.INFO,
+    )
     formatter = logging.Formatter(_LOG_FORMAT)
 
     console = logging.StreamHandler()
     console.setLevel(logging.WARNING)
     console.setFormatter(formatter)
-    console._fdt_handler = True
+    console.set_name(_HANDLER_NAME)
     root.addHandler(console)
 
     try:
         file_handler = RotatingFileHandler(
-            get_logs_dir() / "app.log", maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+            get_logs_dir() / "app.log",
+            maxBytes=1_000_000,
+            backupCount=3,
+            encoding="utf-8",
         )
     except OSError:
         logger.warning("Could not create the application log", exc_info=True)
     else:
-        file_handler.setLevel(level)
+        file_handler.setLevel(configured_level)
         file_handler.setFormatter(formatter)
-        file_handler._fdt_handler = True
+        file_handler.set_name(_HANDLER_NAME)
         root.addHandler(file_handler)
 
-    root.setLevel(level)
+    root.setLevel(configured_level)
 
 
-def _show_startup_error(page: ft.Page, error: Exception) -> None:
-    page.controls.clear()
-    page.add(
-        ft.Column(
-            [
-                ft.Icon(ft.Icons.ERROR_OUTLINE, color=ft.Colors.ERROR, size=48),
-                ft.Text("The application could not start", size=20, weight=ft.FontWeight.BOLD),
-                ft.Text(str(error), selectable=True),
-                ft.Text(
-                    f"Technical details: {get_logs_dir() / 'app.log'}",
-                    size=12,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                    selectable=True,
-                ),
-            ],
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        )
-    )
+def create_application(argv: Sequence[str] | None = None) -> QApplication:
+    """Return the process QApplication, creating it when necessary."""
+    existing = QApplication.instance()
+    if isinstance(existing, QApplication):
+        return existing
+    if existing is not None:
+        raise RuntimeError("A non-GUI QCoreApplication already exists in this process")
+
+    QCoreApplication.setOrganizationName(PARENT_BRAND)
+    QCoreApplication.setOrganizationDomain("techsetsolutions.com")
+    QCoreApplication.setApplicationName(PRODUCT_NAME)
+    QCoreApplication.setApplicationVersion("0.1.0")
+    QApplication.setAttribute(Qt.ApplicationAttribute.AA_DontShowIconsInMenus, False)
+    return QApplication(list(argv) if argv is not None else sys.argv)
 
 
-def main(page: ft.Page):
-    page.window.visible = False
-    install_cheap_control_repr()
+def create_main_window(app: QApplication | None = None) -> MainWindow:
+    """Initialize persistence, theme, and the top-level desktop window."""
+    application = app or create_application()
+    init_db()
+    theme_manager = ThemeManager(application)
+    theme_manager.apply()
+    return MainWindow(theme_manager)
+
+
+def run(argv: Sequence[str] | None = None) -> int:
+    """Start Techset LeadGen and return Qt's process exit code."""
+    configure_logging()
+    application = create_application(argv)
     try:
-        init_db()
+        window = create_main_window(application)
+    except Exception as exc:
+        logger.exception("Fatal error while starting %s", PRODUCT_NAME)
+        show_message(
+            None,
+            title=f"{PRODUCT_NAME} startup error",
+            heading="The application could not start",
+            message=f"{exc}\n\nTechnical details: {get_logs_dir() / 'app.log'}",
+            level="error",
+        )
+        return 1
 
-        page.title = PRODUCT_NAME
-        page.window.height = 720
-        page.window.min_height = 600
-        page.window.min_width = 360
-
-        # Ruta a assets (compatible con .exe compilado)
-        base_path = get_base_path()
-        icon_path = base_path / "assets" / FAVICON_ASSET
-
-        if icon_path.exists():
-            page.window.icon = str(icon_path)
-
-        # Inter is the typeface used by the official Techset Solutions site.
-        # The font is bundled locally so desktop and packaged builds do not
-        # depend on a network request.
-        page.fonts = {FONT_FAMILY: FONT_ASSET}
-
-        # Configurar temas (patrón oficial de Flet)
-        page.theme = build_light_theme()
-        page.dark_theme = build_dark_theme()
-        page.theme_mode = ft.ThemeMode.LIGHT
-        page.bgcolor = None
-
-        app = FDTApp(page)
-        page.add(app)
-        logger.info("Application started")
-    except Exception as e:
-        logger.exception("Fatal error while starting the application")
-        _show_startup_error(page, e)
-    finally:
-        page.window.visible = True
+    window.show()
+    logger.info("%s started with PySide6", PRODUCT_NAME)
+    return application.exec()
 
 
 if __name__ == "__main__":
-    configure_logging()
-    try:
-        ft.run(main)
-    except (ConnectionResetError, BrokenPipeError, OSError):
-        # Errores de cleanup asyncio en Windows al cerrar — ignorar
-        logger.debug("Ignored shutdown error", exc_info=True)
+    raise SystemExit(run())

@@ -20,7 +20,8 @@ from models.client_manager import (
     merge_clients_by_name,
     get_duplicate_summary,
 )
-from analysis import get_all_clients_with_sales_data, get_sales_with_client_info
+from analysis import get_all_clients_with_sales_data
+from core.db import get_connection
 from utils import normalize_text
 from utils.formatting import pluralize
 
@@ -128,7 +129,10 @@ class ClientsController:
             
             # Verificar duplicidad de nombre (excluyendo el cliente actual)
             if client_exists_by_name(name, exclude_id=client_id):
-                return False, f"Another client named '{name}' already exists."
+                return False, (
+                    f"Another client named '{name}' already exists. "
+                    "Use a different name, or close this form and use Merge duplicates."
+                )
             
             # Si el cliente no existe en la tabla, crearlo MANTENIENDO el ID original
             existing = get_client_by_id(client_id)
@@ -161,18 +165,51 @@ class ClientsController:
         Obtiene estadísticas de ventas de un cliente.
         Retorna dict con total_sales, total_amount, avg_amount, sales_list.
         """
-        all_sales = get_sales_with_client_info()
-        client_sales = [s for s in all_sales if s['client_id'] == client_id]
-        
-        total_sales = len(client_sales)
-        total_amount = sum(float(s['price']) for s in client_sales) if client_sales else 0
-        avg_amount = total_amount / total_sales if total_sales > 0 else 0
-        
+        conn = get_connection()
+        try:
+            rows = conn.execute(
+                """
+                SELECT
+                    date,
+                    client_id,
+                    client_name,
+                    product_type,
+                    CAST(price AS REAL),
+                    COUNT(*) OVER (),
+                    SUM(CAST(price AS REAL)) OVER (),
+                    AVG(CAST(price AS REAL)) OVER ()
+                FROM sales
+                WHERE client_id = ?
+                ORDER BY date DESC, id DESC
+                LIMIT 10
+                """,
+                (client_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        if not rows:
+            return {
+                "total_sales": 0,
+                "total_amount": 0.0,
+                "avg_amount": 0.0,
+                "sales": [],
+            }
+        first = rows[0]
         return {
-            'total_sales': total_sales,
-            'total_amount': total_amount,
-            'avg_amount': avg_amount,
-            'sales': client_sales[:10]  # Últimas 10 ventas
+            "total_sales": int(first[5]),
+            "total_amount": float(first[6] or 0),
+            "avg_amount": float(first[7] or 0),
+            "sales": [
+                {
+                    "date": row[0],
+                    "client_id": row[1],
+                    "client_name": row[2],
+                    "product_type": row[3],
+                    "price": float(row[4] or 0),
+                }
+                for row in rows
+            ],
         }
     
     @staticmethod

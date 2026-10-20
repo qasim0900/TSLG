@@ -5,6 +5,7 @@ para máximo rendimiento en la pantalla de inicio.
 """
 
 from datetime import datetime
+from dateutil.relativedelta import relativedelta
 from typing import Optional
 
 from core.db import get_connection
@@ -25,64 +26,42 @@ class DashboardKPIService:
         cursor = conn.cursor()
 
         try:
-            # -------------------------
-            # Conteos básicos
-            # -------------------------
-            cursor.execute("SELECT COUNT(*) FROM sales")
-            sales_rows = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COUNT(*) FROM clients")
-            clients_rows = cursor.fetchone()[0]
-
+            sales_rows, clients_rows, last_import = cursor.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM sales),
+                    (SELECT COUNT(*) FROM clients),
+                    (SELECT MAX(imported_at) FROM import_metadata)
+                """
+            ).fetchone()
             has_data = sales_rows > 0
 
-            # -------------------------
-            # Última importación (opcional)
-            # -------------------------
-            last_import: Optional[str] = None
-            try:
-                cursor.execute(
-                    """
-                    SELECT imported_at
-                    FROM import_metadata
-                    ORDER BY imported_at DESC
-                    LIMIT 1
-                    """
-                )
-                row = cursor.fetchone()
-                if row:
-                    last_import = row[0]
-            except Exception:
-                # La tabla puede no existir todavía → tolerante
-                last_import = None
-
-            # -------------------------
-            # Datos de leads
-            # -------------------------
-            total_leads = 0
-            leads_with_meeting = 0
-            leads_with_client = 0
-            leads_this_month = 0
-            try:
-                cursor.execute("SELECT COUNT(*) FROM leads")
-                total_leads = cursor.fetchone()[0] or 0
-
-                cursor.execute(
-                    "SELECT COUNT(*) FROM leads WHERE status IN ('meeting', 'converted')"
-                )
-                leads_with_meeting = cursor.fetchone()[0] or 0
-
-                cursor.execute("SELECT COUNT(*) FROM leads WHERE client_id IS NOT NULL")
-                leads_with_client = cursor.fetchone()[0] or 0
-
-                current_month = datetime.now().strftime("%Y-%m")
-                cursor.execute(
-                    "SELECT COUNT(*) FROM leads WHERE strftime('%Y-%m', created_at) = ?",
-                    (current_month,),
-                )
-                leads_this_month = cursor.fetchone()[0] or 0
-            except Exception:
-                pass
+            month_start = datetime.now().replace(
+                day=1,
+                hour=0,
+                minute=0,
+                second=0,
+                microsecond=0,
+            )
+            next_month = month_start + relativedelta(months=1)
+            lead_row = cursor.execute(
+                """
+                SELECT
+                    COUNT(*),
+                    COALESCE(SUM(CASE
+                        WHEN status IN ('meeting', 'converted') THEN 1 ELSE 0
+                    END), 0),
+                    COALESCE(SUM(CASE
+                        WHEN client_id IS NOT NULL THEN 1 ELSE 0
+                    END), 0),
+                    COALESCE(SUM(CASE
+                        WHEN created_at >= ? AND created_at < ? THEN 1 ELSE 0
+                    END), 0)
+                FROM leads
+                """,
+                (month_start.date().isoformat(), next_month.date().isoformat()),
+            ).fetchone()
+            total_leads, leads_with_meeting, leads_with_client, leads_this_month = lead_row
 
             leads_conversion_rate = (
                 round(leads_with_client / total_leads * 100, 1) if total_leads > 0 else 0.0

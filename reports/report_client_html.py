@@ -49,15 +49,15 @@ def generate_client_html_report(client_info: dict, stats: dict, filename: str | 
             </div>
             <div class="info-item">
                 <span class="info-label">Tax ID</span>
-                <span class="info-value sensitive">{cif}</span>
+                <span class="info-value sensitive" tabindex="0" aria-label="Sensitive tax ID; focus to reveal">{cif}</span>
             </div>
             <div class="info-item">
                 <span class="info-label">Email</span>
-                <span class="info-value sensitive">{email}</span>
+                <span class="info-value sensitive" tabindex="0" aria-label="Sensitive email; focus to reveal">{email}</span>
             </div>
             <div class="info-item">
                 <span class="info-label">Contact person</span>
-                <span class="info-value sensitive">{contact_person}</span>
+                <span class="info-value sensitive" tabindex="0" aria-label="Sensitive contact person; focus to reveal">{contact_person}</span>
             </div>
             <div class="info-item">
                 <span class="info-label">Address</span>

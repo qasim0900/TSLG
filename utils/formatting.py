@@ -16,15 +16,38 @@ def pluralize(count: int, singular: str, plural: str | None = None) -> str:
     return f"{count} {word}"
 
 
+# English month abbreviations. ``strftime("%b")`` and ``"%p"`` follow the
+# process LC_TIME locale, which Qt applies at startup, so they would insert
+# e.g. Urdu or Arabic month names into English UI copy and reports.
+_MONTH_ABBREVIATIONS = (
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+)
+
+
+def month_abbr(month: int) -> str:
+    """Return the locale-independent English abbreviation for ``month`` (1-12)."""
+    return _MONTH_ABBREVIATIONS[month - 1]
+
+
 def format_datetime_us(value: datetime) -> str:
-    hour = value.strftime("%I").lstrip("0") or "12"
-    return f"{value:%b} {value.day}, {value.year} {hour}:{value:%M %p}"
+    hour = value.hour % 12 or 12
+    meridiem = "AM" if value.hour < 12 else "PM"
+    return f"{month_abbr(value.month)} {value.day}, {value.year} {hour}:{value.minute:02d} {meridiem}"
+
+
+def format_day_month_year_time(value: datetime) -> str:
+    """Format as ``20 Oct 2026, 16:48`` regardless of the OS locale."""
+    return f"{value.day:02d} {month_abbr(value.month)} {value.year}, {value.hour:02d}:{value.minute:02d}"
 
 
 def format_date_range_us(start: date, end: date) -> str:
     if start.year == end.year:
-        return f"{start:%b} {start.day} – {end:%b} {end.day}, {end.year}"
-    return f"{start:%b} {start.day}, {start.year} – {end:%b} {end.day}, {end.year}"
+        return f"{month_abbr(start.month)} {start.day} – {month_abbr(end.month)} {end.day}, {end.year}"
+    return (
+        f"{month_abbr(start.month)} {start.day}, {start.year} – "
+        f"{month_abbr(end.month)} {end.day}, {end.year}"
+    )
 
 
 def parse_amount(value) -> float:

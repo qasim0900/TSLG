@@ -8,7 +8,7 @@ Estructura del módulo models/:
 - client_duplicates.py: Detección y fusión de duplicados
 """
 
-import random
+import secrets
 import string
 from core.db import get_connection
 
@@ -83,7 +83,8 @@ def get_client_by_id_cached(client_id):
 
 def _generate_client_id():
     """Genera un ID único para clientes manuales (formato M_XXXXXX)."""
-    return "M_" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    alphabet = string.ascii_uppercase + string.digits
+    return "M_" + "".join(secrets.choice(alphabet) for _ in range(6))
 
 
 def add_client(name, cif, address, contact_person, email):

@@ -1,8 +1,4 @@
-"""Controlador de importación de archivos (ventas, leads, mixto).
-
-Ejecuta importaciones en threads daemon y notifica resultado
-mediante callbacks (on_success, on_error, on_start).
-"""
+"""Background file imports with process-wide mutual exclusion and callbacks."""
 
 import logging
 import os
@@ -39,6 +35,20 @@ class FileImportController:
         self.on_success = on_success
         self.on_error = on_error
         self.on_start = on_start
+        self._thread: threading.Thread | None = None
+
+    @property
+    def is_running(self) -> bool:
+        """Return whether this controller still owns a live import worker."""
+        return self._thread is not None and self._thread.is_alive()
+
+    def wait_for_completion(self, timeout: float | None = None) -> bool:
+        """Wait for a worker during orderly shutdown; return whether it finished."""
+        worker = self._thread
+        if worker is None or worker is threading.current_thread():
+            return True
+        worker.join(timeout)
+        return not worker.is_alive()
 
     def validate_file(self, file_path: Optional[str]) -> tuple[bool, Optional[str]]:
         """
@@ -66,9 +76,13 @@ class FileImportController:
 
         try:
             self.on_start()
-            threading.Thread(
-                target=self._run_job, args=(job, error_prefix), daemon=True
-            ).start()
+            self._thread = threading.Thread(
+                target=self._run_job,
+                args=(job, error_prefix),
+                daemon=False,
+                name="techset-import-worker",
+            )
+            self._thread.start()
         except BaseException:
             _IMPORT_LOCK.release()
             raise
@@ -87,6 +101,7 @@ class FileImportController:
             self.on_success(msg)
         else:
             self.on_error(msg)
+        self._thread = None
 
     def import_file(self, file_path: str) -> None:
         """

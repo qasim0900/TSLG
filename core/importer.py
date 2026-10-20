@@ -143,6 +143,21 @@ LEADS_HEADER_ALIASES = {
     ],
 }
 
+# Generic lead aliases that also appear in ad-platform spend exports. A file
+# such as ``source, amount, date`` satisfies the lead schema only through these
+# (``date`` -> ``created_at``), so they must not decide that a file is a lead
+# export when it also carries a spend amount.
+_SHARED_LEAD_SPEND_HEADERS = {
+    "date", "datetime", "source", "platform", "origin", "channel",
+    "campaign_id", "campaign_status",
+}
+_LEAD_ONLY_HEADERS = {
+    alias
+    for aliases in LEADS_HEADER_ALIASES.values()
+    for alias in aliases
+    if alias not in _SHARED_LEAD_SPEND_HEADERS
+}
+
 # Posibles alias que pueden aparecer en CSV o Excel
 HEADER_ALIASES = {
     "cliente": "client_name",
@@ -889,10 +904,16 @@ def inspect_import_file(file_path: str) -> dict:
         missing_marketing_spend = sorted(REQUIRED_MARKETING_SPEND_COLS - set(spend_map.keys()))
         fits_marketing_spend  = len(missing_marketing_spend) == 0
 
+        has_lead_only_header = any(
+            _normalise_header(header) in _LEAD_ONLY_HEADERS for header in headers if header
+        )
+
         if fits_sales and fits_leads:
             detected_type = "mixed"
         elif fits_sales:
             detected_type = "sales"
+        elif fits_marketing_spend and not has_lead_only_header:
+            detected_type = "marketing_spend"
         elif fits_leads:
             detected_type = "leads"
         elif fits_marketing_spend:

@@ -320,7 +320,9 @@ def _render_comparison_section(comparison, period_a, period_b):
         compare_bar_html = f"""
         <div class="chart-container">
             <h3>A vs. B comparison</h3>
-            <img src="data:image/png;base64,{compare_bar_base64}" style="width: 100%;">
+            <img src="data:image/png;base64,{compare_bar_base64}"
+                 alt="Comparison of sales, transactions, and average sale between periods A and B"
+                 style="width: 100%;">
         </div>
         """
     except Exception as e:
