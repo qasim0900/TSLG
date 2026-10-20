@@ -1,0 +1,2 @@
+ALL_FILTER_KEY = "__all__"
+ALL_FILTER_LABEL = "All"
