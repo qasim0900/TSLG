@@ -1,9 +1,8 @@
 """Native Qt sales analytics page for Techset LeadGen.
 
 The page deliberately consumes the existing :class:`AnalysisSnapshot` contract.
-Database queries, filtering rules, comparison maths, and HTML report generation
-therefore remain in the established controller/service/report layers rather than
-being duplicated in the desktop UI.
+Data queries, filtering rules, comparison maths, and HTML report generation stay
+in the established controller, service, and report layers.
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter, MaxNLocator
 from PySide6.QtCore import QDate, QEvent, QObject, QSignalBlocker, Qt, QUrl, Signal, Slot
-from PySide6.QtGui import QColor, QDesktopServices, QImage, QPixmap, QResizeEvent
+from PySide6.QtGui import QColor, QDesktopServices, QImage, QPalette, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -46,56 +45,26 @@ from controllers.ventas_controller import VentasController
 from domain.analysis_snapshot import AnalysisSnapshot
 from utils.formatting import format_eur
 
-from ..widgets import labeled_field, sortable_item
+from ..tables import align_headers, change_color, prepare_table, set_header_tips
+from ..widgets import KpiCard, labeled_field, sortable_item
 
 logger = logging.getLogger(__name__)
 
 _BRAND_GREEN = "#39B54A"
 _BRAND_GREEN_DARK = "#287D35"
+_SUMMARY_HEADERS = ("Product", "Quantity", "Total", "Average", "Minimum", "Maximum")
+_COMPARISON_HEADERS = ("Product", "Period A", "Period B", "Difference", "Change")
+_HEADER_TIPS = {
+    _SUMMARY_HEADERS: {1: "Number of sales", 2: "Sum of all sale amounts", 3: "Average sale amount",
+                       4: "Smallest single sale", 5: "Largest single sale"},
+    _COMPARISON_HEADERS: {3: "Period B minus period A", 4: "Change from period A to period B"},
+}
+_EMPTY_SALES = "No sales in this period. Change the dates or filters, or import sales from the Dashboard."
 _BRAND_GOLD = "#FFCB4A"
 _INK = "#0A1414"
 _MUTED = "#62637A"
 _GRID = "#DDE1E6"
 _ALL_LABEL = "All"
-
-
-class _MetricCard(QFrame):
-    """Small accessible KPI surface styled by the global Qt stylesheet."""
-
-    def __init__(self, label: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("metricCard")
-        self.setProperty("role", "metric-card")
-        self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setMinimumHeight(106)
-        self.setAccessibleName(label)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 14, 18, 14)
-        layout.setSpacing(4)
-
-        self.label = QLabel(label)
-        self.label.setObjectName("metricLabel")
-        self.value = QLabel("—")
-        self.value.setObjectName("metricValue")
-        self.value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.note = QLabel("")
-        self.note.setObjectName("metricNote")
-        self.note.setWordWrap(True)
-
-        layout.addWidget(self.label)
-        layout.addWidget(self.value)
-        layout.addWidget(self.note)
-
-    def set_metric(self, value: str, note: str = "") -> None:
-        self.value.setText(value)
-        self.note.setText(note)
-        self.note.setVisible(bool(note))
-        description = f"{self.label.text()}: {value}"
-        if note:
-            description += f". {note}"
-        self.setAccessibleDescription(description)
 
 
 class _OpenOnCurrentMonth(QObject):
@@ -182,7 +151,12 @@ class _SalesChart(QWidget):
 
     def empty(self, message: str) -> None:
         self.figure.clear()
+        palette = self.palette()
+        surface = palette.color(QPalette.ColorRole.Base).name()
+        muted = palette.color(QPalette.ColorRole.PlaceholderText).name()
+        self.figure.set_facecolor(surface)
         axis = self.figure.add_subplot(111)
+        axis.set_facecolor(surface)
         axis.set_axis_off()
         axis.text(
             0.5,
@@ -190,7 +164,7 @@ class _SalesChart(QWidget):
             message,
             ha="center",
             va="center",
-            color=_MUTED,
+            color=muted,
             fontsize=11,
             wrap=True,
         )
@@ -227,13 +201,17 @@ class SalesPage(QWidget):
     importRequested:
         Emitted whenever the user requests an import, even if a callback exists.
     statusMessage:
-        Emitted for validation, loading, import, and export feedback.
+        Legacy single-argument feedback signal.
+    notification_requested:
+        Emitted with a message and one of ``info``, ``success``, ``warning``,
+        or ``error`` for the application shell.
     snapshotChanged:
         Emitted after a successful snapshot refresh.
     """
 
     importRequested = Signal()
     statusMessage = Signal(str)
+    notification_requested = Signal(str, str)
     snapshotChanged = Signal(object)
 
     def __init__(
@@ -248,10 +226,12 @@ class SalesPage(QWidget):
         products_provider: Callable[[], Iterable[Any]] | None = None,
         date_range_provider: Callable[[], tuple[Any, Any]] | None = None,
         report_generator: Callable[..., tuple[bool, str, str | None]] | None = None,
+        context: Any = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("salesPage")
         self.setAccessibleName("Sales analytics")
+        self.context = context  # AppContext: decides who may import and export
 
         self.controller = controller or VentasController()
         self.compare_controller = compare_controller or CompareController()
@@ -332,6 +312,9 @@ class SalesPage(QWidget):
         heading_actions.addStretch(1)
         heading_actions.addWidget(self.import_button)
         heading_actions.addWidget(self.export_button)
+        if self.context is not None:
+            self.import_button.setVisible(self.context.can("data.import"))
+            self.export_button.setVisible(self.context.can("data.export"))
         heading_actions.addWidget(self.open_report_button)
 
         self.filter_group = QGroupBox("Filters")
@@ -450,11 +433,11 @@ class SalesPage(QWidget):
         self.kpi_grid = QGridLayout()
         self.kpi_grid.setHorizontalSpacing(12)
         self.kpi_grid.setVerticalSpacing(12)
-        self.sales_card = _MetricCard("Total sales")
-        self.transactions_card = _MetricCard("Transactions")
-        self.average_card = _MetricCard("Average sale")
-        self.clients_card = _MetricCard("Unique clients")
-        self.products_card = _MetricCard("Products")
+        self.sales_card = KpiCard("Total sales", accent=_BRAND_GREEN)
+        self.transactions_card = KpiCard("Transactions", accent=_BRAND_GOLD)
+        self.average_card = KpiCard("Average sale", accent=_BRAND_GREEN)
+        self.clients_card = KpiCard("Unique clients", accent=_BRAND_GOLD)
+        self.products_card = KpiCard("Products", accent=_BRAND_GREEN)
         self._kpi_cards = [
             self.sales_card,
             self.transactions_card,
@@ -462,6 +445,12 @@ class SalesPage(QWidget):
             self.clients_card,
             self.products_card,
         ]
+        # Preserve the former private card's label attributes for callers that
+        # inspect the rendered value while all updates use KpiCard's shared API.
+        for card in self._kpi_cards:
+            card.label = card.title_label
+            card.value = card.value_label
+            card.note = card.detail_label
         body_layout.addLayout(self.kpi_grid)
 
         self.content_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -478,12 +467,10 @@ class SalesPage(QWidget):
         self.table.setAccessibleDescription(
             "Sortable product totals, quantities, averages, minimums, and maximums"
         )
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.table.setAlternatingRowColors(True)
+        self.table.setHorizontalHeaderLabels(list(_SUMMARY_HEADERS))
+        prepare_table(self.table, numeric_columns=range(1, 6), empty_text=_EMPTY_SALES)
+        self._label_columns(_SUMMARY_HEADERS)
         self.table.setSortingEnabled(True)
-        self.table.verticalHeader().setVisible(False)
         header = self.table.horizontalHeader()
         header.setStretchLastSection(False)
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
@@ -720,13 +707,9 @@ class SalesPage(QWidget):
     def _render_snapshot(self, snapshot: AnalysisSnapshot | Any | None) -> None:
         if snapshot is None:
             for card in self._kpi_cards:
-                card.set_metric("—")
+                card.set_value("—")
             self._populate_table(None)
-            self.trend_chart.empty("No sales data for the selected filters")
-            self.product_chart.empty("No product data for the selected filters")
-            self.top_clients_chart.empty("No client data for the selected filters")
-            self.comparison_chart.empty("Enable comparison to compare two periods")
-            self.chart_tabs.setTabVisible(self._comparison_tab_index, False)
+            self._render_charts(None)
             return
 
         period = snapshot.period_a
@@ -741,48 +724,39 @@ class SalesPage(QWidget):
             percentage = comparison.metrics.percentage_changes.get(metric_name, 0.0)
             return f"Period B: {formatter(b_value)} ({percentage:+.1f}%)"
 
-        self.sales_card.set_metric(
+        self.sales_card.set_value(
             format_eur(metrics.total_sales),
             comparison_note("total_sales", format_eur),
         )
-        self.transactions_card.set_metric(
+        self.transactions_card.set_value(
             f"{metrics.transactions:,}",
             comparison_note("transactions", lambda value: f"{int(value):,}"),
         )
-        self.average_card.set_metric(
+        self.average_card.set_value(
             format_eur(metrics.avg_ticket),
             comparison_note("avg_ticket", format_eur),
         )
-        self.clients_card.set_metric(
+        self.clients_card.set_value(
             f"{metrics.unique_clients:,}",
             comparison_note("unique_clients", lambda value: f"{int(value):,}"),
         )
-        self.products_card.set_metric(f"{len(period.product_distribution.labels):,}")
+        self.products_card.set_value(f"{len(period.product_distribution.labels):,}")
 
         self._populate_table(snapshot)
-        self._render_trend_chart(snapshot)
-        self._render_product_chart(snapshot)
-        self._render_top_clients_chart(snapshot)
-        self._render_comparison_chart(snapshot)
+        self._render_charts(snapshot)
 
     def _populate_table(self, snapshot: AnalysisSnapshot | Any | None) -> None:
         self.table.setSortingEnabled(False)
         self.table.clearContents()
         if snapshot is None:
-            self.table.setColumnCount(6)
-            self.table.setHorizontalHeaderLabels(
-                ["Product", "Quantity", "Total", "Average", "Minimum", "Maximum"]
-            )
+            self._label_columns(_SUMMARY_HEADERS)
             self.table.setRowCount(0)
             self.table.setSortingEnabled(True)
             return
 
         if snapshot.is_compare_mode() and snapshot.comparison is not None:
             products = snapshot.comparison.products
-            self.table.setColumnCount(5)
-            self.table.setHorizontalHeaderLabels(
-                ["Product", "Period A", "Period B", "Difference", "Change"]
-            )
+            self._label_columns(_COMPARISON_HEADERS)
             self.table.setRowCount(len(products.labels))
             for row_index, label in enumerate(products.labels):
                 comparison_values = (
@@ -796,18 +770,15 @@ class SalesPage(QWidget):
                     ),
                 )
                 difference = products.differences[row_index]
-                change_color = QColor(_BRAND_GREEN_DARK if difference >= 0 else "#B3261E")
-                comparison_values[3].setForeground(change_color)
-                comparison_values[4].setForeground(change_color)
+                color = change_color(self.table, difference >= 0)
+                comparison_values[3].setForeground(color)
+                comparison_values[4].setForeground(color)
                 for column, item in enumerate(comparison_values):
                     self.table.setItem(row_index, column, item)
             description = "Product sales comparison between periods A and B"
         else:
             rows = snapshot.period_a.table_data
-            self.table.setColumnCount(6)
-            self.table.setHorizontalHeaderLabels(
-                ["Product", "Quantity", "Total", "Average", "Minimum", "Maximum"]
-            )
+            self._label_columns(_SUMMARY_HEADERS)
             self.table.setRowCount(len(rows))
             for row_index, row in enumerate(rows):
                 summary_values = (
@@ -827,7 +798,13 @@ class SalesPage(QWidget):
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.setSortingEnabled(True)
-        self.table.resizeRowsToContents()
+
+    def _label_columns(self, headers: tuple[str, ...]) -> None:
+        """Set the columns for the summary or comparison view; numbers are right-aligned."""
+        self.table.setColumnCount(len(headers))
+        self.table.setHorizontalHeaderLabels(list(headers))
+        align_headers(self.table, range(1, len(headers)))
+        set_header_tips(self.table, _HEADER_TIPS.get(headers, {}))
 
     @staticmethod
     def _text_item(value: Any) -> QTableWidgetItem:
@@ -845,17 +822,65 @@ class SalesPage(QWidget):
     # --------------------------------------------------------------- charts
 
     @staticmethod
-    def _style_axis(axis: Any, *, ylabel: str = "Sales") -> None:
+    def _style_axis(
+        axis: Any,
+        colors: dict[str, str],
+        *,
+        ylabel: str = "Sales",
+        grid_axis: str = "y",
+        value_axis: str = "y",
+    ) -> None:
         axis.spines["top"].set_visible(False)
         axis.spines["right"].set_visible(False)
-        axis.spines["left"].set_color(_GRID)
-        axis.spines["bottom"].set_color(_GRID)
-        axis.grid(axis="y", color=_GRID, linewidth=0.8, alpha=0.8)
+        axis.spines["left"].set_color(colors["grid"])
+        axis.spines["bottom"].set_color(colors["grid"])
+        axis.grid(axis=grid_axis, color=colors["grid"], linewidth=0.8, alpha=0.8)
         axis.set_axisbelow(True)
-        axis.tick_params(colors=_MUTED, labelsize=9)
-        axis.set_ylabel(ylabel, color=_INK)
-        axis.yaxis.set_major_formatter(FuncFormatter(lambda value, _pos: f"€{value:,.0f}"))
-        axis.yaxis.set_major_locator(MaxNLocator(nbins=6))
+        axis.tick_params(colors=colors["muted"], labelsize=9)
+        axis.xaxis.label.set_color(colors["text"])
+        axis.yaxis.label.set_color(colors["text"])
+        axis.set_ylabel(ylabel, color=colors["text"])
+        formatted_axis = axis.yaxis if value_axis == "y" else axis.xaxis
+        formatted_axis.set_major_formatter(
+            FuncFormatter(lambda value, _pos: f"€{value:,.0f}")
+        )
+        formatted_axis.set_major_locator(MaxNLocator(nbins=6))
+
+    def _chart_colors(self) -> dict[str, str]:
+        palette = self.palette()
+        surface_color = palette.color(QPalette.ColorRole.Base)
+        dark = surface_color.lightnessF() < 0.5
+        return {
+            "surface": surface_color.name(),
+            "text": palette.color(QPalette.ColorRole.Text).name(),
+            "muted": palette.color(QPalette.ColorRole.PlaceholderText).name(),
+            "grid": "#3F4945" if dark else _GRID,
+            "primary": _BRAND_GREEN if dark else _BRAND_GREEN_DARK,
+            "secondary": _BRAND_GOLD if dark else "#936B00",
+        }
+
+    def _prepare_chart(self, chart: _SalesChart) -> tuple[Any, dict[str, str]]:
+        colors = self._chart_colors()
+        figure = chart.figure
+        figure.clear()
+        figure.set_facecolor(colors["surface"])
+        axis = figure.add_subplot(111)
+        axis.set_facecolor(colors["surface"])
+        return axis, colors
+
+    def _render_charts(self, snapshot: AnalysisSnapshot | Any | None) -> None:
+        """Render all chart pixmaps, including after an application theme change."""
+        if snapshot is None:
+            self.trend_chart.empty("No sales data for the selected filters")
+            self.product_chart.empty("No product data for the selected filters")
+            self.top_clients_chart.empty("No client data for the selected filters")
+            self.comparison_chart.empty("Enable comparison to compare two periods")
+            self.chart_tabs.setTabVisible(self._comparison_tab_index, False)
+            return
+        self._render_trend_chart(snapshot)
+        self._render_product_chart(snapshot)
+        self._render_top_clients_chart(snapshot)
+        self._render_comparison_chart(snapshot)
 
     @staticmethod
     def _sparse_ticks(axis: Any, labels: list[str]) -> None:
@@ -877,26 +902,26 @@ class SalesPage(QWidget):
             self.trend_chart.empty("No trend data is available")
             return
 
-        figure = self.trend_chart.figure
-        figure.clear()
-        axis = figure.add_subplot(111)
+        axis, colors = self._prepare_chart(self.trend_chart)
         axis.plot(
             range(len(values)),
             values,
-            color=_BRAND_GREEN_DARK,
+            color=colors["primary"],
             linewidth=2.4,
             marker="o" if len(values) <= 24 else None,
             markersize=4,
             label="Period A",
         )
-        axis.fill_between(range(len(values)), values, color=_BRAND_GREEN, alpha=0.12)
+        axis.fill_between(
+            range(len(values)), values, color=colors["primary"], alpha=0.14
+        )
         axis.set_title(
             f"Sales trend · {snapshot.metadata.grouping.value.title()}",
             loc="left",
-            color=_INK,
+            color=colors["text"],
             fontweight="bold",
         )
-        self._style_axis(axis)
+        self._style_axis(axis, colors)
         self._sparse_ticks(axis, labels)
         self.trend_chart.setAccessibleDescription(
             f"Sales trend with {len(values)} {snapshot.metadata.grouping.value} data points"
@@ -914,24 +939,25 @@ class SalesPage(QWidget):
         visible_rows = sorted(zip(labels, values), key=lambda item: item[1])[-12:]
         chart_labels = [label if len(label) <= 26 else f"{label[:25]}…" for label, _ in visible_rows]
         chart_values = [value for _, value in visible_rows]
-        figure = self.product_chart.figure
-        figure.clear()
-        axis = figure.add_subplot(111)
+        axis, colors = self._prepare_chart(self.product_chart)
         # Numeric positions: equal (e.g. truncated) category labels would
         # otherwise be merged by Matplotlib into one overdrawn bar.
         positions = list(range(len(chart_values)))
-        bars = axis.barh(positions, chart_values, color=_BRAND_GREEN_DARK, alpha=0.92)
+        bars = axis.barh(positions, chart_values, color=colors["primary"], alpha=0.92)
         axis.set_yticks(positions, chart_labels)
-        axis.set_title("Sales by product", loc="left", color=_INK, fontweight="bold")
-        axis.spines["top"].set_visible(False)
-        axis.spines["right"].set_visible(False)
-        axis.spines["left"].set_color(_GRID)
-        axis.spines["bottom"].set_color(_GRID)
-        axis.grid(axis="x", color=_GRID, linewidth=0.8, alpha=0.8)
-        axis.set_axisbelow(True)
-        axis.tick_params(colors=_MUTED, labelsize=9)
-        axis.xaxis.set_major_formatter(FuncFormatter(lambda value, _pos: f"€{value:,.0f}"))
-        axis.bar_label(bars, labels=[f"€{value:,.0f}" for value in chart_values], padding=4, fontsize=8)
+        axis.set_title(
+            "Sales by product", loc="left", color=colors["text"], fontweight="bold"
+        )
+        self._style_axis(
+            axis, colors, ylabel="", grid_axis="x", value_axis="x"
+        )
+        axis.bar_label(
+            bars,
+            labels=[f"€{value:,.0f}" for value in chart_values],
+            padding=4,
+            fontsize=8,
+            color=colors["text"],
+        )
         self.product_chart.setAccessibleDescription(
             f"Horizontal bar chart showing sales for {len(labels)} products"
         )
@@ -952,21 +978,16 @@ class SalesPage(QWidget):
             for name in (str(client.client_name) for client in ranking)
         ]
         values = [float(client.total_sales) for client in ranking]
-        figure = self.top_clients_chart.figure
-        figure.clear()
-        axis = figure.add_subplot(111)
+        axis, colors = self._prepare_chart(self.top_clients_chart)
         positions = list(range(len(values)))  # same-named clients stay separate bars
-        bars = axis.barh(positions, values, color=_BRAND_GREEN_DARK, alpha=0.92)
+        bars = axis.barh(positions, values, color=colors["primary"], alpha=0.92)
         axis.set_yticks(positions, labels)
-        axis.set_title("Top clients by sales", loc="left", color=_INK, fontweight="bold")
-        axis.spines["top"].set_visible(False)
-        axis.spines["right"].set_visible(False)
-        axis.spines["left"].set_color(_GRID)
-        axis.spines["bottom"].set_color(_GRID)
-        axis.grid(axis="x", color=_GRID, linewidth=0.8, alpha=0.8)
-        axis.set_axisbelow(True)
-        axis.tick_params(colors=_MUTED, labelsize=9)
-        axis.xaxis.set_major_formatter(FuncFormatter(lambda value, _pos: f"€{value:,.0f}"))
+        axis.set_title(
+            "Top clients by sales", loc="left", color=colors["text"], fontweight="bold"
+        )
+        self._style_axis(
+            axis, colors, ylabel="", grid_axis="x", value_axis="x"
+        )
         axis.bar_label(
             bars,
             labels=[
@@ -975,6 +996,7 @@ class SalesPage(QWidget):
             ],
             padding=4,
             fontsize=8,
+            color=colors["text"],
         )
         axis.margins(x=0.35)  # room for the value labels
         self.top_clients_chart.setAccessibleDescription(
@@ -1000,16 +1022,33 @@ class SalesPage(QWidget):
         labels = [point.label for point in points]
         values_a = [float(point.value_a) for point in points]
         values_b = [float(point.value_b) for point in points]
-        figure = self.comparison_chart.figure
-        figure.clear()
-        axis = figure.add_subplot(111)
+        axis, colors = self._prepare_chart(self.comparison_chart)
         positions = range(len(points))
-        axis.plot(positions, values_a, color=_BRAND_GREEN_DARK, linewidth=2.3, label="Period A")
-        axis.plot(positions, values_b, color=_BRAND_GOLD, linewidth=2.3, label="Period B")
-        axis.set_title("Period A vs. Period B", loc="left", color=_INK, fontweight="bold")
-        self._style_axis(axis)
+        axis.plot(
+            positions,
+            values_a,
+            color=colors["primary"],
+            linewidth=2.3,
+            label="Period A",
+        )
+        axis.plot(
+            positions,
+            values_b,
+            color=colors["secondary"],
+            linewidth=2.3,
+            label="Period B",
+        )
+        axis.set_title(
+            "Period A vs. Period B",
+            loc="left",
+            color=colors["text"],
+            fontweight="bold",
+        )
+        self._style_axis(axis, colors)
         self._sparse_ticks(axis, labels)
-        axis.legend(frameon=False, loc="best")
+        legend = axis.legend(frameon=False, loc="best")
+        for label in legend.get_texts():
+            label.set_color(colors["text"])
         self.comparison_chart.setAccessibleDescription(
             f"Line chart comparing periods A and B across {len(points)} intervals"
         )
@@ -1058,6 +1097,15 @@ class SalesPage(QWidget):
         path = Path(filename).expanduser()
         if path.suffix.lower() != ".html":
             path = path.with_suffix(".html")
+        if self.context is not None:
+            try:
+                self.context.run(lambda db, actor: actor.require("data.export"))
+            except Exception as exc:
+                from ..support import explain
+
+                result = (False, explain(exc)[0], None)
+                self._notify(result[1], error=True)
+                return result
         try:
             # Lazy import avoids coupling Qt canvas setup to the report module's
             # intentionally headless Matplotlib backend.
@@ -1077,6 +1125,8 @@ class SalesPage(QWidget):
         if success and written_path:
             self._last_report_path = Path(written_path).resolve()
             self.open_report_button.setEnabled(True)
+            if self.context is not None:
+                self.context.record("data.exported", entity_type="data", changes={"report": "sales"})
         self._notify(message, error=not success)
         return success, message, written_path
 
@@ -1146,12 +1196,31 @@ class SalesPage(QWidget):
 
     # ---------------------------------------------------------- responsiveness
 
+    def changeEvent(self, event: QEvent) -> None:  # noqa: N802 - Qt API
+        super().changeEvent(event)
+        if event.type() not in {
+            QEvent.Type.PaletteChange,
+            QEvent.Type.ApplicationPaletteChange,
+        }:
+            return
+        if hasattr(self, "trend_chart"):
+            self._render_charts(self.current_snapshot)
+        if hasattr(self, "table"):  # gain/loss colours follow the theme
+            self._populate_table(self.current_snapshot)
+
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(event)
         self._reflow()
 
     def _reflow(self, *, force: bool = False) -> None:
-        width = max(self.width(), self.scroll_area.viewport().width() if hasattr(self, "scroll_area") else 0)
+        viewport_width = (
+            self.scroll_area.viewport().width()
+            if hasattr(self, "scroll_area")
+            else self.width()
+        )
+        # Match breakpoints against usable content, not the outer page. This
+        # keeps fields and KPI cards comfortably sized in a 760x600 window.
+        width = max(0, viewport_width - 48)
         field_columns = 4 if width >= 1120 else 2 if width >= 620 else 1
         compare_columns = 4 if width >= 1000 else 2 if width >= 620 else 1
         kpi_columns = 5 if width >= 1240 else 3 if width >= 760 else 2 if width >= 480 else 1

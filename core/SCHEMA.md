@@ -4,7 +4,18 @@
 **File:** `data/sales.db` next to the project (or next to the compiled executable).
 The folder can be changed with the `FDT_DATA_DIR` environment variable.
 
-The source of truth for the schema is `core/db.py` → `init_db()`.
+One file holds everything: sales, clients, leads, marketing spend, and the account,
+audit, contact, task, and lead-workflow data. Two parts of the code own its schema:
+
+- **`core/db.py` → `create_base_tables()` / `init_db()`** — the original analytics tables
+  (`clients`, `sales`, `leads`, `marketing_spend`, `import_metadata`, `funnel_events`).
+- **`crm/migrations/` (Alembic)** — everything added for accounts and workflows: new
+  tables, and optional columns on `clients` and `leads`. Revision `0001` adds columns with
+  `ALTER TABLE … ADD COLUMN` only; rebuilding `clients` would drop it and, with foreign
+  keys on, cascade to its sales.
+
+The original analytics/import code reads and writes the same `clients` and `leads` rows
+as the account-aware services; there are no duplicate client or lead tables.
 
 ---
 
@@ -21,6 +32,17 @@ Client catalog. Primary key: `id` (text).
 | `address` | TEXT | — | Mailing address |
 | `contact_person` | TEXT | — | Contact person |
 | `email` | TEXT | — | Contact email |
+| `primary_domain` | VARCHAR(253) | — | Normalized web domain; **unique when present** |
+| `website_url` | VARCHAR(500) | — | http(s) URL only |
+| `industry`, `employee_range`, `country`, `city` | — | — | Account details |
+| `account_status` | VARCHAR(16) | — | `prospect`, `active`, `former`, `not_a_fit` (empty for imported rows) |
+| `owner_id` | VARCHAR(36) | — | FK → `users.id` ON DELETE SET NULL |
+| `notes` | TEXT | — | Free text |
+| `created_by_id`, `created_at`, `updated_at` | — | — | Set when changed through the application (empty for imported rows) |
+| `version` | INTEGER | ✅ (default 1) | Optimistic locking: a save from an outdated copy is refused |
+
+Rows created by a sales import get `cif = '-'` and none of the added columns; they can be
+completed later on the Clients page.
 
 ---
 
@@ -52,14 +74,27 @@ Sales funnel. Primary key: `id` (text).
 | `external_id` | TEXT | — | ID on the source platform |
 | `created_at` | TEXT | ✅ | Date `YYYY-MM-DD` |
 | `source` | TEXT | ✅ | Normalized source (`meta_ads`, `google_ads`, `linkedin_ads`, `tiktok_ads`, …) |
-| `status` | TEXT | ✅ | `new`, `contacted`, `meeting`, `converted`, `lost` (default `new`) |
+| `status` | TEXT | ✅ | `new`, `contacted`, `meeting`, `qualified`, `nurture`, `converted`, `lost` (default `new`) |
 | `meeting_date` | TEXT | — | Date `YYYY-MM-DD` |
 | `client_id` | TEXT | — | FK → `clients.id` |
+| `title` | VARCHAR(200) | — | Set for leads added by hand; imported leads are named after their client or source |
+| `owner_id` | VARCHAR(36) | — | FK → `users.id` ON DELETE SET NULL |
+| `priority` | VARCHAR(8) | ✅ (default `medium`) | `low`, `medium`, `high`, `urgent` |
+| `notes` | TEXT | — | Free text |
+| `qualification_reason`, `lost_reason` | TEXT | — | Required when moving to Qualified / Lost |
+| `next_follow_up_at` | DATETIME (UTC) | — | Earliest due date of the lead's open tasks (derived) |
+| `last_activity_at` | DATETIME (UTC) | — | Latest logged activity |
+| `created_by_id`, `updated_at` | — | — | Set when changed through the application |
+| `version` | INTEGER | ✅ (default 1) | Optimistic locking |
 
-**FK:** `client_id` → `clients.id` ON DELETE SET NULL.
+Manual leads get IDs `L_XXXXXX`. **FK:** `client_id` → `clients.id` ON DELETE SET NULL.
 **Unique index:** `(external_id, source)`.
 
-The interface shows the statuses as Lead, Contacted, Meeting, Client and Lost, and the sources as Meta Ads, Google Ads, LinkedIn Ads and TikTok Ads; the stored values are the codes above.
+Stages are defined once in `domain/lead_stages.py` and shown as Lead, Contacted, Meeting,
+Qualified, Nurture, Client (`converted`), and Lost. The funnel counts `meeting`,
+`qualified`, and `converted` as having reached the meeting stage. Imports accept codes
+or labels (e.g. "Client") and reject unknown stages row by row. Through the screens only
+the moves in `LEAD_TRANSITIONS` are allowed; marking a lead Client requires a linked client.
 
 ---
 
@@ -105,6 +140,24 @@ Funnel events (reserved; the application does not write to it yet).
 
 ---
 
+### Tables added by Alembic revision `0001`
+
+| Table | Purpose |
+|-------|---------|
+| `organization` | One row: the organization name shown in Settings |
+| `users` | Accounts: email (unique, lower-case), name, role, Argon2 `password_hash` (empty until an invitation is accepted), active flag, time zone |
+| `user_sessions` | Signed-in sessions; only the SHA-256 of each session token is stored, with expiry, last-seen time, revocation, and computer name |
+| `user_tokens` | One-time activation / password-reset codes (hashed), with expiry and use time |
+| `auth_attempts` | Sign-in attempts, used to throttle repeated failures |
+| `audit_logs` | Who changed what and when, from which computer; field changes as JSON (contact emails and phone numbers recorded only as "[changed]") |
+| `contacts` | People at a client (FK → `clients.id` ON DELETE CASCADE); email unique when present; do-not-contact flag with a required reason |
+| `lead_status_history` | Every stage change with its reason (FK → `leads.id` ON DELETE CASCADE) |
+| `activities` | Calls, emails, meetings, and notes for a client and/or lead |
+| `tasks` | Follow-ups: title, due time (UTC), priority, status `open`/`done`/`cancelled`, assignee; linked lead (CASCADE) and client (CASCADE) |
+| `alembic_version` | The schema revision |
+
+All timestamps added by the migration are stored as UTC.
+
 ## Relationship Diagram
 
 ```
@@ -118,9 +171,28 @@ leads (id PK)
 
 `marketing_spend` and `import_metadata` have no relationships with other tables.
 
+Added by revision `0001`:
+
+```
+clients ──┬── contacts      (client_id, ON DELETE CASCADE)
+          ├── activities    (client_id, ON DELETE CASCADE)
+          └── tasks         (client_id, ON DELETE CASCADE)
+leads ────┬── lead_status_history (lead_id, ON DELETE CASCADE)
+          ├── activities    (lead_id, ON DELETE CASCADE)
+          └── tasks         (lead_id, ON DELETE CASCADE)
+users ──── owner_id / created_by_id / assigned_to_id / actor columns (ON DELETE SET NULL)
+```
+
 ---
 
-## Automatic Migrations (`init_db()`)
+## Automatic Migrations
+
+On every start the application runs `init_db()` (below), then compares the Alembic
+revision with the one it ships. If the database is older, it first copies it to
+`data/backups/sales-before-<revision>-<time>.db` (SQLite online backup), then upgrades,
+then checks that the tables match the unified layout before opening it.
+
+### Original tables (`init_db()`)
 
 - `clients.id` INTEGER → TEXT (old databases). Runs with `foreign_keys=OFF`
   inside a transaction so the `DROP TABLE` does not trigger cascades.

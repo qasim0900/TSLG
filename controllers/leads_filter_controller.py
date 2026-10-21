@@ -10,6 +10,7 @@ Consumidores: views/leads_view.py
 
 from datetime import date, timedelta
 
+from domain.lead_stages import LEAD_STATUSES
 from domain.source_labels import SOURCE_LABELS as _SOURCE_LABELS
 
 # ── Constantes de filtro (movidas desde leads_view.py) ─────────
@@ -26,13 +27,7 @@ _DATE_RANGE_OPTIONS: list[tuple[str, int | None]] = [
     (ALL_TIME, None),
 ]
 
-_STAGE_STATUS_MAP: dict[str, str] = {
-    "Lead":       "new",
-    "Contacted":  "contacted",
-    "Meeting":    "meeting",
-    "Client":     "converted",
-    "Lost":       "lost",
-}
+_STAGE_STATUS_MAP: dict[str, str] = {label: code for code, label in LEAD_STATUSES.items()}
 
 
 def filter_leads(
@@ -43,6 +38,8 @@ def filter_leads(
     start_date: str | None = None,
     end_date: str | None = None,
     search_term: str | None = None,
+    owner: str | None = None,
+    current_user_id: str | None = None,
 ) -> list:
     """
     Aplica hasta 4 filtros client-side sobre la lista completa de leads.
@@ -55,6 +52,9 @@ def filter_leads(
         start_date: Fecha inicial ISO YYYY-MM-DD para rango específico.
         end_date: Fecha final ISO YYYY-MM-DD para rango específico.
         search_term: Texto libre de búsqueda (case-insensitive).
+        owner: "me", "none", or a user ID; matches the ``owner_id`` key leads carry
+            once the Leads page has merged in their owner (None = no filter).
+        current_user_id: The signed-in user, for ``owner="me"``.
 
     Returns:
         Lista filtrada de leads (subconjunto de all_leads).
@@ -89,6 +89,13 @@ def filter_leads(
     elif cutoff_date:
         filtered = [ld for ld in filtered if (ld.get("created_at") or "")[:10] >= cutoff_date]
 
+    if owner == "me":
+        filtered = [ld for ld in filtered if current_user_id and ld.get("owner_id") == current_user_id]
+    elif owner == "none":
+        filtered = [ld for ld in filtered if not ld.get("owner_id")]
+    elif owner:
+        filtered = [ld for ld in filtered if ld.get("owner_id") == owner]
+
     if search_term:
         term = search_term.strip().lower()
         if term:
@@ -97,8 +104,10 @@ def filter_leads(
                 if term in " ".join([
                     str(ld.get("id", "")),
                     _SOURCE_LABELS.get(ld.get("source", ""), ld.get("source", "")),
-                    ld.get("client_name", ""),
+                    ld.get("client_name") or "",
                     ld.get("source", ""),
+                    ld.get("title") or "",
+                    ld.get("owner_name") or "",
                 ]).lower()
             ]
 

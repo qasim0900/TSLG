@@ -105,6 +105,11 @@ def build_stylesheet(dark: bool = False) -> str:
     selection = PRIMARY if dark else PRIMARY_DARK
     selection_text = INK if dark else "#FFFFFF"
     hover_surface = "#203633" if dark else "#E6EEE7"
+    # Table rows: a barely visible alternate tint, hairline dividers, and a calm
+    # green selection (text stays readable; a green edge marks the row).
+    row_alternate = "#10201E" if dark else "#FAFAF7"
+    divider = "#26332F" if dark else "#E7E9E6"
+    row_selected = "#21402B" if dark else "#DDEEDF"
     sidebar = "#081311" if dark else "#FFFFFF"
     error_text = ERROR_ON_DARK if dark else ERROR
     # Focus rings need >= 3:1 against the pixels they replace (WCAG 2.2).
@@ -138,9 +143,11 @@ def build_stylesheet(dark: bool = False) -> str:
     QLabel#productName {{ font-size: 18px; font-weight: 700; }}
     QLabel#productTagline {{ font-size: 12px; }}
     QLabel#productTagline, QLabel#pageSubtitle, QLabel#metricLabel,
-    QLabel#metricNote, QLabel#filterSummary, QLabel#dialogSubtitle {{
+    QLabel#metricNote, QLabel#filterSummary, QLabel#dialogSubtitle,
+    QLabel#helperText, QLabel#helpText, QLabel#insightText {{
         color: {muted};
     }}
+    QLabel#helperText, QLabel#helpText, QLabel#insightText {{ font-size: 12px; }}
     QLabel#pageTitle {{ font-size: 28px; font-weight: 700; }}
     QLabel#dialogTitle {{ font-size: 22px; font-weight: 700; }}
     QLabel#dialogHeading {{ font-size: 16px; font-weight: 700; }}
@@ -150,8 +157,17 @@ def build_stylesheet(dark: bool = False) -> str:
     QLabel#statusMessage {{ color: {muted}; padding: 4px 0; }}
     QLabel#statusMessage[level="error"], QLabel#statusMessage[severity="error"],
     QLabel#formError {{ color: {error_text}; font-weight: 600; }}
-    QLabel#statusMessage[level="warning"] {{ color: {warning_text}; font-weight: 600; }}
+    QLabel#statusMessage[level="warning"], QLabel#statusMessage[severity="warning"] {{
+        color: {warning_text}; font-weight: 600;
+    }}
+    QLabel#statusMessage[level="success"], QLabel#statusMessage[severity="success"] {{
+        color: {primary}; font-weight: 600;
+    }}
     QLabel#fieldLabel {{ font-weight: 600; }}
+    QLabel#emptyState {{
+        color: {muted}; background: {surface_soft}; border: 1px dashed {border};
+        border-radius: 10px; padding: 20px;
+    }}
 
     QFrame#card, QFrame#metricCard, QGroupBox#card, QGroupBox {{
         background: {surface};
@@ -197,6 +213,9 @@ def build_stylesheet(dark: bool = False) -> str:
     QPushButton#tertiaryButton {{
         background: {SECONDARY}; color: {INK}; border-color: {SECONDARY};
     }}
+    QPushButton#warningButton {{
+        background: {SECONDARY}; color: {INK}; border-color: {SECONDARY};
+    }}
     QPushButton#dangerButton {{
         color: #FFFFFF; background: {ERROR}; border-color: {ERROR};
     }}
@@ -215,7 +234,7 @@ def build_stylesheet(dark: bool = False) -> str:
     QToolButton#navigationButton:focus {{ border: 2px solid {focus}; }}
     QToolButton#navigationButton:checked:focus,
     QPushButton#primaryButton:focus {{ border: 2px solid {focus_on_fill}; }}
-    QPushButton#tertiaryButton:focus {{ border: 2px solid {INK}; }}
+    QPushButton#tertiaryButton:focus, QPushButton#warningButton:focus {{ border: 2px solid {INK}; }}
     QPushButton#dangerButton:focus {{ border: 2px solid {focus_on_danger}; }}
 
     QLineEdit, QComboBox, QDateEdit, QSpinBox, QDoubleSpinBox {{
@@ -244,26 +263,69 @@ def build_stylesheet(dark: bool = False) -> str:
     }}
     QTableWidget, QTableView, QListWidget {{
         background: {surface};
-        alternate-background-color: {surface_soft};
+        alternate-background-color: {row_alternate};
         border: 1px solid {border};
         border-radius: 10px;
-        gridline-color: {border};
+        gridline-color: {divider};
+        selection-background-color: {row_selected};
+        selection-color: {text};
     }}
+    /* Tables: no grid, a hairline between rows, and room around the text. */
+    QTableView::item {{ padding: 0 8px; border-bottom: 1px solid {divider}; }}
+    QTableView::item:selected {{ background: {row_selected}; color: {text}; }}
+    QLabel#tableEmptyMessage {{ color: {muted}; font-size: 13px; background: transparent; }}
     QHeaderView::section {{
         background: {surface_high};
         color: {text};
         border: 0;
         border-bottom: 1px solid {border};
-        padding: 9px;
+        padding: 10px;
         font-weight: 650;
     }}
+    QHeaderView::section:hover {{ background: {hover_surface}; }}
+    /* Sort arrow above the label, so it never covers right-aligned (number) headings. */
+    QHeaderView::up-arrow, QHeaderView::down-arrow {{
+        subcontrol-origin: margin; subcontrol-position: top center; width: 8px; height: 8px;
+    }}
+    QScrollBar:horizontal {{ background: transparent; height: 12px; margin: 2px; }}
+    QScrollBar::handle:horizontal {{ background: {border}; min-width: 30px; border-radius: 5px; }}
+    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
     QTabWidget::pane {{ border: 1px solid {border}; border-radius: 10px; background: {surface}; }}
     QTabBar::tab {{ padding: 9px 16px; border-bottom: 3px solid transparent; }}
     QTabBar::tab:selected {{ border-bottom-color: {PRIMARY}; font-weight: 650; }}
+    QCheckBox {{ spacing: 8px; }}
+    QCheckBox::indicator {{ width: 18px; height: 18px; }}
+    QProgressBar {{
+        min-height: 18px; color: {text}; background: {surface_soft};
+        border: 1px solid {border}; border-radius: 9px; text-align: center;
+    }}
+    QProgressBar::chunk {{ background: {primary}; border-radius: 8px; }}
+    QProgressBar[stage="meeting"]::chunk {{ background: {SECONDARY}; }}
+    QProgressBar[stage="client"]::chunk {{ background: {PRIMARY}; }}
     QScrollBar:vertical {{ background: transparent; width: 12px; margin: 2px; }}
     QScrollBar::handle:vertical {{ background: {border}; min-height: 30px; border-radius: 5px; }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
     QStatusBar {{ background: {surface}; border-top: 1px solid {border}; }}
+
+    /* Scroll arrows of crowded tab bars: the generic button padding hid the arrow. */
+    QTabBar QToolButton {{ min-height: 0; min-width: 22px; padding: 0; border-radius: 6px; }}
+    QToolButton#accountButton {{ border-radius: 10px; padding: 4px 12px; }}
+    QPushButton#metricTile {{
+        background: {surface};
+        border: 1px solid {border};
+        border-top: 3px solid {PRIMARY};
+        border-radius: 14px;
+        text-align: left;
+        padding: 0;
+        min-height: 92px;
+    }}
+    QPushButton#metricTile:hover {{ background: {hover_surface}; }}
+    QPushButton#metricTile:focus {{ border: 2px solid {focus}; border-top: 3px solid {focus}; }}
+    QPushButton#compactButton[alert="true"] {{ color: {error_text}; border-color: {error_text}; }}
+    QLineEdit[invalid="true"], QComboBox[invalid="true"], QPlainTextEdit[invalid="true"],
+    QCheckBox[invalid="true"] {{ border: 2px solid {error_text}; }}
+    QPlainTextEdit {{ border: 1px solid {border}; border-radius: 8px; background: {surface}; padding: 4px; }}
+    QPlainTextEdit:focus {{ border: 2px solid {focus}; }}
     QToolTip {{ background: {surface}; color: {text}; border: 1px solid {border}; padding: 5px; }}
     """
 

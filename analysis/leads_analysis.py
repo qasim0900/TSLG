@@ -15,11 +15,14 @@ Mapeo de estados:
 
 import logging
 from datetime import date
+from domain.lead_stages import LEAD_STATUSES, MEETING_OR_LATER
+
 from .db_utils import get_db_connection
 
 logger = logging.getLogger(__name__)
 
-_VALID_STATUSES = frozenset({"new", "contacted", "meeting", "converted", "lost"})
+_VALID_STATUSES = frozenset(LEAD_STATUSES)
+_MEETING_SQL = ", ".join(f"'{status}'" for status in sorted(MEETING_OR_LATER))
 
 
 def get_leads(start_date=None, end_date=None, source=None, status=None, client_id=None):
@@ -87,7 +90,7 @@ def get_leads_stats():
     Returns:
         dict: {
             "total_leads": int,
-            "with_meeting": int,   # status IN ('meeting', 'converted')
+            "with_meeting": int,   # status IN MEETING_OR_LATER
             "with_client": int,    # client_id IS NOT NULL
             "by_source": dict      # {source: count}
         }
@@ -100,7 +103,7 @@ def get_leads_stats():
 
         # Leads que alcanzaron o superaron la etapa de reunión
         result_meeting = conn.execute(
-            "SELECT COUNT(*) FROM leads WHERE status IN ('meeting', 'converted')"
+            f"SELECT COUNT(*) FROM leads WHERE status IN ({_MEETING_SQL})"  # nosec B608 - module constants
         ).fetchone()
         with_meeting = result_meeting[0] if result_meeting else 0
 
@@ -232,7 +235,7 @@ def get_funnel_stats(leads: list) -> dict:
     Calcula estadísticas del funnel a partir de una lista de leads enriched.
 
     Fuente de verdad: campo `status`.
-    - meetings = status in ("meeting", "converted")  → leads que alcanzaron la etapa reunión
+    - meetings = status in MEETING_OR_LATER (meeting, qualified, converted) → reached the meeting stage
     - converted = status == "converted"
     - lost      = status == "lost"
     - meeting_to_client_pct = converted_from_meeting / meetings
@@ -246,7 +249,7 @@ def get_funnel_stats(leads: list) -> dict:
     total = len(leads)
 
     # meetings: leads que alcanzaron o superaron la etapa de reunión
-    meetings = len([ld for ld in leads if ld.get("status") in ("meeting", "converted")])
+    meetings = len([ld for ld in leads if ld.get("status") in MEETING_OR_LATER])
     converted = len([ld for ld in leads if ld.get("status") == "converted"])
     lost = len([ld for ld in leads if ld.get("status") == "lost"])
 

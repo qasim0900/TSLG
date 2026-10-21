@@ -16,24 +16,21 @@ from datetime import datetime
 from .html_template import get_html_base
 from .charts_generator import generate_pie_chart, generate_horizontal_bar_chart
 from utils.formatting import format_datetime_us, format_eur
+from domain.lead_stages import LEAD_STATUSES
 from domain.source_labels import SOURCE_LABELS
 
 
 # Source labels coherentes con tabla_leads.py
 _SOURCE_LABELS = SOURCE_LABELS
 
-_STATUS_LABELS = {
-    "new":       "Lead",
-    "contacted": "Contacted",
-    "meeting":   "Meeting",
-    "converted": "Client",
-    "lost":      "Lost",
-}
+_STATUS_LABELS = LEAD_STATUSES
 
 _STATUS_BADGE_CLASS = {
     "new":       "badge-new",
     "contacted": "badge-contacted",
     "meeting":   "badge-meeting",
+    "qualified": "badge-qualified",
+    "nurture":   "badge-nurture",
     "converted": "badge-converted",
     "lost":      "badge-lost",
 }
@@ -228,16 +225,20 @@ def generate_leads_html_report(
         # ── Marketing Performance section ─────────────────────
         marketing_html = ""
         if marketing_summary:
+            total_spend = float(marketing_summary.get("total_spend", 0) or 0)
+            has_spend = total_spend > 0
             overall_roi = marketing_summary.get("overall_roi", 0.0)
-            roi_color = "#2e7d32" if overall_roi >= 0 else "#c62828"
-            roi_str = f"{overall_roi * 100:.1f}%"
+            roi_color = ("#2e7d32" if overall_roi >= 0 else "#c62828") if has_spend else "#62637A"
+            roi_str = f"{overall_roi * 100:.1f}%" if has_spend else "—"
+            cpl_str = format_eur(marketing_summary.get("avg_cpl", 0)) if has_spend else "—"
+            cac_str = format_eur(marketing_summary.get("avg_cac", 0)) if has_spend else "—"
 
             marketing_html += f'''
             <h2>Marketing performance <span style="font-size:12px;color:#666;font-weight:400;">· reflects the active filters</span></h2>
             <div class="metrics">
                 <div class="metric-card accent-orange">
                     <label>Total spend</label>
-                    <div class="value">{format_eur(marketing_summary.get("total_spend", 0))}</div>
+                    <div class="value">{format_eur(total_spend)}</div>
                 </div>
                 <div class="metric-card accent-green">
                     <label>Attributed revenue</label>
@@ -245,11 +246,11 @@ def generate_leads_html_report(
                 </div>
                 <div class="metric-card">
                     <label>CPL (cost per lead)</label>
-                    <div class="value">{format_eur(marketing_summary.get("avg_cpl", 0))}</div>
+                    <div class="value">{cpl_str}</div>
                 </div>
                 <div class="metric-card accent-purple">
                     <label>CAC (cost per client)</label>
-                    <div class="value">{format_eur(marketing_summary.get("avg_cac", 0))}</div>
+                    <div class="value">{cac_str}</div>
                 </div>
                 <div class="metric-card" style="color:{roi_color}">
                     <label>Overall ROI</label>
@@ -262,18 +263,23 @@ def generate_leads_html_report(
             mkt_rows = ""
             for m in marketing_metrics:
                 src_label = html.escape(_SOURCE_LABELS.get(m["source"], m["source"]))
+                spend = float(m.get("spend", 0) or 0)
+                has_spend = spend > 0
                 roi = m.get("roi", 0.0)
                 roi_pct = roi * 100
-                roi_color = "#2e7d32" if roi >= 0 else "#c62828"
+                roi_color = ("#2e7d32" if roi >= 0 else "#c62828") if has_spend else "#62637A"
+                cpl = format_eur(m.get("cpl", 0)) if has_spend else "—"
+                cac = format_eur(m.get("cac", 0)) if has_spend else "—"
+                roi_text = f"{roi_pct:.1f}%" if has_spend else "—"
                 mkt_rows += f'''<tr>
                     <td><strong>{src_label}</strong></td>
                     <td>{m.get("leads", 0)}</td>
                     <td>{m.get("customers", 0)}</td>
                     <td>{format_eur(m.get("revenue", 0))}</td>
-                    <td>{format_eur(m.get("spend", 0))}</td>
-                    <td>{format_eur(m.get("cpl", 0))}</td>
-                    <td>{format_eur(m.get("cac", 0))}</td>
-                    <td style="color:{roi_color};font-weight:600">{roi_pct:.1f}%</td>
+                    <td>{format_eur(spend)}</td>
+                    <td>{cpl}</td>
+                    <td>{cac}</td>
+                    <td style="color:{roi_color};font-weight:600">{roi_text}</td>
                 </tr>
 '''
             marketing_html += f'''

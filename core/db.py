@@ -62,6 +62,140 @@ def get_connection():
     return conn
 
 
+def create_base_tables(cursor) -> None:
+    """Create the original analytics tables and indexes if missing (idempotent).
+
+    The single definition of the base schema: ``init_db()`` runs it on the
+    configured file, and the first CRM migration runs it so a brand-new database
+    created by migrations alone has the same tables.
+    """
+    # Tabla de clientes (tabla base, sin dependencias)
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS clients(
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            cif TEXT NOT NULL,
+            address TEXT,
+            contact_person TEXT,
+            email TEXT
+        )
+        """
+    )
+
+    # Tabla de ventas (depende de clients)
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sales(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_name TEXT NOT NULL,
+            client_id TEXT NOT NULL,
+            product_type TEXT NOT NULL,
+            price REAL NOT NULL,
+            date TEXT NOT NULL,
+            FOREIGN KEY (client_id)
+                REFERENCES clients(id)
+                ON DELETE CASCADE
+        )
+        """
+    )
+
+    # Tabla de leads (depende de clients, embudo comercial)
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS leads(
+            id TEXT PRIMARY KEY,
+            external_id TEXT,
+            created_at TEXT NOT NULL,
+            source TEXT NOT NULL,
+            status TEXT NOT NULL,
+            meeting_date TEXT,
+            client_id TEXT,
+            FOREIGN KEY (client_id)
+                REFERENCES clients(id)
+                ON DELETE SET NULL
+        )
+        """
+    )
+
+    # Tabla de gasto en marketing (sin dependencias)
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS marketing_spend(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL,
+            amount REAL NOT NULL,
+            date TEXT NOT NULL
+        )
+        """
+    )
+
+    # Tabla de metadata de importación (sin dependencias)
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS import_metadata (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            imported_at TEXT NOT NULL,
+            file_name TEXT,
+            total_rows INTEGER,
+            valid_rows INTEGER,
+            rejected_rows INTEGER,
+            duration_seconds REAL
+        )
+        """
+    )
+
+    # Índices
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_client_name ON sales(client_name)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_product_type ON sales(product_type)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_client_id ON sales(client_id)")
+
+    # Índices para leads
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_client_id ON leads(client_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_created_at ON leads(created_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_source ON leads(source)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_source_created ON leads(source, created_at)")
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_external_source ON leads(external_id, source)")
+
+    # Índices para marketing_spend
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_spend_source ON marketing_spend(source)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_spend_date ON marketing_spend(date)")
+
+    # Tabla de eventos del funnel comercial (sin dependencias de sales)
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS funnel_events(
+            id TEXT PRIMARY KEY,
+            client_id TEXT,
+            lead_id TEXT,
+            event_type TEXT NOT NULL,
+            source TEXT,
+            event_date TEXT NOT NULL,
+            metadata TEXT,
+            FOREIGN KEY (client_id)
+                REFERENCES clients(id)
+                ON DELETE SET NULL,
+            FOREIGN KEY (lead_id)
+                REFERENCES leads(id)
+                ON DELETE SET NULL
+        )
+        """
+    )
+
+    # Índices para funnel_events
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_funnel_events_client ON funnel_events(client_id)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_funnel_events_event_type ON funnel_events(event_type)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_funnel_events_date ON funnel_events(event_date)"
+    )
+
+
 def init_db():
     """
     Inicializa la base de datos y ejecuta migraciones necesarias.
@@ -70,131 +204,7 @@ def init_db():
     cursor = conn.cursor()
 
     try:
-        # Tabla de clientes (tabla base, sin dependencias)
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS clients(
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                cif TEXT NOT NULL,
-                address TEXT,
-                contact_person TEXT,
-                email TEXT
-            )
-            """
-        )
-
-        # Tabla de ventas (depende de clients)
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS sales(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                client_name TEXT NOT NULL,
-                client_id TEXT NOT NULL,
-                product_type TEXT NOT NULL,
-                price REAL NOT NULL,
-                date TEXT NOT NULL,
-                FOREIGN KEY (client_id)
-                    REFERENCES clients(id)
-                    ON DELETE CASCADE
-            )
-            """
-        )
-
-        # Tabla de leads (depende de clients, embudo comercial)
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS leads(
-                id TEXT PRIMARY KEY,
-                external_id TEXT,
-                created_at TEXT NOT NULL,
-                source TEXT NOT NULL,
-                status TEXT NOT NULL,
-                meeting_date TEXT,
-                client_id TEXT,
-                FOREIGN KEY (client_id)
-                    REFERENCES clients(id)
-                    ON DELETE SET NULL
-            )
-            """
-        )
-
-        # Tabla de gasto en marketing (sin dependencias)
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS marketing_spend(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source TEXT NOT NULL,
-                amount REAL NOT NULL,
-                date TEXT NOT NULL
-            )
-            """
-        )
-
-        # Tabla de metadata de importación (sin dependencias)
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS import_metadata (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                imported_at TEXT NOT NULL,
-                file_name TEXT,
-                total_rows INTEGER,
-                valid_rows INTEGER,
-                rejected_rows INTEGER,
-                duration_seconds REAL
-            )
-            """
-        )
-
-        # Índices
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(date)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_client_name ON sales(client_name)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_product_type ON sales(product_type)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_client_id ON sales(client_id)")
-
-        # Índices para leads
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_client_id ON leads(client_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_created_at ON leads(created_at)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_source ON leads(source)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_source_created ON leads(source, created_at)")
-        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_external_source ON leads(external_id, source)")
-
-        # Índices para marketing_spend
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_spend_source ON marketing_spend(source)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_spend_date ON marketing_spend(date)")
-
-        # Tabla de eventos del funnel comercial (sin dependencias de sales)
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS funnel_events(
-                id TEXT PRIMARY KEY,
-                client_id TEXT,
-                lead_id TEXT,
-                event_type TEXT NOT NULL,
-                source TEXT,
-                event_date TEXT NOT NULL,
-                metadata TEXT,
-                FOREIGN KEY (client_id)
-                    REFERENCES clients(id)
-                    ON DELETE SET NULL,
-                FOREIGN KEY (lead_id)
-                    REFERENCES leads(id)
-                    ON DELETE SET NULL
-            )
-            """
-        )
-
-        # Índices para funnel_events
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_funnel_events_client ON funnel_events(client_id)"
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_funnel_events_event_type ON funnel_events(event_type)"
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_funnel_events_date ON funnel_events(event_date)"
-        )
+        create_base_tables(cursor)
 
         conn.commit()
 

@@ -21,6 +21,7 @@ from models.client_manager import (
     get_duplicate_summary,
 )
 from analysis import get_all_clients_with_sales_data
+from models.client_validators import validate_client_data
 from core.db import get_connection
 from utils import normalize_text
 from utils.formatting import pluralize
@@ -71,19 +72,7 @@ class ClientsController:
         Valida todos los campos de un cliente.
         Retorna (es_válido, mensaje_error).
         """
-        if not validate_name(name):
-            return False, "The name must have at least 2 characters."
-        
-        if not validate_cif(cif):
-            return False, "The tax ID (CIF/NIF) must have 7 to 12 letters or digits."
-        
-        if not validate_email(email):
-            return False, "Enter a valid email address."
-        
-        if not validate_contact(contact):
-            return False, "The contact name must have at least 2 characters."
-        
-        return True, ""
+        return validate_client_data(name, cif, email, contact)
     
     @staticmethod
     def create_client(name, cif, address, contact, email):

@@ -1,4 +1,4 @@
-"""PySide6 dashboard for local sales and lead intelligence."""
+"""PySide6 dashboard: sales and lead intelligence, plus the signed-in user's work."""
 
 from __future__ import annotations
 
@@ -18,10 +18,13 @@ from PySide6.QtWidgets import (
 )
 
 from controllers.dashboard_controller import DashboardController
+from crm.services import work
 from utils.formatting import format_day_month_year_time
 from utils.import_templates import write_template
 
 from ..dialogs import ask_confirmation
+from ..session import AppContext
+from ..support import local_time, report
 from ..theme import PRIMARY, SECONDARY
 from ..widgets import Card, KpiCard, PageHeader
 
@@ -36,10 +39,12 @@ class DashboardPage(QWidget):
         self,
         parent: QWidget | None = None,
         *,
-        on_navigate: Callable[[str], None] | None = None,
+        on_navigate: Callable[..., object] | None = None,
         on_import_requested: Callable[[], bool | None] | None = None,
+        context: AppContext | None = None,
     ) -> None:
         super().__init__(parent)
+        self.context = context
         self._on_navigate = on_navigate
         self._on_import_requested = on_import_requested
         self.setObjectName("dashboardPage")
@@ -88,6 +93,38 @@ class DashboardPage(QWidget):
             self._kpi_grid.addWidget(card, index // 2, index % 2)
         self._layout.addLayout(self._kpi_grid)
 
+        # The signed-in user's work: their tasks and leads, counted live.
+        self.work_card = Card()
+        work_layout = QVBoxLayout(self.work_card)
+        work_layout.setContentsMargins(20, 18, 20, 20)
+        work_title = QLabel("My work")
+        work_title.setObjectName("sectionTitle")
+        work_layout.addWidget(work_title)
+        work_row = QHBoxLayout()
+        self._work_buttons: dict[str, QPushButton] = {}
+        for key, tooltip in (
+            ("overdue", "Your open tasks whose due time has passed"),
+            ("today", "Your open tasks due today"),
+            ("open", "All your open tasks"),
+            ("my_leads", "Open leads you own"),
+            ("unassigned", "New leads nobody owns yet"),
+        ):
+            button = QPushButton()
+            button.setObjectName("secondaryButton")
+            button.setToolTip(tooltip)
+            button.clicked.connect(lambda _checked=False, target=key: self._open_work(target))
+            work_row.addWidget(button)
+            self._work_buttons[key] = button
+        work_row.addStretch(1)
+        work_layout.addLayout(work_row)
+        self.upcoming_label = QLabel()
+        self.upcoming_label.setObjectName("pageSubtitle")
+        self.upcoming_label.setWordWrap(True)
+        self.upcoming_label.setTextFormat(Qt.TextFormat.PlainText)
+        work_layout.addWidget(self.upcoming_label)
+        self.work_card.setVisible(False)
+        self._layout.addWidget(self.work_card)
+
         actions = Card()
         action_layout = QVBoxLayout(actions)
         action_layout.setContentsMargins(20, 18, 20, 20)
@@ -99,6 +136,7 @@ class DashboardPage(QWidget):
         import_button.setObjectName("primaryButton")
         import_button.setAccessibleName("Import CSV or Excel data")
         import_button.clicked.connect(self._request_import)
+        self.import_button = import_button
         action_row.addWidget(import_button)
         for label, target in (("Sales analytics", "sales"), ("Leads", "leads"), ("Clients", "clients")):
             button = QPushButton(label)
@@ -156,6 +194,7 @@ class DashboardPage(QWidget):
         self._layout.addLayout(lower)
 
         maintenance = Card()
+        self.maintenance_card = maintenance
         maintenance_layout = QVBoxLayout(maintenance)
         maintenance_layout.setContentsMargins(20, 18, 20, 20)
         maintenance_title = QLabel("Data maintenance")
@@ -182,7 +221,58 @@ class DashboardPage(QWidget):
         self._layout.addWidget(maintenance)
         self._layout.addStretch(1)
 
+    def _refresh_work(self) -> None:
+        context = self.context
+        signed_in = context is not None and context.is_signed_in
+        if context is not None:
+            self.import_button.setVisible(context.can("data.import"))
+            self.maintenance_card.setVisible(context.can("data.clear"))
+        self.work_card.setVisible(signed_in)
+        if not signed_in or context is None:
+            return
+        try:
+            summary = context.run(lambda db, actor: work.summary(db, actor), busy=False)
+        except Exception as exc:
+            report(self, exc, title="Dashboard")
+            return
+        zone = context.actor.timezone if context.actor else "UTC"
+        labels = {
+            "overdue": f"{summary.overdue} overdue",
+            "today": f"{summary.due_today} due today",
+            "open": f"{summary.open_tasks} open tasks",
+            "my_leads": f"{summary.my_open_leads} of my leads open",
+            "unassigned": f"{summary.unassigned_new_leads} new leads unassigned",
+        }
+        for key, button in self._work_buttons.items():
+            button.setText(labels[key])
+            button.setAccessibleName(labels[key])
+        self._work_buttons["overdue"].setProperty("alert", summary.overdue > 0)
+        self._work_buttons["overdue"].style().unpolish(self._work_buttons["overdue"])
+        self._work_buttons["overdue"].style().polish(self._work_buttons["overdue"])
+        if summary.upcoming:
+            lines = [f"• {title} — {local_time(due, zone) or 'no due date'}{' (overdue)' if late else ''}"
+                     for _task_id, title, due, late in summary.upcoming]
+            self.upcoming_label.setText("Next up:\n" + "\n".join(lines))
+        else:
+            self.upcoming_label.setText("No open tasks assigned to you.")
+
+    def _open_work(self, key: str) -> None:
+        if self._on_navigate is None:
+            return
+        if key in ("overdue", "today", "open"):
+            self._on_navigate("tasks", {"view": "mine", "due": key})
+        else:
+            self._on_navigate("leads")
+            leads_page = self.window().findChild(QWidget, "leadsPage")
+            owner = "me" if key == "my_leads" else "none"
+            if leads_page is not None and hasattr(leads_page, "owner_combo"):
+                leads_page.owner_combo.setCurrentIndex(max(leads_page.owner_combo.findData(owner), 0))
+
+    def ensure_loaded(self) -> None:
+        self._refresh_work()
+
     def refresh(self) -> None:
+        self._refresh_work()
         snapshot = DashboardController.get_dashboard_kpi_snapshot()
         self.sales_card.set_value(str(snapshot.sales_rows), "Imported transaction rows")
         self.clients_card.set_value(str(snapshot.clients_rows), "Local client profiles")
@@ -275,7 +365,17 @@ class DashboardPage(QWidget):
             "leads": DashboardController.clear_leads,
             "clients": DashboardController.clear_clients,
         }[table]
-        success, message = operation()
+        if self.context is None:
+            success, message = operation()
+        else:
+            try:
+                success, message = self.context.guarded(
+                    "data.clear", f"data.cleared_{table}", operation, kind="data", entity_type="data",
+                    changes=lambda outcome: {"table": table, "result": outcome[1]} if outcome[0] else None,
+                )
+            except Exception as exc:
+                report(self, exc, title="Data maintenance")
+                return
         self.status_requested.emit(message, "success" if success else "error")
         if success:
             self.refresh()

@@ -435,6 +435,8 @@ def get_html_base(content: str, title: str = "Techset LeadGen Report") -> str:
         }}
         .badge-new       {{ background: rgba(57,181,74,.16); color: var(--clr-action); }}
         .badge-contacted {{ background: #ede9fe; color: #6b21a8; }}
+        .badge-qualified {{ background: #dcfce7; color: #166534; }}
+        .badge-nurture {{ background: #fef9c3; color: #854d0e; }}
         .badge-meeting   {{ background: #ffedd5; color: #c2410c; }}
         .badge-converted {{ background: #dcfce7; color: #166534; }}
         .badge-lost      {{ background: #fee2e2; color: #991b1b; }}

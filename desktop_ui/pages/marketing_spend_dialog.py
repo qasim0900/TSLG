@@ -36,6 +36,8 @@ from utils.formatting import format_eur, parse_amount
 
 from ..dialogs import ask_confirmation
 from ..row_actions import RowAction, RowActionDelegate
+from ..support import date_text
+from ..tables import prepare_table
 from ..widgets import labeled_field, sortable_item
 
 _RECORD_ID_ROLE = Qt.ItemDataRole.UserRole + 2
@@ -53,9 +55,12 @@ class MarketingSpendDialog(QDialog):
         self,
         controller: type[LeadsController] | Any = LeadsController,
         parent: QWidget | None = None,
+        *,
+        context: Any = None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
+        self._context = context  # AppContext: checks marketing.manage and audits each change
         self._records: list[dict[str, Any]] = []
         self._editing_id: int | None = None
         self.changed = False
@@ -122,13 +127,10 @@ class MarketingSpendDialog(QDialog):
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Date", "Source", "Amount", "Actions"])
         self.table.setAccessibleName("Marketing spend records")
-        self.table.setAlternatingRowColors(True)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.table.verticalHeader().hide()
-        self.table.verticalHeader().setDefaultSectionSize(36)
+        prepare_table(self.table, numeric_columns=(2,),
+                      empty_text="No spend recorded yet. Add a record above or import a spend CSV.")
         header = self.table.horizontalHeader()
+        header.setSortIndicator(0, Qt.SortOrder.DescendingOrder)  # newest first
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self._row_actions = (
@@ -171,12 +173,13 @@ class MarketingSpendDialog(QDialog):
         self.source_combo.setEditText(current)
 
         table = self.table
+        table.setSortingEnabled(False)
         table.setRowCount(len(self._records))
         for row, record in enumerate(self._records):
             record_id = record.get("id")
             amount = float(record.get("amount") or 0)
             cells = (
-                QTableWidgetItem(str(record.get("date") or "—")),
+                sortable_item(date_text(record.get("date")) or "—", str(record.get("date") or "")),
                 QTableWidgetItem(_source_label(record.get("source"))),
                 sortable_item(format_eur(amount), amount),
                 QTableWidgetItem(),
@@ -189,6 +192,7 @@ class MarketingSpendDialog(QDialog):
             for column, item in enumerate(cells):
                 item.setData(_RECORD_ID_ROLE, record_id)
                 table.setItem(row, column, item)
+        table.setSortingEnabled(True)
         total = sum(float(record.get("amount") or 0) for record in self._records)
         count = len(self._records)
         self.summary_label.setText(
@@ -228,17 +232,22 @@ class MarketingSpendDialog(QDialog):
         date_text = self.date_edit.date().toString(Qt.DateFormat.ISODate)
 
         self.save_button.setEnabled(False)  # no duplicate records from a double click
+        details = {"source": source, "amount": amount, "date": date_text}
         try:
             if self._editing_id is None:
-                success, message, _new_id = self._controller.create_marketing_spend(
+                outcome = self._guarded("marketing_spend.created", lambda: self._controller.create_marketing_spend(
                     source, amount, date_text
-                )
+                ), details)
             else:
-                success, message = self._controller.update_marketing_spend(
-                    self._editing_id, source, amount, date_text
-                )
+                editing = self._editing_id
+                outcome = self._guarded("marketing_spend.updated", lambda: self._controller.update_marketing_spend(
+                    editing, source, amount, date_text
+                ), {**details, "id": editing})
         finally:
             self.save_button.setEnabled(True)
+        if outcome is None:
+            return
+        success, message = outcome[0], outcome[1]
         if not success:
             self._show_error(message)  # keep the user's input for correction
             return
@@ -246,6 +255,20 @@ class MarketingSpendDialog(QDialog):
         self._reset_form()
         self.reload()
         self.summary_label.setText(f"{message} {self.summary_label.text()}")
+
+    def _guarded(self, action: str, operation: Any, details: dict[str, Any]) -> Any:
+        """Run a spend change; with a signed-in session, check the role and audit it."""
+        if self._context is None:
+            return operation()
+        try:
+            return self._context.guarded("marketing.manage", action, operation, kind="data",
+                                         entity_type="marketing_spend",
+                                         changes=lambda outcome: details if outcome[0] else None)
+        except Exception as exc:
+            from ..support import report
+
+            report(self, exc, title="Marketing spend")
+            return None
 
     def _run_row_action(self, key: str, record_id: str) -> None:
         record = self._record(record_id)
@@ -290,7 +313,13 @@ class MarketingSpendDialog(QDialog):
             destructive=True,
         ):
             return
-        success, message = self._controller.delete_marketing_spend(int(record["id"]))
+        outcome = self._guarded("marketing_spend.deleted",
+                                lambda: self._controller.delete_marketing_spend(int(record["id"])),
+                                {"id": record["id"], "source": record.get("source"), "amount": record.get("amount"),
+                                 "date": record.get("date")})
+        if outcome is None:
+            return
+        success, message = outcome
         if not success:
             self._show_error(message)
             return

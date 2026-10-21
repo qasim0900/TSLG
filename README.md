@@ -1,72 +1,59 @@
 # Techset LeadGen
 
-**Techset LeadGen** is a local desktop application for importing sales and lead data, understanding pipeline performance, maintaining client records, and exporting shareable HTML reports. It is built with Python, PySide6 (Qt Widgets), Polars, Matplotlib, and SQLite.
+Techset LeadGen is a local-first, native desktop application for sales analytics, lead operations, client records, follow-ups, and branded reporting. It uses Python, PySide6 (Qt Widgets), SQLite, Polars, and Matplotlib. It is not a web application and does not require a browser for its primary interface.
 
-![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white)
-![PySide6](https://img.shields.io/badge/PySide6-6.12-39B54A?style=flat-square)
-![SQLite](https://img.shields.io/badge/SQLite-3-0A1414?style=flat-square&logo=sqlite&logoColor=white)
-![Poetry](https://img.shields.io/badge/Poetry-managed-FFCB4A?style=flat-square&logo=poetry&logoColor=0A1414)
+The product keeps the established Techset Solutions identity: the official logo and icon, green/gold palette, warm light surfaces, dark mode, and bundled Inter typeface.
 
-The application is local-first: the desktop process owns the interface and business logic, while a local SQLite database stores the data. The current repository does not contain a web backend, REST API, account system, browser router, PWA manifest, or cloud synchronization.
+## One application, one navigation system
 
-## What the application does
+There is no separate CRM tab and no second copy of Dashboard, Sales, Leads, or Clients. The `crm/` directory is an internal business-service and persistence package; it is not another frontend.
 
-| Area | Current capability |
+The signed-in desktop shell exposes these areas according to the user's role:
+
+| Area | Responsibility |
 |---|---|
-| **Dashboard** | Shows sales-record, client, lead, conversion, meeting, recent-import, and current-month KPIs. It also provides import shortcuts, sample templates, navigation actions, and confirmed data-clearing actions. |
-| **Sales** | Filters sales by date, client, and product; calculates totals and average ticket; displays product distribution, time evolution, and top clients; and compares period A with period B. |
-| **Leads** | Filters the pipeline by source, stage, date, and search text; shows funnel conversion, meetings, source performance, upcoming meetings, CPL, CAC, attributed revenue, and ROI; updates lead status or meeting date; and adds, corrects, or deletes marketing spend records. |
-| **Clients** | Searches and manages client records, shows linked sales and lead information, opens client profiles, merges duplicate names, and exports an individual client report. |
-| **Import** | Detects sales, leads, mixed sales-and-leads, or marketing-spend files; previews their schema; validates rows; writes accepted rows in a transaction; and records rejected rows separately. |
-| **Reports** | Produces self-contained branded HTML reports for sales analysis, lead performance, and client profiles. Matplotlib charts are embedded as base64 images. |
-| **Appearance** | Provides light and dark themes (remembered between sessions) using the official Techset Solutions logo, Inter typography, and centralized brand tokens. |
+| **Dashboard** | Real sales/client/lead KPIs, the signed-in user's work, import shortcuts, templates, and permission-gated maintenance. |
+| **Sales** | Date/client/product filters, totals, product and client rankings, trend charts, period comparison, and HTML export. |
+| **Leads** | The existing funnel and marketing analytics plus lead creation, assignment, stage changes, timelines, meetings, and follow-ups on the same lead rows. |
+| **Clients** | Search, client CRUD, sales/lead context, contacts, activity, tasks, duplicate merge, and client-profile export. |
+| **Tasks** | Paged personal/team follow-ups linked to leads and clients. |
+| **Users** | Administrator account invitation, roles, activation/reset codes, and account status. |
+| **Audit log** | Administrator view of sign-ins and record changes. Entries are read-only. |
+| **Settings** | Profile, password, organization, session, database, and backup information. |
 
-For a module-by-module explanation and workflow diagrams, read [Architecture](docs/ARCHITECTURE.md). For asset provenance and design tokens, read [Branding](docs/BRANDING.md).
+Global search opens a matching lead in Leads or a matching company/contact in Clients; it does not create a parallel record view.
 
-## Runtime overview
+## Security and roles
 
-```mermaid
-flowchart LR
-    User[Desktop user] --> Qt[PySide6 main window]
-    Qt --> Views[Dashboard / Sales / Leads / Clients]
-    Views --> Controllers[Controllers and filters]
-    Controllers --> Services[Snapshot and KPI services]
-    Controllers --> Models[Client / lead / spend models]
-    Services --> Analysis[Polars and SQL analysis]
-    Models --> DB[(SQLite sales.db)]
-    Analysis --> DB
-    Views --> Reports[HTML and Matplotlib reports]
-```
+The first launch asks for the organization name and creates the first Super Admin. Later launches open the sign-in screen. Passwords are stored as Argon2 hashes, session tokens are kept only in memory and hashed in the database, repeated failed sign-ins are throttled, and sessions can be revoked.
 
-## Technology and supported versions
+Available roles are Super Admin, Sales Manager, Lead Researcher, BDR, Account Executive, Marketing, and Read Only. Navigation visibility is a convenience; service methods enforce the same permissions again at the data boundary. Sensitive client fields are masked for roles without the corresponding permission.
 
-The project metadata requires Python `>=3.12,<3.16`, matching the supported range of the latest PySide6 release. The current lock file resolves the principal packages as follows:
+Invitation and password-reset codes are intentionally displayed to an administrator for out-of-band delivery. This local desktop build does not send email.
 
-| Purpose | Package | Locked version |
-|---|---|---:|
-| Desktop UI | `pyside6` | 6.12.0 |
-| Legacy UI (declared, no longer imported) | `flet`, `flet-desktop`, `flet-charts` | 1.0.4 |
-| Dataframes | `polars` | 2.0.0 |
-| Excel import | `openpyxl` | 3.1.5 |
-| Date parsing utilities | `python-dateutil` | 2.9.0.post0 |
-| Report charts | `matplotlib` | 3.11.2 |
-| Numerical support | `numpy` | 2.5.4 |
-| Tests | `pytest`, `pytest-cov` | 9.1.1, 7.1.0 |
-| Quality and security | `ruff`, `mypy`, `bandit`, `pip-audit` | 0.17.1, 2.4.0, 1.9.4, 2.10.1 |
-| Legacy Flet web smoke tests (no longer used) | `flet-cli`, `flet-web`, compatible `fastapi` | 1.0.4, 1.0.4, 0.144.0 |
+## Data architecture
 
-`pyproject.toml` and `poetry.lock` are the dependency sources of truth.
-The Flet packages and the FastAPI pin (below 0.145, for Flet Web 1.0.4) date from
-the retired Flet interface. No module imports them any more; they are candidates
-for removal with `poetry remove`, which will also regenerate the lock file.
+The active database is one SQLite file: `data/sales.db` by default. Sales, clients, leads, contacts, tasks, accounts, and the audit trail all live there.
 
-## Setup with Poetry
+- The original analytics/import code uses short-lived `sqlite3` connections.
+- Authenticated record workflows use SQLAlchemy services mapped onto the same `clients` and `leads` tables.
+- Alembic manages the unified account/workflow schema.
+- Startup takes a consistent SQLite backup before an existing schema is changed.
+- WAL mode and foreign-key enforcement are enabled.
+
+`data/crm.db`, when present, is an untouched legacy input from an earlier standalone implementation. It is never the live store during normal startup. Compatible organization/account data can be carried forward once. A legacy file containing unsupported business records is rejected rather than silently discarding them.
+
+Runtime databases, WAL/SHM files, rejected-row exports, and backups are local data and must not be committed or bundled into a release. If this checkout already tracks a database, review and remove it from version control separately without deleting the user's local copy.
+
+See [Architecture](docs/ARCHITECTURE.md), [Schema](core/SCHEMA.md), and the [current unified-desktop audit](docs/quality/UNIFIED_DESKTOP_AUDIT_2026-10-21.md).
+
+## Installation and launch
 
 Prerequisites:
 
-- Python 3.12 or newer, but lower than Python 4
+- Python 3.12 or newer, but lower than 3.16
 - Poetry 2.x
-- A desktop session supported by Qt 6 (Windows, macOS, or Linux on X11 or Wayland)
+- A desktop session supported by Qt 6
 
 From the project root:
 
@@ -75,90 +62,96 @@ poetry install
 poetry run python main.py
 ```
 
-Poetry installs both runtime and development dependency groups from the lock file. On Linux, if Qt reports that it could not load the `xcb` platform plugin, install the distribution's Qt runtime libraries (on Debian/Ubuntu: `libxcb-cursor0`).
+The package also declares a GUI launcher:
 
-### First run
+```bash
+poetry run techset-leadgen
+```
 
-1. `main.py` creates and migrates `data/sales.db` automatically.
-2. The application opens on **Dashboard**; the sidebar switches between Dashboard, Sales, Leads, and Clients (Ctrl+1 to Ctrl+4).
-3. Choose **Import data** (or press Ctrl+I), select a `.csv` or `.xlsx` file, inspect the preview, and confirm the import.
-4. Use the Sales and Leads filters to build analytics, then export an HTML report when needed.
+Useful command-line operations:
 
-The window opens at 1360 × 860 px and can shrink to 760 × 600 px. Below 980 px wide the sidebar collapses to icons with tooltips.
+```bash
+poetry run python main.py --version
+poetry run python main.py --issue-reset-code person@example.com
+```
+
+The reset-code command prints a one-time code for an administrator to deliver securely. On Linux, a missing `xcb` platform-plugin dependency may require the distribution's Qt runtime packages (for example `libxcb-cursor0` on Debian/Ubuntu).
+
+## First-run workflow
+
+1. Launch the application. It migrates the local database only after making any required pre-migration backup.
+2. Enter the organization name, first administrator's name and work email, and a strong password of at least 12 characters.
+3. Import a `.csv` or `.xlsx` file from Dashboard or Sales.
+4. Use the existing Sales, Leads, and Clients areas; add Tasks or invite Users as permitted.
+5. Use Settings → **Back up now…** before moving the installation or performing manual maintenance.
+
+The default window is 1360 × 860 and supports a 760 × 600 minimum. The sidebar collapses to icon buttons at compact widths; tooltips and accessible names retain the labels.
 
 ## Import formats
 
-The interface accepts `.csv` and `.xlsx`; the importer also understands `.xlsm` when invoked directly. The maximum file size is 50 MB.
+The desktop importer inspects the file in a worker so the interface remains responsive. It previews the detected type and schema before writing accepted rows in a transaction.
 
 | Detected type | Required logical columns | Optional logical columns |
 |---|---|---|
 | Sales | `client_name`, `client_id`, `product_type`, `price` | `date` |
 | Leads | `created_at`, `source` | `external_id`, `status`, `meeting_date`, `client_id` |
 | Marketing spend | `source`, `amount` | `date` |
-| Mixed | A single file satisfying both the Sales and Leads required-column sets | The optional Sales and Leads columns above |
+| Mixed sales/leads | Both required sets | The optional columns above |
 
-Sales and marketing-spend imports recognize common English and Spanish aliases; lead imports recognize their documented platform-oriented aliases. CSV encoding and delimiter detection supports UTF-8, UTF-8 with BOM, Windows-1252, comma, semicolon, tab, and pipe-separated input.
+CSV detection supports UTF-8, UTF-8 with BOM, Windows-1252, and comma/semicolon/tab/pipe delimiters. Excel `.xlsx` is supported; the importer also understands `.xlsm` when invoked directly. The maximum file size is 50 MB.
 
-Import behavior:
+Important behavior:
 
-- A missing sales or marketing-spend date defaults to the current date.
-- Sales imports create missing clients using the imported client ID and name.
-- Sources such as Facebook, Instagram, Google, LinkedIn, and TikTok are normalized to stable source codes.
-- Lead imports use `(external_id, source)` to avoid repeat imports when an external ID exists. Leads can remain unlinked when their `client_id` is absent from the client table.
-- Mixed imports write sales first, making imported clients available before their leads are processed.
-- Invalid rows are skipped and written to `data/failed_*.csv` with a reason. Accepted rows remain importable even when other rows fail validation.
-- A process-wide lock permits only one import job at a time.
-- Re-importing sales or marketing spend adds another set of records; those types are not de-duplicated.
+- Missing sales or spend dates default to the current date.
+- Sales imports create missing client rows.
+- Lead source and stage names are normalized to the shared application vocabulary.
+- `(external_id, source)` prevents duplicate lead imports when an external ID exists.
+- Mixed imports write sales first so their clients can be linked to leads.
+- Invalid rows are written to a local `failed_*.csv` with a reason; valid rows can still commit.
+- Sales and spend imports are additive.
 
-Use ISO `YYYY-MM-DD` dates for unambiguous imports. Slash dates are interpreted day-first.
-
-## Storage, backup, and recovery
-
-The database is SQLite in WAL mode with foreign keys enabled. Its schema is documented in [core/SCHEMA.md](core/SCHEMA.md).
-
-- The default database path is `data/sales.db`.
-- Import history is stored in `import_metadata`.
-- Application and importer logs rotate at 1 MB with three backups.
-- Deleting a client also deletes its sales because the foreign key uses `ON DELETE CASCADE`; linked leads are retained and their `client_id` becomes `NULL`.
-- To back up safely, close the application and copy `sales.db` together with `sales.db-wal` and `sales.db-shm` when those files exist.
-- `poetry run python scripts/audit_db.py` prints a read-only database summary.
-
-## Configuration
-
-The following environment-variable names are retained as **legacy compatibility interfaces**. Renaming them would break existing deployments even though the visible product name is Techset LeadGen.
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `FDT_DATA_DIR` | `<project>/data` | Overrides the directory containing `sales.db` and rejected-row CSV files. |
-| `FDT_LOG_DIR` | `<project>/logs` | Overrides the directory containing `app.log` and `importer.log`. |
-| `FDT_LOG_LEVEL` | `INFO` | Sets the application log level. `TSLG_LOG_LEVEL` takes precedence when both are set. |
-
-Example:
-
-```bash
-FDT_DATA_DIR=/path/to/writable/data \
-FDT_LOG_DIR=/path/to/writable/logs \
-FDT_LOG_LEVEL=DEBUG \
-poetry run python main.py
-```
-
-When packaged as an executable, the default data and log folders are resolved beside the executable. That location must be writable, or the legacy directory overrides must point to writable folders.
+Use ISO `YYYY-MM-DD` dates for unambiguous results. Slash-form dates are interpreted day-first.
 
 ## Reports
 
-Reports are generated locally and do not upload data. The save dialog chooses the destination. After a Sales export, **Open report** opens the file in the default browser; Leads and Client exports are saved to the chosen path.
+Sales, Leads, and Client exports are self-contained branded HTML documents. Report data comes from the same active snapshot shown in the desktop screen; report generation does not query a parallel CRM store or upload anything. Matplotlib charts are embedded as base64 images.
 
-- Sales reports consume the same `AnalysisSnapshot` displayed by the Sales page, including normal or comparison mode.
-- Lead reports consume the active filtered lead set and include funnel, source, and optional marketing-efficiency sections. The lead-detail table is limited to the first 50 records.
-- Client reports use the selected client record and the most recent sales returned by the client statistics query.
-- Client tax ID, email, and contact fields are masked in branded HTML until hover or keyboard focus.
+The operating system may open an exported report in the default browser, but the application itself remains a Qt desktop application.
+
+## Configuration
+
+The following environment variables are compatibility interfaces and should not be renamed casually:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `FDT_DATA_DIR` | `<project>/data` | Directory containing the active `sales.db` and rejected-row files. |
+| `FDT_LOG_DIR` | `<project>/logs` | Directory containing rotating application/import logs. |
+| `TSLG_LOG_LEVEL` | `INFO` | Application log level; takes precedence over legacy `FDT_LOG_LEVEL`. |
+| `FDT_LOG_LEVEL` | `INFO` | Legacy log-level override. |
+| `TSLG_SESSION_IDLE_MINUTES` | `30` | Session idle timeout. |
+| `TSLG_SESSION_ABSOLUTE_HOURS` | `12` | Maximum session lifetime. |
+| `TSLG_LOGIN_MAX_FAILURES` | `5` | Failed sign-ins allowed in the configured window. |
+| `TSLG_LOGIN_WINDOW_MINUTES` | `15` | Failed-sign-in window. |
+| `TSLG_TOKEN_TTL_HOURS` | `72` | Invitation/reset-code lifetime. |
+
+For source and wheel installs, point data and logs at user-writable locations when the project/package directory is not writable:
+
+```bash
+FDT_DATA_DIR=/path/to/data FDT_LOG_DIR=/path/to/logs poetry run python main.py
+```
+
+## Backup and recovery
+
+Use Settings → **Back up now…** for a consistent online SQLite backup. For a manual copy, close the application and copy `sales.db` together with any non-empty `sales.db-wal` and `sales.db-shm` files. Automatic pre-migration backups are placed under the active data directory's `backups/` folder.
+
+Client deletion removes that client's sales, contacts, client-linked activity, and client-linked tasks. Linked leads remain and are detached. Every destructive screen action requires confirmation and permission.
 
 ## Development checks
 
-Run checks from the project root through Poetry so they use the locked environment:
+Tests redirect the data directory, log directory, Matplotlib cache, and Qt settings into temporary paths; they do not intentionally modify the repository databases.
 
 ```bash
-poetry check
+poetry check --lock
 poetry build
 poetry run pytest
 poetry run pytest --cov
@@ -168,49 +161,49 @@ poetry run bandit -c pyproject.toml -r . --severity-level medium --confidence-le
 poetry run pip-audit
 ```
 
-The root `conftest.py` redirects `FDT_DATA_DIR`, `FDT_LOG_DIR`, and `XDG_CONFIG_HOME` to a temporary folder during pytest runs, so tests never modify the normal database, logs, or saved theme. GUI tests run headless (`QT_QPA_PLATFORM=offscreen`) against the real widgets, and `tests/qt_helpers.py` answers the production dialogs instead of mocking them. `tests/test_audit_regressions.py` covers the defects recorded in [docs/quality/DEFECT_LOG.md](docs/quality/DEFECT_LOG.md). Test counts are intentionally not recorded here because they change with the suite.
+Qt widget tests run with the real PySide6 widgets using the offscreen platform. Native file pickers, operating-system window behavior, and opening a report still require a manual desktop smoke test.
 
-`poetry build` produces a Python wheel and source archive in `dist/`. The project
-also runs directly from source with `poetry run python main.py`. A platform-native
-desktop-installer configuration is not defined in this repository, so the wheel,
-source archive, headless GUI tests, and source startup are the applicable
-build checks.
+## Windows packaging
+
+PyInstaller builds for the operating system on which it runs. On a clean Windows machine:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
+```
+
+The script installs development dependencies, runs the test suite, builds a windowed one-folder executable, and creates `dist\TechsetLeadGen-<version>-windows.zip`. It is a portable bundle, not an MSI/MSIX installer, and the repository does not currently define code signing or an installer upgrade channel. Test the Windows artifact on Windows before release; a Linux PyInstaller build does not validate Windows behavior.
+
+The executable stores data beside itself unless `FDT_DATA_DIR` is set, so extract/install it to a user-writable location.
 
 ## Project map
 
 ```text
 TSLG/
-├── main.py                 # Logging, QApplication, database initialization, startup errors
-├── branding.py             # Product copy and branded asset names
-├── pyproject.toml          # Python constraints, dependencies, and quality-tool config
-├── poetry.lock             # Reproducible dependency resolution
-├── assets/                 # Official logos, app icons, and bundled Inter font
-├── desktop_ui/             # PySide6 shell, theme, import bridge, shared widgets
-│   └── pages/              # Dashboard, Sales, Leads, Clients pages and their dialogs
-├── controllers/            # UI state, validation, filtering, and workflow coordination
-├── services/               # Dashboard KPIs and sales snapshot assembly
-├── analysis/               # SQL/Polars analytics and time grouping
-├── domain/                 # UI-independent snapshot and filter data contracts
-├── models/                 # Client, lead, marketing-spend persistence operations
-├── core/                   # SQLite schema/migrations, import engine, and date ranges
-├── reports/                # Branded HTML templates and Matplotlib chart generation
-├── utils/                  # Locale-independent formatting and import templates
-├── scripts/                # Database audit, diagnostics, and benchmarks
-├── tests/                  # pytest suites and Qt dialog helpers
-└── docs/                   # Architecture, branding, and quality reports (docs/quality/)
+├── main.py                 # QApplication, logging, startup, small admin CLI
+├── branding.py             # Product identity and asset names
+├── assets/                 # Official logo/icon, Inter font, UI icons
+├── desktop_ui/             # PySide6 shell, shared UI, dialogs, workflows
+│   └── pages/              # Authoritative pages plus distinct admin/work pages
+├── crm/                    # Internal auth, permissions, ORM models, services, migrations
+├── controllers/            # Existing screen/application controllers
+├── services/               # KPI and snapshot assembly
+├── analysis/               # SQL/Polars analytics
+├── models/                 # Legacy-compatible raw persistence adapters
+├── core/                   # SQLite bootstrap, importer, schema documentation
+├── reports/                # Branded self-contained HTML reports
+├── packaging/              # PyInstaller specification
+├── scripts/                # Diagnostics, benchmarks, Windows build
+├── tests/                  # Business, database, regression, and real-widget tests
+└── docs/                   # Architecture, branding, and quality evidence
 ```
 
 ## Current boundaries
 
-- The database and application are designed for a single local desktop process; there is no multi-user concurrency or authentication layer.
-- The UI is written in English, while several internal module names and comments remain Spanish for compatibility with the existing codebase.
-- Amounts render in euros and dates are stored as ISO text.
-- Sales and marketing-spend imports are additive. Individual spend records can be corrected or deleted under **Leads → Marketing efficiency → Manage spend**.
-- Headless tests render and drive the real widgets offscreen; behavior owned by the window manager or operating system (native file pickers, opening reports in a browser) still needs a desktop smoke run.
-- When installed from the wheel rather than run from source or a frozen executable, the default `data/` and `logs/` folders resolve inside `site-packages`. Set `FDT_DATA_DIR` and `FDT_LOG_DIR` to writable folders for wheel installs.
-- The wheel installs generic top-level packages (`core`, `utils`, `models`, and others); install it into a dedicated virtual environment to avoid name collisions.
-- `funnel_events` exists in the schema as a reserved table; current workflows do not write funnel events.
+- The default deployment is one local desktop process and one local SQLite database; there is no cloud synchronization.
+- The interface is English while some established internal names/comments remain Spanish for compatibility.
+- Money is displayed in euros and dates are stored in explicit text/date-time formats documented in the schema.
+- Invitation/reset codes require an out-of-band administrator workflow; no mail provider is configured.
+- A populated legacy standalone `crm.db` with richer business records needs an explicit migration tool; startup must stop rather than import only part of it.
+- Windows packaging must be built and smoke-tested on Windows.
 
-## Licensing note
-
-The repository currently has no root software-license file. The bundled Inter font is covered by the SIL Open Font License in `assets/fonts/OFL.txt`. Techset Solutions brand assets remain subject to the brand owner's rights and usage rules.
+The repository has no root software-license file. The bundled Inter font is licensed under the SIL Open Font License in `assets/fonts/OFL.txt`; Techset Solutions brand assets remain subject to the brand owner's rights.

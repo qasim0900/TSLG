@@ -163,3 +163,38 @@ Qt labels default to `AutoText`, so a client named `<b>Bold</b>` or a search for
 | OPEN-06 | P3 | At narrow widths the stretched first column of wide tables (for example the marketing Source column) is squeezed; the table scrolls inside its frame | Set a minimum width for the first column |
 | OPEN-07 | P3 | Rejected-row CSVs write raw cell values; values starting with `=`, `+`, `-`, or `@` could be evaluated if opened in a spreadsheet. The values come from the user's own import file | Prefix such values with `'` when writing the file |
 | OPEN-08 | P3 | Several instances of the app on one database are not coordinated: the import lock is per process and SQLite waits only 5 s | Document single-instance use or add a single-instance guard |
+
+## 2026-10-21 — consolidation into one application
+
+Details and verification: [UNIFIED_DESKTOP_AUDIT_2026-10-21.md](UNIFIED_DESKTOP_AUDIT_2026-10-21.md).
+
+| ID | Severity | Defect | Status |
+|----|----------|--------|--------|
+| DEF-030 | P1 | A separate "CRM" area duplicated Dashboard, Leads, and Clients with its own tab bar and a second database (`crm.db`) | Fixed: one sidebar, one `sales.db`; CRM screens merged into the existing pages |
+| DEF-031 | P1 | With the `sqlite3` driver's default transaction handling, releasing the first savepoint committed the whole transaction, so rolled-back work could persist | Fixed in `crm/db.py` (`BEGIN IMMEDIATE`, driver handling off); regression test |
+| DEF-032 | P2 | An optional 0–100 field (`int \| None` with a range) raised TypeError for an empty value under pydantic 2.14, so forms could not save | Fixed (range on the integer branch only) |
+| DEF-033 | P2 | Taking an unassigned lead or client for oneself skipped permission checks, so read-only and marketing users could become owners | Fixed: requires `leads.edit` / `clients.edit`; tests |
+| DEF-034 | P2 | The importer stored unknown lead stages verbatim ("Client" became `client`), invisible to the funnel | Fixed: labels map to codes, unknown stages are rejected per row |
+| DEF-035 | P3 | `MessageDialog` measured −1 px tall when no stylesheet was active (size policy dropped height-for-width) | Fixed |
+| DEF-036 | P3 | A widget attribute named `metric` shadowed `QPaintDevice.metric()`; changing the theme raised TypeErrors | Fixed |
+| DEF-037 | P3 | Lambdas capturing dialogs in new Qt connections kept closed dialogs alive (the DEF-026 pattern) | Fixed; covered by the DEF-026 test |
+| DEF-038 | P3 | Dates used the system locale's month names (e.g. Urdu) inside English text | Fixed: fixed English month abbreviations |
+| DEF-039 | P3 | The old standalone `crm.db` carries the same revision label (`0001`) as the unified schema | Fixed: startup checks the table layout and refuses a mismatched file; carry-over refuses a `crm.db` that holds business records |
+
+## 2026-10-21 — tables across the application
+
+Every table now uses one shared style and behaviour (`desktop_ui/tables.py`, described in [Architecture](../ARCHITECTURE.md)). Defects found while doing so:
+
+| ID | Severity | Defect | Status |
+|----|----------|--------|--------|
+| DEF-040 | P2 | On a 1440 px window the Leads and Clients lists were wider than their frame, so the row actions (Open, Stage…, View, Edit, Delete) were off screen | Fixed at 1440 px: the widest text columns are shortened first (full text on hover), and the client list starts with its masked Tax ID and Email columns hidden (right-click a heading to show them). At 1280 px both lists still scroll sideways; columns can be hidden from the heading menu |
+| DEF-041 | P3 | The lead list's Follow-up column sorted alphabetically ("01 Nov" before "23 Oct"): its sort value was stored on a plain item, which Qt ignores | Fixed: dates sort chronologically; test |
+| DEF-042 | P3 | Gain/loss colours in the Sales comparison table were dark green and dark red on the dark theme | Fixed: theme-aware colours, re-applied when the theme changes |
+| DEF-043 | P3 | The sort arrow covered right-aligned (number) headings | Fixed: the arrow sits above the heading |
+| DEF-044 | P3 | The search results dialog connected lambdas that captured the dialog (DEF-026 pattern) | Fixed: bound methods |
+| DEF-045 | P3 | "Select an user to see its details" | Fixed |
+| DEF-046 | P3 | The audit log showed internal codes (`lead.status_changed`) and record IDs; its filter needed the exact code | Fixed: plain-language actions, record and people names, old → new values in words; the filter matches part of the action's name |
+
+Status changes: **OPEN-01** resolved on screen (CPL, CAC, and ROI show "—" without spend); the Leads HTML report still prints €0.00 and 0.0%. **OPEN-06** addressed by the column fitting above: name columns keep a readable minimum, and the widest columns give way first.
+
+Status changes: **OPEN-03** resolved (Flet, Flet-web, and FastAPI removed from the dependencies; `utils/ui_dispatch.py` remains but nothing imports it). **OPEN-06** partly addressed for the Clients list (Name keeps a readable width). **OPEN-08** still applies to the analytics import; account and record changes use `BEGIN IMMEDIATE` with a 15 s busy timeout.

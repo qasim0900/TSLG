@@ -8,6 +8,7 @@ Operaciones disponibles:
   get_latest_lead_per_client()       — lead más reciente por cliente
 """
 
+from domain.lead_stages import LEAD_STATUSES
 import re
 import secrets
 import string
@@ -15,7 +16,7 @@ from datetime import date as _date
 from core.db import get_connection
 
 # Vocabulario válido de estados de lead (consistente con importer y tabla_leads)
-VALID_LEAD_STATUSES = {"new", "contacted", "meeting", "converted", "lost"}
+VALID_LEAD_STATUSES = frozenset(LEAD_STATUSES)
 
 
 def _generate_lead_id() -> str:

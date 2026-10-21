@@ -173,7 +173,11 @@ class MessageDialog(QDialog):
         label.setTextFormat(Qt.TextFormat.PlainText)  # may contain client names
         label.setWordWrap(True)
         label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        policy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        # A new policy drops the height-for-width flag that setWordWrap() set; without
+        # it the dialog measured -1 px tall unless a stylesheet re-polished the label.
+        policy.setHeightForWidth(True)
+        label.setSizePolicy(policy)
         return label
 
     def _fit_to_content(self) -> None:

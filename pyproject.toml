@@ -2,7 +2,7 @@
 testpaths = ["tests", "analysis/tests"]
 python_files = ["test_*.py"]
 markers = [
-    "gui: headless Flet control-tree tests (no display required)",
+    "gui: headless Qt widget tests (no display required)",
 ]
 
 [tool.coverage.run]
@@ -19,17 +19,17 @@ omit = [
 skip_empty = true
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py312"
 extend-exclude = [".venv", "screenshots"]
 
 [tool.ruff.lint]
 select = ["E9", "F63", "F7", "F82", "F811", "F841", "B006", "B008", "B011", "B017", "B018"]
 
 [tool.mypy]
-python_version = "3.15"
+python_version = "3.12"
 ignore_missing_imports = true
 explicit_package_bases = true
-files = ["core", "models", "controllers", "services", "analysis", "domain", "utils", "reports", "desktop_ui", "main.py", "branding.py"]
+files = ["core", "models", "controllers", "services", "analysis", "domain", "utils", "reports", "desktop_ui", "crm", "main.py", "branding.py"]
 exclude = ["analysis/tests/"]
 
 [tool.bandit]
@@ -52,6 +52,7 @@ packages = [
     { include = "assets" },
     { include = "controllers" },
     { include = "core" },
+    { include = "crm" },
     { include = "desktop_ui" },
     { include = "domain" },
     { include = "models" },
@@ -62,24 +63,32 @@ packages = [
 
 [project]
 name = "tslg"
-version = "0.1.0"
-description = "Techset LeadGen desktop sales, client, and lead intelligence application."
+version = "0.2.0"
+description = "Techset LeadGen native desktop sales, lead, and client operations application."
 authors = [
     {name = "qasim0900",email = "qasim_kamran2007@yahoo.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.12,<3.16"
 dependencies = [
-    "flet (>=1.0.4,<2.0.0)",
-    "flet-desktop (>=1.0.4,<2.0.0)",
-    "flet-charts (>=1.0.4,<2.0.0)",
     "polars (>=2.0.0,<3.0.0)",
     "openpyxl (>=3.1.5,<4.0.0)",
     "python-dateutil (>=2.9.0.post0,<3.0.0)",
     "matplotlib (>=3.11.2,<4.0.0)",
     "numpy (>=2.5.4,<3.0.0)",
-    "pyside6 (>=6.12.0,<7.0.0)"
+    "pyside6 (>=6.12.0,<7.0.0)",
+    # Accounts and record workflows: database access, schema migrations,
+    # password hashing (Argon2), and input validation.
+    "sqlalchemy (>=2.1.5,<3.0.0)",
+    "alembic (>=1.20.0,<2.0.0)",
+    "argon2-cffi (>=25.1.0,<26.0.0)",
+    "pydantic (>=2.14.1,<3.0.0)",
+    # Windows has no system time-zone database; zoneinfo falls back to this package.
+    "tzdata (>=2025.2)"
 ]
+
+[project.gui-scripts]
+techset-leadgen = "main:main"
 
 
 [build-system]
@@ -94,9 +103,6 @@ dev = [
     "mypy (>=2.4.0,<3.0.0)",
     "bandit (>=1.9.4,<2.0.0)",
     "pip-audit (>=2.10.1,<3.0.0)",
-    "flet-cli (>=1.0.4,<2.0.0)",
-    "flet-web (>=1.0.4,<2.0.0)",
-    # Flet Web 1.0.4 still passes `openapi_prefix`; FastAPI removed that
-    # compatibility argument in 0.145. Keep the web smoke-test stack usable.
-    "fastapi (>=0.115.12,<0.145.0)"
+    # Builds the Windows executable (packaging/TechsetLeadGen.spec).
+    "pyinstaller (>=6.22.3,<7.0.0)"
 ]

@@ -103,6 +103,10 @@ class RowActionDelegate(QStyledItemDelegate):
         background = QStyleOptionViewItem(option)
         self.initStyleOption(background, index)
         background.text = ""
+        from .tables import paint_hover  # the shared row hover (tables imports nothing from here)
+
+        paint_hover(painter, option.rect, self._view, index.row(),
+                    bool(option.state & QStyle.StateFlag.State_Selected))
         style = option.widget.style() if option.widget else None
         if style is not None:
             style.drawControl(QStyle.ControlElement.CE_ItemViewItem, background, painter, option.widget)

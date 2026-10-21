@@ -10,6 +10,7 @@ both themes without adding image assets or an icon dependency.
 from __future__ import annotations
 
 from collections.abc import Callable
+from math import cos, radians, sin
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
@@ -50,11 +51,45 @@ def _clients(painter: QPainter) -> None:
     painter.drawArc(QRectF(13.5, 13.5, 9, 9), 0, 180 * 16)
 
 
+def _tasks(painter: QPainter) -> None:
+    painter.drawRoundedRect(QRectF(4, 3.5, 16, 17), 2.2, 2.2)
+    check = QPainterPath(QPointF(7.5, 9))
+    check.lineTo(9, 10.5)
+    check.lineTo(12, 7.5)
+    painter.drawPath(check)
+    painter.drawLine(QPointF(13.5, 9), QPointF(17, 9))
+    painter.drawLine(QPointF(7.5, 15), QPointF(17, 15))
+
+
+def _users(painter: QPainter) -> None:
+    painter.drawEllipse(QRectF(8.5, 3.5, 7, 7))
+    painter.drawArc(QRectF(5, 13, 14, 13), 0, 180 * 16)
+    painter.drawLine(QPointF(17.5, 15), QPointF(21, 15))
+    painter.drawLine(QPointF(19.25, 13.25), QPointF(19.25, 16.75))
+
+
+def _audit(painter: QPainter) -> None:
+    painter.drawRoundedRect(QRectF(5, 3, 14, 18), 2, 2)
+    for y in (8, 12, 16):
+        painter.drawLine(QPointF(8, y), QPointF(16, y))
+
+
+def _settings(painter: QPainter) -> None:
+    painter.drawEllipse(QRectF(9, 9, 6, 6))
+    for angle in range(0, 360, 45):
+        x, y = cos(radians(angle)), sin(radians(angle))
+        painter.drawLine(QPointF(12 + 5.5 * x, 12 + 5.5 * y), QPointF(12 + 8.5 * x, 12 + 8.5 * y))
+
+
 _DRAWERS: dict[str, Callable[[QPainter], None]] = {
     "dashboard": _dashboard,
     "sales": _sales,
     "leads": _leads,
     "clients": _clients,
+    "tasks": _tasks,
+    "users": _users,
+    "audit": _audit,
+    "settings": _settings,
 }
 
 

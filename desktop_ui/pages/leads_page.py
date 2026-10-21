@@ -1,14 +1,16 @@
-"""PySide6 leads workspace.
+"""PySide6 leads workspace: funnel analytics and lead management on the same lead records.
 
-The widget deliberately depends on the existing controller and report layers,
-not on the retired Flet controls.  It can therefore be embedded in the main
-desktop shell or constructed independently in tests.
+Analytics come from the existing controller and report layers. Changes to a
+lead (new leads, edits, stage moves with reasons, assignment, follow-ups) go
+through the business services via the signed-in session, which enforce roles
+and record the audit trail. Imports keep creating leads in the same table.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -20,10 +22,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDateEdit,
-    QDialog,
-    QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
     QFrame,
     QGridLayout,
     QGroupBox,
@@ -44,6 +43,7 @@ from PySide6.QtWidgets import (
 )
 
 from controllers.leads_controller import LeadsController
+from crm.services import leads as lead_service
 from controllers.leads_filter_controller import (
     ALL_LEADS_DESCRIPTION,
     ALL_SOURCES,
@@ -53,24 +53,25 @@ from controllers.leads_filter_controller import (
     _STAGE_STATUS_MAP,
     filter_leads,
 )
+from domain.lead_stages import LEAD_STATUSES
 from domain.source_labels import SOURCE_LABELS
 from utils.formatting import format_eur
 from reports.report_leads_html import generate_leads_html_report
 
 from .marketing_spend_dialog import MarketingSpendDialog
 from ..row_actions import RowAction, RowActionDelegate, install_row_action_menu
+from ..session import AppContext
+from ..support import date_text, local_time, report
+from ..tables import enable_column_choice, prepare_table, set_header_tips
 from ..widgets import bulk_table_update, labeled_field, sortable_item
+from ..workflows import assign_leads, change_stage, lead_form, load_lead, open_lead
 
 logger = logging.getLogger(__name__)
 
-_STATUS_LABELS = {
-    "new": "Lead",
-    "contacted": "Contacted",
-    "meeting": "Meeting",
-    "converted": "Client",
-    "lost": "Lost",
-}
+_STATUS_LABELS = LEAD_STATUSES
 _STATUS_VALUES = tuple(_STATUS_LABELS)
+_PRIORITY_LABELS = {"low": "Low", "medium": "Medium", "high": "High", "urgent": "Urgent"}
+_ACTIONS_COLUMN = 9
 SEARCH_DEBOUNCE_MS = 200
 
 
@@ -79,8 +80,19 @@ def _source_label(value: Any) -> str:
     return SOURCE_LABELS.get(raw, raw.replace("_", " ").title())
 
 
-def _readonly_item(value: Any, *, numeric: float | int | None = None) -> QTableWidgetItem:
-    item = sortable_item(str(value if value not in (None, "") else "—"), numeric)
+def _lead_title(lead: dict[str, Any]) -> str:
+    """Manual leads have a title; imported ones are named after their client or source."""
+    client = str(lead.get("client_name") or "").strip()
+    if lead.get("title"):
+        return str(lead["title"])
+    if client and client not in ("—", "-"):  # the analytics fill missing clients with "—"
+        return client
+    return f"{_source_label(lead.get('source'))} lead"
+
+
+def _readonly_item(value: Any, *, numeric: float | int | None = None, sort_key: Any = None) -> QTableWidgetItem:
+    """A read-only cell; ``numeric`` right-aligns and sorts by number, ``sort_key`` only sorts."""
+    item = sortable_item(str(value if value not in (None, "") else "—"), numeric if numeric is not None else sort_key)
     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
     if numeric is not None:
         item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -147,70 +159,6 @@ class _OptionalDate(QWidget):
         self.enabled_box.setChecked(False)
 
 
-class LeadEditDialog(QDialog):
-    """Edit one lead's pipeline stage and optional meeting date."""
-
-    def __init__(self, lead: dict[str, Any], parent: QWidget | None = None):
-        super().__init__(parent)
-        self._lead = lead
-        self.setWindowTitle(f"Edit lead {lead.get('id', '')}")
-        self.setModal(True)
-        self.setMinimumWidth(420)
-        self.setAccessibleName("Edit lead")
-
-        root = QVBoxLayout(self)
-        intro = QLabel(
-            f"{_source_label(lead.get('source'))}  ·  "
-            f"Created {(str(lead.get('created_at') or '')[:10] or '—')}"
-        )
-        intro.setObjectName("dialogSubtitle")
-        root.addWidget(intro)
-
-        form = QFormLayout()
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        self.status_combo = QComboBox()
-        for value, label in _STATUS_LABELS.items():
-            self.status_combo.addItem(label, value)
-        current = self.status_combo.findData((lead.get("status") or "new").lower())
-        self.status_combo.setCurrentIndex(max(current, 0))
-        self.status_combo.setAccessibleName("Lead stage")
-
-        self.has_meeting = QCheckBox("Meeting scheduled")
-        meeting_raw = str(lead.get("meeting_date") or "")[:10]
-        meeting_date = QDate.fromString(meeting_raw, Qt.DateFormat.ISODate)
-        self.meeting_date = QDateEdit(meeting_date if meeting_date.isValid() else QDate.currentDate())
-        self.meeting_date.setDisplayFormat("yyyy-MM-dd")
-        self.meeting_date.setCalendarPopup(True)
-        self.meeting_date.setAccessibleName("Meeting date")
-        self.has_meeting.setChecked(bool(meeting_raw))
-        self.meeting_date.setEnabled(bool(meeting_raw))
-        self.has_meeting.toggled.connect(self.meeting_date.setEnabled)
-        form.addRow("Stage", self.status_combo)
-        form.addRow(self.has_meeting, self.meeting_date)
-        root.addLayout(form)
-
-        hint = QLabel("Meeting date may be cleared. Dates are stored in YYYY-MM-DD format.")
-        hint.setWordWrap(True)
-        hint.setObjectName("helpText")
-        root.addWidget(hint)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        root.addWidget(buttons)
-
-    def values(self) -> tuple[str, str | None]:
-        status = str(self.status_combo.currentData())
-        meeting = (
-            self.meeting_date.date().toString(Qt.DateFormat.ISODate)
-            if self.has_meeting.isChecked()
-            else None
-        )
-        return status, meeting
-
-
 class LeadsPage(QWidget):
     """Responsive lead analytics and management page.
 
@@ -228,8 +176,10 @@ class LeadsPage(QWidget):
         *,
         controller: type[LeadsController] = LeadsController,
         report_generator=generate_leads_html_report,
+        context: AppContext | None = None,
     ) -> None:
         super().__init__(parent)
+        self.context = context
         self._controller = controller
         self._report_generator = report_generator
         self._all_leads: list[dict[str, Any]] = []
@@ -240,6 +190,7 @@ class LeadsPage(QWidget):
         self._marketing_metrics: list[dict[str, Any]] = []
         self._spend_by_source: dict[str, float] = {}
         self._revenue_by_client: dict[str, float] = {}
+        self._extras: dict[str, lead_service.LeadExtras] = {}
         self._layout_mode: tuple[int, int, int] | None = None
 
         self.setObjectName("leadsPage")
@@ -285,11 +236,20 @@ class LeadsPage(QWidget):
         titles.addWidget(subtitle)
         header.addLayout(titles, 1)
         self.export_button = QPushButton("Export HTML")
-        self.export_button.setObjectName("primaryButton")
+        self.export_button.setObjectName("secondaryButton")
         self.export_button.setToolTip("Export the currently filtered lead snapshot (Ctrl+E)")
         self.export_button.setAccessibleName("Export filtered leads to HTML")
         self.export_button.clicked.connect(self.export_report)
-        header.addWidget(self.export_button, 0, Qt.AlignmentFlag.AlignTop)
+        self.assign_button = QPushButton("Assign selected…")
+        self.assign_button.setObjectName("secondaryButton")
+        self.assign_button.setToolTip("Give the selected leads to one owner (select rows with Ctrl or Shift)")
+        self.assign_button.clicked.connect(self.assign_selected)
+        self.new_lead_button = QPushButton("New lead")
+        self.new_lead_button.setObjectName("primaryButton")
+        self.new_lead_button.setToolTip("Add a lead by hand (imports add leads automatically)")
+        self.new_lead_button.clicked.connect(self.new_lead)
+        for button in (self.export_button, self.assign_button, self.new_lead_button):
+            header.addWidget(button, 0, Qt.AlignmentFlag.AlignTop)
         self._layout.addLayout(header)
 
         filters_box = QGroupBox("Filters")
@@ -312,6 +272,10 @@ class LeadsPage(QWidget):
         self.stage_combo.addItem(ALL_STAGES, ALL_STAGES)
         for label in _STAGE_STATUS_MAP:
             self.stage_combo.addItem(label, label)
+        self.owner_combo = QComboBox()
+        self.owner_combo.setAccessibleName("Filter by owner")
+        for value, text in ((None, "Anyone"), ("me", "My leads"), ("none", "Unassigned")):
+            self.owner_combo.addItem(text, value)
         self.quick_range_combo = QComboBox()
         self.quick_range_combo.setAccessibleName("Quick date range")
         for label, _days in _DATE_RANGE_OPTIONS:
@@ -329,6 +293,7 @@ class LeadsPage(QWidget):
             labeled_field("Search", self.search_edit),
             labeled_field("Source", self.source_combo),
             labeled_field("Stage", self.stage_combo),
+            labeled_field("Owner", self.owner_combo),
             labeled_field("Period", self.quick_range_combo),
             self.start_date,
             self.end_date,
@@ -393,7 +358,15 @@ class LeadsPage(QWidget):
         self.source_table = self._make_table(
             ["Source", "Leads", "Meetings", "Clients", "Conversion", "M→C", "Avg. days"],
             "Lead source performance",
+            numeric=range(1, 7),
+            empty="No leads in this selection.",
         )
+        set_header_tips(self.source_table, {
+            2: "Leads that reached the meeting stage (Meeting, Qualified, or Client)",
+            4: "Share of the source's leads that became clients",
+            5: "Meetings that became clients",
+            6: "Average days from the lead's date to its meeting",
+        })
         self.source_table.setMinimumHeight(230)
         # Explicit defaults: enabling sorting otherwise re-sorts by column 0, descending.
         self.source_table.sortItems(1, Qt.SortOrder.DescendingOrder)
@@ -445,7 +418,15 @@ class LeadsPage(QWidget):
         self.marketing_table = self._make_table(
             ["Source", "Leads", "Clients", "Revenue", "Spend", "CPL", "CAC", "ROI"],
             "Marketing efficiency by source",
+            numeric=range(1, 8),
+            empty="No leads in this selection.",
         )
+        set_header_tips(self.marketing_table, {
+            3: "Sales revenue of the clients these leads became",
+            5: "Cost per lead: spend ÷ leads",
+            6: "Cost per client (acquisition cost): spend ÷ clients",
+            7: "Return on investment: (revenue − spend) ÷ spend",
+        })
         self.marketing_table.setMinimumHeight(230)
         self.marketing_table.sortItems(1, Qt.SortOrder.DescendingOrder)
         marketing_layout.addWidget(self.marketing_table, 1)
@@ -460,36 +441,34 @@ class LeadsPage(QWidget):
         table_box.setObjectName("card")
         table_layout = QVBoxLayout(table_box)
         self.leads_table = self._make_table(
-            ["Date", "Source", "Stage", "Meeting", "Client", "Lead ID", "Actions"],
+            ["Date", "Lead", "Source", "Stage", "Owner", "Priority", "Follow-up", "Meeting", "Client", "Actions"],
             "Filtered leads",
+            badges=(3, 5),
+            empty="No leads match these filters. Clear the filters, or add a lead with New lead.",
+            multi=True,  # several rows can be selected for "Assign selected…"
         )
         self.leads_table.setMinimumHeight(380)
+        enable_column_choice(self.leads_table, "leads", locked=(1, _ACTIONS_COLUMN))
         self.leads_table.sortItems(0, Qt.SortOrder.DescendingOrder)  # newest first
-        self.leads_table.verticalHeader().setDefaultSectionSize(36)
-        # Enter or double-click opens the editor; the painted button and the
-        # context menu offer the same action without a widget per row.
+        # Enter or double-click opens the lead; the painted buttons and the
+        # context menu offer the same actions without a widget per row.
         self.leads_table.activated.connect(self._on_lead_activated)
         self._lead_row_actions = (
-            RowAction("edit", "Edit", "Edit stage and meeting date"),
+            RowAction("open", "Open", "Details, timeline, tasks, and all actions"),
+            RowAction("stage", "Stage…", "Move the lead to another stage"),
         )
         self._lead_action_delegate = RowActionDelegate(
             self._lead_row_actions, id_role=Qt.ItemDataRole.UserRole, view=self.leads_table
         )
-        self._lead_action_delegate.triggered.connect(lambda _key, lead_id: self.edit_lead(lead_id))
-        self.leads_table.setItemDelegateForColumn(6, self._lead_action_delegate)
+        self._lead_action_delegate.triggered.connect(self._run_lead_action)
+        self.leads_table.setItemDelegateForColumn(_ACTIONS_COLUMN, self._lead_action_delegate)
         install_row_action_menu(
             self.leads_table,
             self._lead_row_actions,
             lambda index: str(index.data(Qt.ItemDataRole.UserRole) or ""),
-            lambda _key, lead_id: self.edit_lead(lead_id),
+            self._run_lead_action,
         )
         table_layout.addWidget(self.leads_table)
-        self.empty_label = QLabel("No leads match the active filters.")
-        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.empty_label.setObjectName("emptyState")
-        self.empty_label.setAccessibleName("No lead results")
-        self.empty_label.hide()
-        table_layout.addWidget(self.empty_label)
         self._layout.addWidget(table_box)
 
         self.status_label = QLabel("")
@@ -509,6 +488,7 @@ class LeadsPage(QWidget):
         self.search_edit.returnPressed.connect(self.apply_filters)
         self.source_combo.currentIndexChanged.connect(self.apply_filters)
         self.stage_combo.currentIndexChanged.connect(self.apply_filters)
+        self.owner_combo.currentIndexChanged.connect(self.apply_filters)
         self.quick_range_combo.currentIndexChanged.connect(self._quick_range_changed)
         self.start_date.changed.connect(self._custom_date_changed)
         self.end_date.changed.connect(self._custom_date_changed)
@@ -529,16 +509,13 @@ class LeadsPage(QWidget):
         self.search_edit.selectAll()
 
     @staticmethod
-    def _make_table(headers: list[str], accessible_name: str) -> QTableWidget:
+    def _make_table(headers: list[str], accessible_name: str, *, numeric: Iterable[int] = (),
+                    badges: Iterable[int] = (), empty: str | None = None, multi: bool = False) -> QTableWidget:
         table = QTableWidget(0, len(headers))
         table.setHorizontalHeaderLabels(headers)
         table.setAccessibleName(accessible_name)
-        table.setAlternatingRowColors(True)
-        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        prepare_table(table, numeric_columns=numeric, badge_columns=badges, empty_text=empty, multi_select=multi)
         table.setSortingEnabled(True)
-        table.verticalHeader().setVisible(False)
         table.horizontalHeader().setStretchLastSection(False)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -586,11 +563,37 @@ class LeadsPage(QWidget):
         for column in range(5):
             self._marketing_summary_grid.setColumnStretch(column, 1 if column < summary_columns else 0)
 
+    def _load_extras(self) -> None:
+        """Owner, title, priority, and follow-up for each lead (kept with the lead rows)."""
+        self._extras = {}
+        if self.context is None or not self.context.is_signed_in:
+            return
+        try:
+            self._extras = self.context.run(lambda db, actor: lead_service.extras(db, actor), busy=False)
+        except Exception as exc:
+            report(self, exc, title="Leads")
+        for lead in self._all_leads:
+            extra = self._extras.get(str(lead.get("id")))
+            lead["title"] = extra.title if extra else None
+            lead["owner_id"] = extra.owner_id if extra else None
+            lead["owner_name"] = extra.owner_name if extra else None
+            lead["priority"] = extra.priority if extra else "medium"
+
+    def update_permissions(self) -> None:
+        context = self.context
+        self.new_lead_button.setVisible(context is not None and context.can("leads.create"))
+        self.assign_button.setVisible(context is not None and context.can("leads.assign"))
+        self.export_button.setVisible(context is None or context.can("data.export"))
+        self.manage_spend_button.setVisible(context is None or context.can("marketing.manage"))
+        self.owner_combo.setEnabled(context is not None)
+
     def refresh(self, preserve_filters: bool = True) -> None:
         """Reload database-backed reference data and reapply active filters."""
         previous_source = self.source_combo.currentData() if preserve_filters else ALL_SOURCES
+        self.update_permissions()
         try:
             self._all_leads = list(self._controller.get_leads_enriched() or [])
+            self._load_extras()
             self._spend_by_source = dict(self._controller.get_spend_by_source() or {})
             self._revenue_by_client = dict(self._controller.get_revenue_by_client() or {})
             sources = sorted(
@@ -614,12 +617,13 @@ class LeadsPage(QWidget):
             self._notify(f"Could not load leads: {exc}", "error")
 
     def clear_filters(self) -> None:
-        widgets = (self.search_edit, self.source_combo, self.stage_combo, self.quick_range_combo)
+        widgets = (self.search_edit, self.source_combo, self.stage_combo, self.owner_combo, self.quick_range_combo)
         for widget in widgets:
             widget.blockSignals(True)
         self.search_edit.clear()
         self.source_combo.setCurrentIndex(0)
         self.stage_combo.setCurrentIndex(0)
+        self.owner_combo.setCurrentIndex(0)
         self.quick_range_combo.setCurrentIndex(self.quick_range_combo.findData(ALL_TIME))
         self.start_date.clear()
         self.end_date.clear()
@@ -662,6 +666,8 @@ class LeadsPage(QWidget):
             start_date=start,
             end_date=end,
             search_term=self.search_edit.text(),
+            owner=self.owner_combo.currentData(),
+            current_user_id=self.context.actor.user_id if self.context and self.context.actor else None,
         )
         self._funnel_stats = self._controller.get_funnel_stats(self._filtered_leads)
         self._sources_data = self._controller.group_leads_by_source(self._filtered_leads)
@@ -689,6 +695,8 @@ class LeadsPage(QWidget):
         stage = self.stage_combo.currentData()
         if stage and stage != ALL_STAGES:
             parts.append(f"Stage: {stage}")
+        if self.owner_combo.currentData():
+            parts.append(f"Owner: {self.owner_combo.currentText()}")
         start, end = self.start_date.value(), self.end_date.value()
         if start and end:
             parts.append(f"Period: {start} → {end}")
@@ -777,15 +785,19 @@ class LeadsPage(QWidget):
         table.setRowCount(len(self._marketing_metrics))
         for row, values in enumerate(self._marketing_metrics):
             roi = float(values.get("roi", 0)) * 100
+            has_spend = float(values.get("spend", 0) or 0) > 0
             cells = (
                 _readonly_item(_source_label(values.get("source"))),
                 _readonly_item(int(values.get("leads", 0)), numeric=int(values.get("leads", 0))),
                 _readonly_item(int(values.get("customers", 0)), numeric=int(values.get("customers", 0))),
                 _readonly_item(f"€{float(values.get('revenue', 0)):,.2f}", numeric=float(values.get("revenue", 0))),
                 _readonly_item(f"€{float(values.get('spend', 0)):,.2f}", numeric=float(values.get("spend", 0))),
-                _readonly_item(f"€{float(values.get('cpl', 0)):,.2f}", numeric=float(values.get("cpl", 0))),
-                _readonly_item(f"€{float(values.get('cac', 0)):,.2f}", numeric=float(values.get("cac", 0))),
-                _readonly_item(f"{roi:.1f}%", numeric=roi),
+                # Without spend these ratios are undefined (OPEN-01), not "free".
+                _readonly_item(f"€{float(values.get('cpl', 0)):,.2f}" if has_spend else "—",
+                               numeric=float(values.get("cpl", 0)) if has_spend else -1),
+                _readonly_item(f"€{float(values.get('cac', 0)):,.2f}" if has_spend else "—",
+                               numeric=float(values.get("cac", 0)) if has_spend else -1),
+                _readonly_item(f"{roi:.1f}%" if has_spend else "—", numeric=roi if has_spend else -1e9),
             )
             for column, item in enumerate(cells):
                 table.setItem(row, column, item)
@@ -806,62 +818,139 @@ class LeadsPage(QWidget):
             return
         for lead in upcoming[:20]:
             self.upcoming_list.addItem(
-                f"{str(lead.get('meeting_date'))[:10]}  ·  "
+                f"{date_text(lead.get('meeting_date'))}  ·  "
                 f"{lead.get('client_name') or lead.get('id') or 'Lead'}  ·  "
                 f"{_source_label(lead.get('source'))}"
             )
 
     def _populate_leads_table(self) -> None:
         table = self.leads_table
+        zone = self.context.actor.timezone if self.context and self.context.actor else "UTC"
         with bulk_table_update(
             table,
-            stretch_column=0,
-            fixed_columns={6: self._lead_action_delegate.column_width()},
+            stretch_column=1,
+            fixed_columns={_ACTIONS_COLUMN: self._lead_action_delegate.column_width()},
         ):
             table.clearContents()
             table.setRowCount(len(self._filtered_leads))
             for row, lead in enumerate(self._filtered_leads):
                 lead_id = str(lead.get("id") or "")
+                extra = self._extras.get(lead_id)
+                follow_up = extra.next_follow_up_at if extra else None
+                created = str(lead.get("created_at") or "")[:10]
+                meeting = str(lead.get("meeting_date") or "")[:10]
                 values = (
-                    str(lead.get("created_at") or "")[:10] or "—",
+                    date_text(created) or "—",
+                    _lead_title(lead),
                     _source_label(lead.get("source")),
                     _STATUS_LABELS.get(str(lead.get("status") or "").lower(), str(lead.get("status") or "—")),
-                    str(lead.get("meeting_date") or "")[:10] or "—",
+                    lead.get("owner_name") or "Unassigned",
+                    _PRIORITY_LABELS.get(str(lead.get("priority") or "medium"), "Medium"),
+                    local_time(follow_up, zone) or "—",
+                    date_text(meeting) or "—",
                     lead.get("client_name") or "—",
-                    lead_id or "—",
                 )
+                # Dates are shown as "09 Oct 2026" but sort chronologically.
+                sort_keys = {0: created, 6: follow_up.timestamp() if follow_up else -1.0, 7: meeting}
                 for column, value in enumerate(values):
-                    item = _readonly_item(value)
+                    item = _readonly_item(value, sort_key=sort_keys.get(column))
                     item.setData(Qt.ItemDataRole.UserRole, lead_id)
                     table.setItem(row, column, item)
                 action_item = QTableWidgetItem()
                 action_item.setFlags(action_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 action_item.setData(Qt.ItemDataRole.UserRole, lead_id)
-                action_item.setData(Qt.ItemDataRole.AccessibleTextRole, f"Edit lead {lead_id}")
-                table.setItem(row, 6, action_item)
-        self.empty_label.setVisible(not self._filtered_leads)
-        table.setVisible(bool(self._filtered_leads))
+                action_item.setData(Qt.ItemDataRole.AccessibleTextRole, f"Actions for lead {lead_id}: open, stage")
+                table.setItem(row, _ACTIONS_COLUMN, action_item)
 
     def _on_lead_activated(self, index) -> None:
         lead_id = str(index.data(Qt.ItemDataRole.UserRole) or "")
         if lead_id:
-            self.edit_lead(lead_id)
+            self.open_lead(lead_id)
+
+    def _run_lead_action(self, key: str, lead_id: str) -> None:
+        if lead_id:
+            {"open": self.open_lead, "stage": self.change_stage, "edit": self.edit_lead}[key](lead_id)
+
+    def _require_session(self) -> AppContext | None:
+        if self.context is None or not self.context.is_signed_in:
+            self._notify("Sign in to change leads.", "warning")
+            return None
+        return self.context
+
+    def _saved(self, message: str) -> None:
+        self._notify(message, "success")
+        self.refresh()
+        self.data_changed.emit()
+
+    def open_lead(self, lead_id: str) -> bool:
+        """Show one lead with its timeline, tasks, and the actions the user's role allows."""
+        context = self._require_session()
+        if context is None:
+            return False
+        if open_lead(self, context, lead_id):
+            self._saved("Lead updated.")
+            return True
+        return False
+
+    def _snapshot(self, lead_id: str):
+        context = self._require_session()
+        if context is None:
+            return None
+        try:
+            return context.run(lambda db, actor: load_lead(db, actor, lead_id))
+        except Exception as exc:
+            report(self, exc, title="Leads")
+            return None
 
     def edit_lead(self, lead_id: str) -> bool:
-        lead = next((item for item in self._all_leads if str(item.get("id")) == str(lead_id)), None)
-        if not lead:
-            self._notify("Lead not found. Refresh the page and try again.", "error")
+        """Edit the lead's details (title, client, source, meeting date, owner, priority, notes)."""
+        snapshot = self._snapshot(lead_id)
+        if snapshot is None or self.context is None:
             return False
-        dialog = LeadEditDialog(lead, self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if "edit" not in snapshot.view.allowed:
+            self._notify("Your role cannot edit this lead.", "warning")
             return False
-        status, meeting_date = dialog.values()
-        success, message = self._controller.update_lead_info(lead_id, status, meeting_date)
-        self._notify(message, "success" if success else "error")
-        if success:
-            self.refresh()
-            self.data_changed.emit()
-        return bool(success)
+        if lead_form(self, self.context, lead=snapshot):
+            self._saved("Lead saved.")
+            return True
+        return False
+
+    def change_stage(self, lead_id: str) -> bool:
+        snapshot = self._snapshot(lead_id)
+        if snapshot is None or self.context is None:
+            return False
+        if not snapshot.transitions:
+            self._notify("You cannot move this lead to another stage.", "warning")
+            return False
+        if change_stage(self, self.context, snapshot):
+            self._saved("Lead stage changed.")
+            return True
+        return False
+
+    def new_lead(self) -> bool:
+        context = self._require_session()
+        if context is None:
+            return False
+        if lead_form(self, context):
+            self._saved("Lead added.")
+            return True
+        return False
+
+    def assign_selected(self) -> bool:
+        context = self._require_session()
+        if context is None:
+            return False
+        rows = sorted({index.row() for index in self.leads_table.selectionModel().selectedRows()})
+        items = [self.leads_table.item(row, 0) for row in rows]
+        lead_ids = [str(item.data(Qt.ItemDataRole.UserRole)) for item in items if item is not None]
+        if not lead_ids:
+            self._notify("Select the leads to assign first (Ctrl+click or Shift+click rows).", "info")
+            return False
+        count = assign_leads(self, context, lead_ids)
+        if count:
+            self._saved(f"{count} lead{'s' if count != 1 else ''} assigned.")
+            return True
+        return False
 
     def _update_marketing_summary(self) -> None:
         summary = self._marketing_summary
@@ -885,7 +974,7 @@ class LeadsPage(QWidget):
 
     def manage_spend(self) -> bool:
         """Open the spend editor; refresh efficiency metrics if records changed."""
-        dialog = MarketingSpendDialog(self._controller, self)
+        dialog = MarketingSpendDialog(self._controller, self, context=self.context)
         dialog.exec()
         if not dialog.changed:
             return False
@@ -911,6 +1000,12 @@ class LeadsPage(QWidget):
         path = str(Path(filename).expanduser())
         if not path.lower().endswith(".html"):
             path += ".html"
+        if self.context is not None:
+            try:
+                self.context.run(lambda db, actor: actor.require("data.export"))
+            except Exception as exc:
+                report(self, exc, title="Export")
+                return None
         success, message, generated_path = self._report_generator(
             leads=self._filtered_leads,
             funnel_stats=self._funnel_stats,
@@ -921,6 +1016,10 @@ class LeadsPage(QWidget):
             marketing_metrics=self._marketing_metrics,
         )
         self._notify(message, "success" if success else "error")
+        if success and self.context is not None:
+            self.context.record("data.exported", entity_type="data",
+                                changes={"report": "leads", "rows": len(self._filtered_leads),
+                                         "filters": self._filters_description()})
         return str(generated_path) if success and generated_path else None
 
     def _notify(self, message: str, level: str) -> None:
@@ -932,4 +1031,4 @@ class LeadsPage(QWidget):
         self.notification_requested.emit(message, level)
 
 
-__all__ = ["LeadEditDialog", "LeadsPage"]
+__all__ = ["LeadsPage"]

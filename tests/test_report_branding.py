@@ -117,3 +117,38 @@ def test_generated_reports_use_techset_branding(
     assert "#39B54A" in html
     assert "Sales CRM" not in html
     assert "Portfolio" not in html
+
+
+def test_leads_report_does_not_present_undefined_zero_spend_ratios_as_zero(tmp_path: Path) -> None:
+    output = tmp_path / "zero-spend.html"
+    success, message, _generated = generate_leads_html_report(
+        leads=[],
+        funnel_stats={"total": 0, "meetings": 0, "converted": 0},
+        sources_data={},
+        marketing_summary={
+            "total_spend": 0,
+            "total_revenue": 500,
+            "avg_cpl": 0,
+            "avg_cac": 0,
+            "overall_roi": 0,
+        },
+        marketing_metrics=[{
+            "source": "organic",
+            "leads": 3,
+            "customers": 1,
+            "revenue": 500,
+            "spend": 0,
+            "cpl": 0,
+            "cac": 0,
+            "roi": 0,
+        }],
+        filename=str(output),
+    )
+
+    assert success, message
+    rendered = output.read_text(encoding="utf-8")
+    # CPL, CAC and ROI are mathematically undefined without spend. Showing zero
+    # would incorrectly imply free acquisition and a measured 0% return.
+    assert rendered.count('<div class="value">—</div>') >= 2
+    assert rendered.count("<td>—</td>") >= 2
+    assert '<td style="color:#62637A;font-weight:600">—</td>' in rendered

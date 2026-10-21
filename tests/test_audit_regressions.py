@@ -32,7 +32,8 @@ from core.db import get_connection, init_db
 from core.importer import inspect_import_file
 from desktop_ui.main_window import MainWindow
 from desktop_ui.pages.clients_page import ClientDetailDialog, ClientFormDialog, ClientsPage
-from desktop_ui.pages.leads_page import LeadEditDialog, LeadsPage
+from desktop_ui.forms import FieldSpec, FormDialog
+from desktop_ui.pages.leads_page import LeadsPage
 from desktop_ui.pages.marketing_spend_dialog import MarketingSpendDialog
 from desktop_ui.pages.sales_page import SalesPage
 from domain.analysis_snapshot import ClientRank
@@ -40,7 +41,15 @@ from desktop_ui.row_actions import RowActionDelegate
 from desktop_ui.theme import ThemeManager
 from main import create_application
 from models.client_manager import invalidate_clients_cache
-from tests.qt_helpers import ModalPilot, choose_file, click_button, reject, wait_until
+from tests.qt_helpers import (
+    ModalPilot,
+    choose_file,
+    click_button,
+    reject,
+    sign_in_window,
+    signed_in_context,
+    wait_until,
+)
 from utils.formatting import format_datetime_us, format_day_month_year_time
 from utils.import_templates import write_template
 
@@ -99,6 +108,7 @@ def shell(qapp, empty_db):
     window.resize(1280, 820)
     window.show()
     qapp.processEvents()
+    sign_in_window(window)
     yield window
     window.close()
     window.deleteLater()
@@ -142,7 +152,8 @@ def test_def001_widgets_are_owned_by_their_qt_parents(shell, qapp):
         ClientFormDialog(),
         ClientFormDialog(client=("C1", "Acme", "", "", "", ""), lead={"id": "L1", "status": "new"}),
         ClientDetailDialog({"client_id": "C1", "name": "Acme"}, {"sales": []}),
-        LeadEditDialog({"id": "L1", "status": "new"}),
+        FormDialog(None, title="Lead", heading="Edit lead", fields=[FieldSpec("title", "Lead title"),
+                   FieldSpec("meeting_date", "Meeting date", "date")], submit=lambda dialog: None),
         MarketingSpendDialog(),
     )
     assert _python_owned_children(shell) == []
@@ -454,7 +465,7 @@ def test_def008_lead_rows_are_painted_not_widgets_and_stay_linear(qapp, monkeypa
     table = page.leads_table
     table.scrollToTop()
     qapp.processEvents()
-    cell = table.visualRect(table.model().index(0, 6))
+    cell = table.visualRect(table.model().index(0, 9))
     with ModalPilot(reject) as pilot:
         QTest.mouseClick(
             table.viewport(),
@@ -463,13 +474,16 @@ def test_def008_lead_rows_are_painted_not_widgets_and_stay_linear(qapp, monkeypa
             QPoint(cell.left() + 12, cell.center().y()),
         )
         qapp.processEvents()
-    assert [item.kind for item in pilot.seen] == ["LeadEditDialog"]
+    # The painted "Open" button ran the action; without a signed-in session it explains instead.
+    assert pilot.seen == []
+    assert page.status_label.text() == "Sign in to change leads."
     page.close()
     page.deleteLater()
 
 
-def test_def008_client_row_actions_reachable_by_keyboard(qapp):
-    page = ClientsPage(controller=_ScaleClientsController, latest_leads_provider=dict)
+def test_def008_client_row_actions_reachable_by_keyboard(qapp, tmp_path):
+    context = signed_in_context(tmp_path / "app.db")  # deleting needs a signed-in session
+    page = ClientsPage(controller=_ScaleClientsController, latest_leads_provider=dict, context=context)
     page.resize(1200, 800)
     page.show()
     table = page.clients_table
@@ -480,7 +494,7 @@ def test_def008_client_row_actions_reachable_by_keyboard(qapp):
     with ModalPilot(click_button("Cancel")) as pilot:
         QTest.keyClick(table, Qt.Key.Key_Delete)
         qapp.processEvents()
-    assert [(item.kind, item.text) for item in pilot.seen] == [("QMessageBox", "Delete Alpha?")]
+    assert [(item.kind, item.text) for item in pilot.seen] == [("MessageDialog", "Delete Alpha?")]
 
     menu_actions: list[str] = []
 
@@ -511,7 +525,8 @@ def test_def009_sales_page_fits_the_minimum_window_after_shrinking(shell, qapp):
     page = shell.stack.currentWidget()
     body = page.scroll_area.widget()
     assert body.minimumSizeHint().width() <= page.scroll_area.viewport().width()
-    assert not page.scroll_area.horizontalScrollBar().isVisible()
+    # Collapsing the sidebar while shrinking queues a second layout pass.
+    assert wait_until(lambda: not page.scroll_area.horizontalScrollBar().isVisible(), 2000)
 
 
 # ------------------------------------------- DEF-010 / DEF-015: shell polish
@@ -597,14 +612,14 @@ def test_def020_marketing_spend_can_be_added_corrected_and_deleted(shell, qapp):
     assert observed["invalid"] == (True, "Enter an amount such as 1,250.00.", "not money")
     assert observed["stored"] == [("google_ads", 2000.0, "2026-02-01")]
     assert observed["after_cancel"] == 1
-    assert [item.kind for item in pilot.seen] == ["MarketingSpendDialog", "QMessageBox"]
+    assert [item.kind for item in pilot.seen] == ["MarketingSpendDialog", "MessageDialog"]
     assert page._marketing_summary_values["total_spend"].text() == "€2,000.00"
 
     def delete_spend(dialog):
         dialog._run_row_action("delete", str(dialog._records[0]["id"]))
         dialog.accept()
 
-    with ModalPilot(delete_spend, click_button("Delete")):
+    with ModalPilot(delete_spend, click_button("Delete record")):
         assert page.manage_spend() is True
     assert _count("marketing_spend") == 0
 
@@ -845,13 +860,12 @@ def test_end_to_end_import_edit_delete_and_restart(shell, qapp, tmp_path):
     leads_page = shell.stack.currentWidget()
 
     def set_meeting(dialog):
-        dialog.status_combo.setCurrentIndex(dialog.status_combo.findData("meeting"))
-        dialog.has_meeting.setChecked(True)
-        dialog.meeting_date.setDate(QDate(2030, 1, 15))
-        dialog.accept()
+        dialog.set_value("status", "meeting")
+        dialog.set_value("meeting_date", "2030-01-15")
+        dialog.save_button.click()
 
     with ModalPilot(set_meeting):
-        assert leads_page.edit_lead(leads_page.active_leads[0]["id"]) is True
+        assert leads_page.change_stage(leads_page.active_leads[0]["id"]) is True
     with closing(get_connection()) as connection:
         assert connection.execute("SELECT status, meeting_date FROM leads").fetchall() == [("meeting", "2030-01-15")]
 
@@ -862,7 +876,7 @@ def test_end_to_end_import_edit_delete_and_restart(shell, qapp, tmp_path):
     with ModalPilot(click_button("Cancel")):
         assert clients_page.delete_client("C-2") is False
     assert _count("sales") == 3
-    with ModalPilot(click_button("Delete")):
+    with ModalPilot(click_button("Delete client")):
         assert clients_page.delete_client("C-2") is True
     assert _count("sales") == 2
     assert [client["client_id"] for client in clients_page.visible_clients] == ["C-1"]
@@ -872,10 +886,11 @@ def test_end_to_end_import_edit_delete_and_restart(shell, qapp, tmp_path):
     qapp.processEvents()
     assert shell.stack.currentWidget().sales_card.value_label.text() == "2"
     restarted = MainWindow(shell.theme_manager)
+    sign_in_window(restarted)
     try:
         restarted.navigate("leads")
         qapp.processEvents()
-        stages = [restarted.stack.currentWidget().leads_table.item(0, 2).text()]
+        stages = [restarted.stack.currentWidget().leads_table.item(0, 3).text()]
         assert stages == ["Meeting"]
     finally:
         restarted.deleteLater()

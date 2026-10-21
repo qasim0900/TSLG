@@ -15,6 +15,8 @@ import logging
 import zipfile
 from logging.handlers import RotatingFileHandler
 from datetime import date, datetime
+from domain.lead_stages import normalize_lead_status
+
 from .db import get_connection, get_data_dir, get_logs_dir
 from utils.formatting import pluralize
 
@@ -1078,9 +1080,11 @@ def import_leads_to_db(file_path: str, dry_run: bool = False):
                 status = DEFAULT_LEAD_STATUS
                 if "status" in header_map:
                     status_raw = raw.get(header_map["status"])
-                    status = (
-                        _validate_optional_string("status", status_raw) or DEFAULT_LEAD_STATUS
-                    ).lower()
+                    # Codes or labels ("Client" -> converted); unknown stages reject the row
+                    # instead of being stored where the funnel cannot count them.
+                    status = normalize_lead_status(
+                        _validate_optional_string("status", status_raw), DEFAULT_LEAD_STATUS
+                    )
 
                 meeting_date = None
                 if "meeting_date" in header_map:

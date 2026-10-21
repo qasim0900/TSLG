@@ -146,3 +146,41 @@ def choose_file(path: str | Path) -> ModalAction:
         editor.returnPressed.emit()
 
     return action
+
+
+TEST_ADMIN_EMAIL = "test.admin@techset.example"
+TEST_PASSWORD = "correct horse battery staple"
+
+
+def sign_in_window(window) -> None:
+    """Get a ``MainWindow`` past its sign-in screen as the test Super Admin.
+
+    The sandboxed database is shared by a test session, so the first call
+    completes first-run setup and later calls sign in with the same account.
+    """
+    if window.auth_stack.currentWidget() is window.setup_page:
+        page = window.setup_page
+        page.organization.setText("Techset Solutions")
+        page.name.setText("Test Admin")
+        page.email.setText(TEST_ADMIN_EMAIL)
+        page.password.setText(TEST_PASSWORD)
+        page.confirm.setText(TEST_PASSWORD)
+        assert page.submit(), page.error.text()
+    else:
+        page = window.sign_in_page
+        page.email.setText(TEST_ADMIN_EMAIL)
+        page.password.setText(TEST_PASSWORD)
+        assert page.submit(), page.error.text()
+    assert window.context.is_signed_in
+
+
+def signed_in_context(database: Path):
+    """An ``AppContext`` on a fresh database file, signed in as a new Super Admin."""
+    from crm.config import load_settings
+    from desktop_ui.session import AppContext
+
+    context = AppContext(load_settings({}, database_path=database))
+    context.open()
+    context.create_organization(organization_name="Techset Solutions", admin_name="Test Admin",
+                                email=TEST_ADMIN_EMAIL, password=TEST_PASSWORD)
+    return context

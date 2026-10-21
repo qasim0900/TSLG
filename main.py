@@ -11,7 +11,8 @@ from logging.handlers import RotatingFileHandler
 from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import QApplication
 
-from branding import PARENT_BRAND, PRODUCT_NAME
+from branding import PARENT_BRAND, PRODUCT_NAME, PRODUCT_VERSION
+from crm import cli as crm_cli
 from core.db import get_logs_dir, init_db
 from desktop_ui.dialogs import show_message
 from desktop_ui.main_window import MainWindow
@@ -71,7 +72,7 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
     QCoreApplication.setOrganizationName(PARENT_BRAND)
     QCoreApplication.setOrganizationDomain("techsetsolutions.com")
     QCoreApplication.setApplicationName(PRODUCT_NAME)
-    QCoreApplication.setApplicationVersion("0.1.0")
+    QCoreApplication.setApplicationVersion(PRODUCT_VERSION)
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_DontShowIconsInMenus, False)
     return QApplication(list(argv) if argv is not None else sys.argv)
 
@@ -107,5 +108,42 @@ def run(argv: Sequence[str] | None = None) -> int:
     return application.exec()
 
 
+def run_admin_command(command: str, argument: str | None) -> int:
+    """Run an administrator command; windowed builds show the result in a dialog."""
+    configure_logging()
+    lines: list[str] = []
+
+    def say(text: str) -> None:
+        lines.append(text)
+        if sys.stdout is not None:  # None in the windowed Windows executable
+            print(text, flush=True)
+
+    if not argument or argument.startswith("--"):
+        say(f"Usage: {PRODUCT_NAME} {command} EMAIL")
+        code = 2
+    else:
+        init_db()
+        code = crm_cli.issue_reset_code(argument, say)
+    if sys.stdout is None:
+        create_application([sys.argv[0]])
+        show_message(None, title=PRODUCT_NAME, heading=lines[0] if lines else command,
+                     message="\n".join(lines[1:]), level="info" if code == 0 else "error")
+    return code
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Start the desktop app, or run an administrator command given on the command line."""
+    arguments = list(sys.argv if argv is None else argv)
+    for command in crm_cli.COMMANDS:
+        if command in arguments[1:]:
+            position = arguments.index(command)
+            argument = arguments[position + 1] if position + 1 < len(arguments) else None
+            return run_admin_command(command, argument)
+    if "--version" in arguments[1:]:
+        print(f"{PRODUCT_NAME} {PRODUCT_VERSION}")
+        return 0
+    return run(arguments)
+
+
 if __name__ == "__main__":
-    raise SystemExit(run())
+    raise SystemExit(main())
