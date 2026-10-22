@@ -12,9 +12,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -44,7 +44,7 @@ jobs:
           if (-not (Test-Path "$data\sales.db")) { throw "TechsetLeadGen.exe did not create its database." }
           poetry run python -c "import sqlite3, sys; db = sqlite3.connect(sys.argv[1]); print('schema', db.execute('select version_num from alembic_version').fetchone()[0]); print('accounts', db.execute('select count(*) from users').fetchone()[0])" "$data\sales.db"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: TechsetLeadGen-windows
           path: dist/TechsetLeadGen/
@@ -52,6 +52,12 @@ jobs:
 
       # After the upload, so a Windows-specific test failure still leaves the build to try.
       - name: Tests on Windows
+        continue-on-error: true
         env:
           QT_QPA_PLATFORM: offscreen
-        run: poetry run pytest -q
+        run: poetry run pytest -q --junitxml=test-results.xml
+
+      # Failures become annotations and a summary on the run page; the job fails if any test did.
+      - name: Report test results
+        if: always()
+        run: poetry run python scripts/ci_report_tests.py test-results.xml
