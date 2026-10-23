@@ -6,6 +6,10 @@ requested (a 387 × 122 box appeared as 367 × 102), which cut off the message
 and sliced the buttons in half. ``MessageDialog`` is sized by its layout
 instead: it wraps long text, reflows when the user resizes it, follows the
 light/dark theme, and names the confirming action ("Delete sales", not "Yes").
+
+The layout follows the redesign's confirmation modal: a tinted icon square,
+a bold heading and the explanation, then a footer with the safe choice first
+and the action on the right (the modal shell adds the header and backdrop).
 """
 
 from __future__ import annotations
@@ -13,11 +17,11 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QGuiApplication, QPainter, QPalette, QPixmap, QResizeEvent
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QGuiApplication, QResizeEvent
 from PySide6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLayout,
@@ -27,21 +31,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .theme import ERROR, ERROR_ON_DARK, INK, PRIMARY, PRIMARY_DARK, SECONDARY
+from .icons import set_button_icon
+from .modal import ModalDialog
+from .widgets import IconChip
 
 Level = Literal["info", "question", "warning", "error", "danger"]
 
-_BADGE_SIZE = 40
-_MIN_WIDTH = 420
-_MAX_TEXT_WIDTH = 440  # wrap long lines at a comfortable reading width
+_BADGE_SIZE = 44
+_MIN_WIDTH = 440
+_MAX_TEXT_WIDTH = 400  # wrap long lines at a comfortable reading width
+_BODY_MARGINS = (24, 24, 24, 22)
 
-# glyph, fill (light, dark), glyph colour (light, dark); every pair is >= 4.5:1
-_BADGES: dict[str, tuple[str, str, str, str, str]] = {
-    "info": ("i", PRIMARY_DARK, PRIMARY, "#FFFFFF", INK),
-    "question": ("?", PRIMARY_DARK, PRIMARY, "#FFFFFF", INK),
-    "warning": ("!", SECONDARY, SECONDARY, INK, INK),
-    "error": ("!", ERROR, ERROR_ON_DARK, "#FFFFFF", INK),
-    "danger": ("!", ERROR, ERROR_ON_DARK, "#FFFFFF", INK),
+# icon, chip tone
+_BADGES: dict[str, tuple[str, str]] = {
+    "info": ("info", "info"),
+    "question": ("info", "info"),
+    "warning": ("warning", "gold"),
+    "error": ("alert", "danger"),
+    "danger": ("warning", "danger"),
 }
 _LEVEL_NAMES = {
     "info": "Information",
@@ -52,29 +59,7 @@ _LEVEL_NAMES = {
 }
 
 
-def _badge(level: Level, dark: bool) -> QPixmap:
-    glyph, light_fill, dark_fill, light_ink, dark_ink = _BADGES[level]
-    scale = 2  # crisp on high-DPI screens
-    pixmap = QPixmap(_BADGE_SIZE * scale, _BADGE_SIZE * scale)
-    pixmap.setDevicePixelRatio(scale)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor(dark_fill if dark else light_fill))
-    area = QRectF(0, 0, _BADGE_SIZE, _BADGE_SIZE)
-    painter.drawEllipse(area)
-    font = QFont(painter.font())
-    font.setBold(True)
-    font.setPixelSize(int(_BADGE_SIZE * 0.55))
-    painter.setFont(font)
-    painter.setPen(QColor(dark_ink if dark else light_ink))
-    painter.drawText(area, Qt.AlignmentFlag.AlignCenter, glyph)
-    painter.end()
-    return pixmap
-
-
-class MessageDialog(QDialog):
+class MessageDialog(ModalDialog):
     """Resizable, layout-sized replacement for ``QMessageBox``.
 
     With ``confirm_text`` it asks a question; ``exec()`` returns ``Accepted``
@@ -93,6 +78,7 @@ class MessageDialog(QDialog):
         confirm_text: str | None = None,
         cancel_text: str = "Cancel",
         destructive: bool = False,
+        icon: str | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("messageDialog")
@@ -102,54 +88,53 @@ class MessageDialog(QDialog):
         self.setAccessibleDescription(message)
         self._heading = heading
         self._message = message
-        dark = self.palette().color(QPalette.ColorRole.Window).lightness() < 128
 
         root = QVBoxLayout(self)
         # The dialog manages its own minimum size from height-for-width (see
         # resizeEvent); the default constraint would impose a taller, non-wrapping
         # minimum and leave a gap under the heading.
         root.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
-        root.setContentsMargins(24, 22, 24, 20)
-        root.setSpacing(20)
-        body = QHBoxLayout()
-        root.addLayout(body)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        self._body = QWidget()
+        body = QHBoxLayout(self._body)
+        body.setContentsMargins(*_BODY_MARGINS)
         body.setSpacing(16)
-        badge = QLabel()
-        badge.setPixmap(_badge(level, dark))
-        badge.setFixedSize(_BADGE_SIZE, _BADGE_SIZE)
+        root.addWidget(self._body, 1)
+        glyph, tone = _BADGES[level]
+        badge = IconChip(icon or glyph, tone, size=_BADGE_SIZE, icon_size=20)
         badge.setAccessibleName(_LEVEL_NAMES[level])
         body.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
         text_column = QVBoxLayout()
         body.addLayout(text_column, 1)
         text_column.setSpacing(6)
-        self.heading_label = self._text_label(heading, "dialogHeading")
-        self.message_label = self._text_label(message, "dialogMessage")
-        self.message_label.setVisible(bool(message))
+        self.heading_label = self._text_label(heading, "dialogTitle")
+        self.message_label = self._text_label(message, "dialogSubtitle")
         text_column.addWidget(self.heading_label)
         text_column.addWidget(self.message_label)
         text_column.addStretch(1)  # extra height goes below the text, not between lines
+        if not message:
+            self.message_label.hide()
 
-        self.buttons = QDialogButtonBox()
-        root.addWidget(self.buttons)
+        self.footer = QFrame()
+        self.footer.setObjectName("modalFooter")
+        buttons = QHBoxLayout(self.footer)
+        buttons.setContentsMargins(24, 14, 24, 14)
+        buttons.setSpacing(8)
+        buttons.addStretch(1)
+        root.addWidget(self.footer)
         self.cancel_button: QPushButton | None = None
         if confirm_text:
-            # AcceptRole even when destructive: the action *is* the affirmative
-            # answer, so each platform orders it the native way (GNOME/macOS:
-            # Cancel then Delete; Windows: Delete then Cancel).
-            self.confirm_button = self._add_button(
-                confirm_text,
-                QDialogButtonBox.ButtonRole.AcceptRole,
-                "dangerButton" if destructive else "primaryButton",
-            )
-            self.cancel_button = self._add_button(
-                cancel_text, QDialogButtonBox.ButtonRole.RejectRole, "secondaryButton"
-            )
+            self.cancel_button = self._add_button(buttons, cancel_text, "secondaryButton")
             self.cancel_button.clicked.connect(self.reject)
+            self.confirm_button = self._add_button(
+                buttons, confirm_text, "dangerButton" if destructive else "primaryButton"
+            )
+            if icon and destructive:
+                set_button_icon(self.confirm_button, icon, "onDanger")
             default = self.cancel_button if destructive else self.confirm_button
         else:
-            self.confirm_button = self._add_button(
-                "OK", QDialogButtonBox.ButtonRole.AcceptRole, "primaryButton"
-            )
+            self.confirm_button = self._add_button(buttons, "OK", "primaryButton")
             default = self.confirm_button
         # Bound methods only: a lambda capturing the dialog would keep it alive
         # after exec() hands its ownership to Python (see DEF-026).
@@ -159,11 +144,12 @@ class MessageDialog(QDialog):
 
         self._fit_to_content()
 
-    def _add_button(self, text: str, role: QDialogButtonBox.ButtonRole, object_name: str) -> QPushButton:
+    @staticmethod
+    def _add_button(row: QHBoxLayout, text: str, object_name: str) -> QPushButton:
         button = QPushButton(text)
         button.setObjectName(object_name)
         button.setAutoDefault(False)  # only the safe default answers Enter
-        self.buttons.addButton(button, role)
+        row.addWidget(button)
         return button
 
     @staticmethod
@@ -186,7 +172,7 @@ class MessageDialog(QDialog):
         layout = self.layout()
         assert layout is not None
         margins = layout.contentsMargins()
-        chrome = margins.left() + margins.right() + _BADGE_SIZE + 16
+        chrome = margins.left() + margins.right() + _BODY_MARGINS[0] + _BODY_MARGINS[2] + _BADGE_SIZE + 16
         labels = (self.heading_label, self.message_label)
         natural = max(
             label.fontMetrics().horizontalAdvance(line)
@@ -199,9 +185,10 @@ class MessageDialog(QDialog):
             (label.fontMetrics().horizontalAdvance(token) for label in labels for token in re.split(r"[\s/]+", label.text())),
             default=0,
         )
+        footer = margins.left() + margins.right() + self.footer.sizeHint().width()
         screen = self.screen() or QGuiApplication.primaryScreen()
         available = screen.availableGeometry().width() - 80 if screen else 1200
-        minimum = min(max(_MIN_WIDTH, chrome + longest_token + 4), available)
+        minimum = min(max(_MIN_WIDTH, chrome + longest_token + 4, footer), available)
         width = min(max(minimum, chrome + min(natural, _MAX_TEXT_WIDTH) + 4), available)
         self.setMinimumWidth(minimum)
         layout.activate()
@@ -235,6 +222,8 @@ def ask_confirmation(
     confirm_text: str,
     destructive: bool = False,
     level: Level | None = None,
+    cancel_text: str = "Cancel",
+    icon: str | None = None,
 ) -> bool:
     """Ask before acting; return True only when the user chose ``confirm_text``."""
     dialog = MessageDialog(
@@ -244,7 +233,9 @@ def ask_confirmation(
         message=message,
         level=level or ("danger" if destructive else "question"),
         confirm_text=confirm_text,
+        cancel_text=cancel_text,
         destructive=destructive,
+        icon=icon,
     )
     return dialog.exec() == QDialog.DialogCode.Accepted
 

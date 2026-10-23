@@ -9,13 +9,15 @@ Duplicate merging keeps its original implementation, guarded the same way.
 
 from __future__ import annotations
 
+from functools import partial
+
 import logging
 import os
 from pathlib import Path
 from typing import Any, Callable
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QPlainTextEdit,
@@ -32,6 +34,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -60,11 +63,30 @@ from models.lead_manager import get_latest_lead_per_client
 from reports.report_client_html import generate_client_html_report
 
 from ..dialogs import ask_confirmation
+from ..modal import ModalDialog
 from ..row_actions import RowAction, RowActionDelegate, install_row_action_menu
 from ..session import AppContext
 from ..support import date_text, explain, local_time, person, report
-from ..tables import enable_column_choice, fit_columns, prepare_table, set_header_tips
-from ..widgets import bulk_table_update, set_table_defaults, sortable_item
+from ..tables import (
+    enable_column_choice,
+    fit_columns,
+    fit_table_height,
+    prepare_table,
+    set_empty_state,
+    set_header_tips,
+)
+from ..theme import mono_font, tokens
+from ..icons import icon, set_button_icon
+from ..widgets import (
+    EmptyState,
+    KpiCard,
+    PageHeader,
+    SearchField,
+    SectionCard,
+    bulk_table_update,
+    set_table_defaults,
+    sortable_item,
+)
 from ..workflows import (
     ACTIVITY_COLUMNS,
     activity_rows,
@@ -131,30 +153,7 @@ def _item(value: Any, *, numeric: float | int | None = None, sort_key: Any = Non
     return result
 
 
-class _MetricCard(QFrame):
-    def __init__(self, label: str, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setObjectName("metricCard")
-        self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setMinimumHeight(90)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setAccessibleName(label)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
-        self.label = QLabel(label)
-        self.label.setObjectName("metricLabel")
-        self.value = QLabel("0")
-        self.value.setObjectName("metricValue")
-        self.value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(self.label)
-        layout.addWidget(self.value)
-
-    def set_value(self, value: str, description: str = "") -> None:
-        self.value.setText(value)
-        self.setAccessibleDescription(description or f"{self.label.text()}: {value}")
-
-
-class ClientFormDialog(QDialog):
+class ClientFormDialog(ModalDialog):
     """Add/edit form with optional linked-lead editing.
 
     ``on_submit`` performs the save while the dialog is still open. When it
@@ -402,7 +401,7 @@ def client_profile_snapshot(db: Any, actor: Any, client_id: str) -> dict[str, An
     return snapshot
 
 
-class ClientDetailDialog(QDialog):
+class ClientDetailDialog(ModalDialog):
     """Accessible client profile: account, purchase history, and (when signed in) people,
     leads, activity, and tasks, with the actions the user's role allows."""
 
@@ -452,7 +451,7 @@ class ClientDetailDialog(QDialog):
             ("Transactions", str(int(stats.get("total_sales", 0)))),
             ("Average sale", f"€{float(stats.get('avg_amount', 0)):,.2f}"),
         ):
-            card = _MetricCard(label)
+            card = KpiCard(label, compact=True)
             card.set_value(value)
             metrics.addWidget(card)
         root.addLayout(metrics)
@@ -740,6 +739,7 @@ class ClientsPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         scroll = QScrollArea()
+        scroll.setObjectName("pageScrollArea")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setAccessibleName("Scrollable client content")
@@ -748,34 +748,32 @@ class ClientsPage(QWidget):
         self._body = QWidget()
         self._body.setObjectName("pageBody")
         self._layout = QVBoxLayout(self._body)
-        self._layout.setContentsMargins(24, 20, 24, 32)
-        self._layout.setSpacing(18)
+        self._layout.setContentsMargins(28, 24, 28, 40)
+        self._layout.setSpacing(20)
         scroll.setWidget(self._body)
 
-        title = QLabel("Client management")
-        title.setObjectName("pageTitle")
-        subtitle = QLabel("Maintain client records and inspect sales and lead history.")
-        subtitle.setObjectName("pageSubtitle")
-        subtitle.setWordWrap(True)
-        self._layout.addWidget(title)
-        self._layout.addWidget(subtitle)
+        self._layout.addWidget(PageHeader("Client management",
+                                          "Maintain client records and inspect sales and lead history."))
 
-        toolbar_box = QGroupBox("Client tools")
-        toolbar_box.setObjectName("card")
-        self._toolbar_grid = QGridLayout(toolbar_box)
-        self._toolbar_grid.setContentsMargins(16, 16, 16, 16)
-        self._toolbar_grid.setSpacing(10)
+        toolbar_box = SectionCard("Client tools", divider=False)
+        toolbar_box.header_layout.setContentsMargins(20, 18, 20, 0)
+        toolbar_box.body.setContentsMargins(19, 12, 19, 18)
+        self._toolbar_grid = QGridLayout()
+        self._toolbar_grid.setContentsMargins(0, 0, 0, 0)
+        self._toolbar_grid.setSpacing(12)
+        toolbar_box.body.addLayout(self._toolbar_grid)
         self.add_button = QPushButton("Add client")
         self.add_button.setObjectName("primaryButton")
         self.add_button.setAccessibleName("Add a new client")
+        set_button_icon(self.add_button, "plus", "onPrimary")
         self.add_button.clicked.connect(self.add_client)
         self.merge_button = QPushButton("Merge duplicates")
-        self.merge_button.setObjectName("warningButton")
+        self.merge_button.setObjectName("secondaryButton")
         self.merge_button.setToolTip("Review and merge client IDs that share the same name")
         self.merge_button.setAccessibleName("Merge duplicate clients")
+        set_button_icon(self.merge_button, "merge")
         self.merge_button.clicked.connect(self.merge_duplicates)
-        self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Search clients by name…")
+        self.search_edit = SearchField("Search clients by name")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setAccessibleName("Search clients by name")
         self.search_edit.textChanged.connect(self.apply_search)
@@ -783,10 +781,10 @@ class ClientsPage(QWidget):
         self._layout.addWidget(toolbar_box)
 
         metrics_layout = QGridLayout()
-        metrics_layout.setSpacing(12)
-        self.total_card = _MetricCard("Clients")
-        self.buyers_card = _MetricCard("Clients with sales")
-        self.revenue_card = _MetricCard("Lifetime revenue")
+        metrics_layout.setSpacing(16)
+        self.total_card = KpiCard("Clients", icon="people")
+        self.buyers_card = KpiCard("Clients with sales", accent="gold", icon="receipt")
+        self.revenue_card = KpiCard("Lifetime revenue", icon="sales")
         metrics_layout.addWidget(self.total_card, 0, 0)
         metrics_layout.addWidget(self.buyers_card, 0, 1)
         metrics_layout.addWidget(self.revenue_card, 0, 2)
@@ -794,14 +792,10 @@ class ClientsPage(QWidget):
             metrics_layout.setColumnStretch(column, 1)
         self._layout.addLayout(metrics_layout)
 
-        table_box = QGroupBox("Clients")
-        table_box.setObjectName("card")
-        table_layout = QVBoxLayout(table_box)
-        self.result_label = QLabel("")
-        self.result_label.setObjectName("filterSummary")
+        table_box = SectionCard("Clients", "", padded=False)
+        self.result_label = table_box.subtitle_label
         self.result_label.setAccessibleName("Client search results")
-        self.result_label.setTextFormat(Qt.TextFormat.PlainText)  # echoes search text
-        table_layout.addWidget(self.result_label)
+        self.result_label.show()
         self.clients_table = QTableWidget(0, 12)
         self.clients_table.setHorizontalHeaderLabels(
             ["ID", "Name", "Tax ID", "Email", "Sales", "Total", "Lead source", "Stage", "Lead date", "Owner",
@@ -809,7 +803,13 @@ class ClientsPage(QWidget):
         )
         self.clients_table.setAccessibleName("Client list")
         prepare_table(self.clients_table, numeric_columns=(4, 5), badge_columns=(7, 10),
+                      avatar_columns=(1, 9), mono_columns=(0,), strong_columns=(1, 5), large_avatar_columns=(1,),
                       empty_text="No clients match this search. Clear the search, or add a client.")
+        clients_empty = EmptyState("No clients match this search", "Clear the search, or add a client.",
+                                   icon="clients")
+        self.empty_add_client = clients_empty.add_action("Add client", self.add_client, primary=True, icon="plus")
+        set_empty_state(self.clients_table, clients_empty,
+                        "No clients match this search. Clear the search, or add a client.")
         set_header_tips(self.clients_table, {
             4: "Number of sales recorded for the client",
             5: "Lifetime sales amount",
@@ -825,7 +825,6 @@ class ClientsPage(QWidget):
         self.clients_table.setSortingEnabled(True)
         self.clients_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.clients_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.clients_table.setMinimumHeight(420)
         # Explicit default: enabling sorting otherwise re-sorts by ID, descending.
         self.clients_table.sortItems(1, Qt.SortOrder.AscendingOrder)
         # Enter or double-click opens the profile. Row buttons are painted by a
@@ -833,6 +832,11 @@ class ClientsPage(QWidget):
         # keyboard users the same actions.
         self.clients_table.activated.connect(self._client_activated)
         self._client_row_actions = (
+            RowAction("view", "View", "View client profile", icon="eye"),
+            RowAction("edit", "Edit", "Edit client details", icon="edit"),
+            RowAction("more", "More", "More actions", icon="more"),
+        )
+        self._client_menu_actions = (
             RowAction("view", "View", "View client profile"),
             RowAction("edit", "Edit", "Edit client details"),
             RowAction("delete", "Delete", "Delete client and linked sales", destructive=True),
@@ -844,7 +848,7 @@ class ClientsPage(QWidget):
         self.clients_table.setItemDelegateForColumn(_ACTIONS_COLUMN, self._client_action_delegate)
         install_row_action_menu(
             self.clients_table,
-            self._client_row_actions,
+            self._client_menu_actions,
             lambda index: str(index.data(_CLIENT_ID_ROLE) or ""),
             self._run_client_action,
         )
@@ -852,15 +856,20 @@ class ClientsPage(QWidget):
         delete_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         delete_shortcut.activated.connect(self._delete_current_client)
         self._table_shortcuts = [delete_shortcut]
-        table_layout.addWidget(self.clients_table)
-        self._layout.addWidget(table_box)
-
+        table_box.body.addWidget(self.clients_table)
+        footer = QFrame()
+        footer.setObjectName("cardFooter")
+        footer_row = QHBoxLayout(footer)
+        footer_row.setContentsMargins(20, 12, 20, 14)
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
         self.status_label.setObjectName("statusMessage")
         self.status_label.setAccessibleName("Client status message")
         self.status_label.setTextFormat(Qt.TextFormat.PlainText)
-        self._layout.addWidget(self.status_label)
+        footer_row.addWidget(self.status_label)
+        table_box.body.addWidget(footer)
+        self._layout.addWidget(table_box)
+        self._layout.addStretch(1)
 
     def _install_shortcuts(self) -> None:
         self._shortcuts = [
@@ -896,12 +905,13 @@ class ClientsPage(QWidget):
             self._toolbar_grid.addWidget(self.search_edit, 0, 2)
         # Reset all columns so stretch from the other layout cannot linger.
         for column in range(3):
-            self._toolbar_grid.setColumnStretch(column, 1 if column == columns - 1 else 0)
+            self._toolbar_grid.setColumnStretch(column, 1 if column == (2 if columns > 1 else 0) else 0)
 
     def update_permissions(self) -> None:
         context = self.context
         self.add_button.setVisible(context is None or context.can("clients.create"))
         self.merge_button.setVisible(context is None or context.can("clients.merge"))
+        self.empty_add_client.setVisible(context is None or context.can("clients.create"))
 
     def _load_extras(self) -> None:
         """Owner and account status of each client, from the same client rows."""
@@ -947,9 +957,9 @@ class ClientsPage(QWidget):
         total = len(self._filtered_clients)
         buyers = sum(int(client.get("total_sales", 0)) > 0 for client in self._filtered_clients)
         revenue = sum(float(client.get("total_amount", 0) or 0) for client in self._filtered_clients)
-        self.total_card.set_value(str(total), "Clients in the current result set")
-        self.buyers_card.set_value(str(buyers), "Clients with one or more sales")
-        self.revenue_card.set_value(f"€{revenue:,.2f}", "Lifetime sales for visible clients")
+        self.total_card.set_value(str(total), "Local client profiles")
+        self.buyers_card.set_value(str(buyers), "At least one sales record")
+        self.revenue_card.set_value(f"€{revenue:,.2f}", "All sales across clients")
 
     def _populate_table(self) -> None:
         table = self.clients_table
@@ -981,6 +991,8 @@ class ClientsPage(QWidget):
                     _item(ACCOUNT_STATUSES.get(self._extras[client_id].account_status or "", "—")
                           if client_id in self._extras else "—"),
                 )
+                cells[0].setFont(mono_font(12))  # the delegate paints IDs in the monospace font
+                cells[0].setForeground(QColor(tokens()["text2"]))
                 for column, item in enumerate(cells):
                     item.setData(_CLIENT_ID_ROLE, client_id)
                     table.setItem(row, column, item)
@@ -992,6 +1004,7 @@ class ClientsPage(QWidget):
                     f"Actions for {client.get('name') or client_id}: view, edit, delete",
                 )
                 table.setItem(row, _ACTIONS_COLUMN, action_item)
+        fit_table_height(table, max_rows=14)
 
     def _client_activated(self, index) -> None:
         client_id = str(index.data(_CLIENT_ID_ROLE) or "")
@@ -1000,6 +1013,15 @@ class ClientsPage(QWidget):
 
     def _run_client_action(self, key: str, client_id: str) -> None:
         if not client_id:
+            return
+        if key == "more":  # the ⋯ button: the same actions as the context menu
+            menu = QMenu(self.clients_table)
+            for action in self._client_menu_actions:
+                entry = menu.addAction(action.label, partial(self._run_client_action, action.key, client_id))
+                if action.destructive:
+                    entry.setIcon(icon("trash", tokens()["danger"], 16))
+            menu.exec(QCursor.pos())
+            menu.deleteLater()
             return
         {
             "view": self.show_client_profile,

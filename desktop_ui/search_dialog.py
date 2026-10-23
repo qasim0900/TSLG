@@ -14,13 +14,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal import ModalDialog
 from .tables import fit_columns
 from .widgets import set_table_defaults
 
 _KINDS = {"clients": "Client", "contacts": "Contact", "leads": "Lead"}
 
 
-class SearchDialog(QDialog):
+class SearchDialog(ModalDialog):
     """``results`` are ``(kind, record_id, name, details)``; Enter or Open picks one.
 
     A contact result opens its client's profile, so ``record_id`` is the client's ID.

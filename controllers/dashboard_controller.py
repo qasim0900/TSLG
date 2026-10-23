@@ -50,6 +50,14 @@ class DashboardController:
         return False, "Could not clear lead data"
 
     @staticmethod
+    def get_weekly_revenue(weeks: int = 8) -> list[tuple[str, float]]:
+        """Revenue per week for the dashboard trend; empty when the data cannot be read."""
+        try:
+            return DashboardKPIService.weekly_revenue(weeks)
+        except Exception:
+            return []
+
+    @staticmethod
     def get_dashboard_kpi_snapshot() -> DashboardKPISnapshot:
         """
         Obtiene el snapshot inmutable de KPIs del Dashboard (HOME).

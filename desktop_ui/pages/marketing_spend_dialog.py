@@ -35,6 +35,7 @@ from domain.source_labels import SOURCE_LABELS
 from utils.formatting import format_eur, parse_amount
 
 from ..dialogs import ask_confirmation
+from ..modal import ModalDialog
 from ..row_actions import RowAction, RowActionDelegate
 from ..support import date_text
 from ..tables import prepare_table
@@ -48,7 +49,7 @@ def _source_label(value: Any) -> str:
     return SOURCE_LABELS.get(raw, raw.replace("_", " ").title())
 
 
-class MarketingSpendDialog(QDialog):
+class MarketingSpendDialog(ModalDialog):
     """List, add, edit, and delete marketing spend records."""
 
     def __init__(

@@ -9,14 +9,15 @@ and record the audit trail. Imports keep creating leads in the same table.
 from __future__ import annotations
 
 import logging
+from functools import partial
 import os
 from collections.abc import Iterable
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QDate, Qt, QTimer, Signal
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -25,12 +26,11 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
-    QListWidget,
+    QMenu,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -62,8 +62,33 @@ from .marketing_spend_dialog import MarketingSpendDialog
 from ..row_actions import RowAction, RowActionDelegate, install_row_action_menu
 from ..session import AppContext
 from ..support import date_text, local_time, report
-from ..tables import enable_column_choice, prepare_table, set_header_tips
-from ..widgets import bulk_table_update, labeled_field, sortable_item
+from ..icons import set_button_icon
+from ..motion import EASE_OUT, animate
+from ..tables import (
+    SUBTEXT_ROLE,
+    TONE_ROLE,
+    TableDelegate,
+    enable_column_choice,
+    fit_table_height,
+    prepare_table,
+    set_empty_state,
+    set_header_tips,
+    tone_for,
+)
+from ..theme import tokens
+from ..widgets import (
+    Badge,
+    Card,
+    EmptyState,
+    MetricGrid,
+    MiniMetric,
+    PageHeader,
+    SearchField,
+    SectionCard,
+    bulk_table_update,
+    labeled_field,
+    sortable_item,
+)
 from ..workflows import assign_leads, change_stage, lead_form, load_lead, open_lead
 
 logger = logging.getLogger(__name__)
@@ -90,6 +115,12 @@ def _lead_title(lead: dict[str, Any]) -> str:
     return f"{_source_label(lead.get('source'))} lead"
 
 
+def _tone_item(item: QTableWidgetItem, tone: str) -> QTableWidgetItem:
+    """Show the cell as a badge in ``tone`` (for values like "22.2%" the tone table cannot know)."""
+    item.setData(TONE_ROLE, tone)
+    return item
+
+
 def _readonly_item(value: Any, *, numeric: float | int | None = None, sort_key: Any = None) -> QTableWidgetItem:
     """A read-only cell; ``numeric`` right-aligns and sorts by number, ``sort_key`` only sorts."""
     item = sortable_item(str(value if value not in (None, "") else "—"), numeric if numeric is not None else sort_key)
@@ -97,34 +128,6 @@ def _readonly_item(value: Any, *, numeric: float | int | None = None, sort_key: 
     if numeric is not None:
         item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
     return item
-
-
-class _MetricCard(QFrame):
-    """Small stylesheet-friendly KPI card used by the responsive grid."""
-
-    def __init__(self, title: str, *, accent: str = "green", parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setObjectName("metricCard")
-        self.setProperty("accent", accent)
-        self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setMinimumHeight(92)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(4)
-        self._title = QLabel(title)
-        self._title.setObjectName("metricLabel")
-        self._value = QLabel("0")
-        self._value.setObjectName("metricValue")
-        self._value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(self._title)
-        layout.addWidget(self._value)
-        self.setAccessibleName(title)
-
-    def set_value(self, value: str, description: str = "") -> None:
-        self._value.setText(value)
-        self.setAccessibleDescription(description or f"{self._title.text()}: {value}")
-        self.setToolTip(description)
 
 
 class _OptionalDate(QWidget):
@@ -138,9 +141,11 @@ class _OptionalDate(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
         self.enabled_box = QCheckBox(label)
+        self.enabled_box.setObjectName("fieldCheck")
+        layout.setSpacing(6)
         self.date_edit = QDateEdit(QDate.currentDate())
         self.date_edit.setCalendarPopup(True)
-        self.date_edit.setDisplayFormat("yyyy-MM-dd")
+        self.date_edit.setDisplayFormat("dd MMM yyyy")
         self.date_edit.setEnabled(False)
         self.enabled_box.setAccessibleName(f"Enable {label.lower()} date")
         self.date_edit.setAccessibleName(label)
@@ -157,6 +162,80 @@ class _OptionalDate(QWidget):
 
     def clear(self) -> None:
         self.enabled_box.setChecked(False)
+
+
+def _set_bar(bar: QProgressBar, level: float) -> None:
+    bar.setValue(round(level))
+
+
+class _MeetingList(QWidget):
+    """Upcoming meetings: a date block, the lead, its source and owner, the stage, and "Open lead"."""
+
+    open_requested = Signal(str)
+    _MONTHS = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setAccessibleName("Upcoming meetings")
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(0)
+        self.empty = EmptyState("No upcoming meetings", "Leads with a meeting date from today on appear here.",
+                                icon="calendar")
+        self._layout.addWidget(self.empty)
+        self._rows: list[QWidget] = []
+        self.texts: list[str] = []
+
+    def set_meetings(self, meetings: list[tuple[str, str, str, str, str]]) -> None:
+        for row in self._rows:
+            self._layout.removeWidget(row)
+            row.deleteLater()
+        self._rows = []
+        self.texts = []
+        self.empty.setVisible(not meetings)
+        for lead_id, day, title, detail, stage in meetings:
+            row = QFrame()
+            row.setObjectName("meetingRow")
+            line = QHBoxLayout(row)
+            line.setContentsMargins(20, 12, 20, 12)
+            line.setSpacing(14)
+            block = QFrame()
+            block.setObjectName("dateBlock")
+            block.setFixedWidth(56)
+            stack = QVBoxLayout(block)
+            stack.setContentsMargins(0, 0, 0, 0)
+            stack.setSpacing(0)
+            parsed = QDate.fromString(day, Qt.DateFormat.ISODate)
+            month = QLabel(self._MONTHS[parsed.month() - 1] if parsed.isValid() else "—")
+            month.setObjectName("dateMonth")
+            month.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            number = QLabel(str(parsed.day()) if parsed.isValid() else "?")
+            number.setObjectName("dateDay")
+            number.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            stack.addWidget(month)
+            stack.addWidget(number)
+            line.addWidget(block)
+            copy = QVBoxLayout()
+            copy.setSpacing(2)
+            heading = QLabel(title)
+            heading.setObjectName("strongText")
+            heading.setTextFormat(Qt.TextFormat.PlainText)
+            sub = QLabel(f"{date_text(day)} · {detail}")
+            sub.setObjectName("helperText")
+            sub.setTextFormat(Qt.TextFormat.PlainText)
+            copy.addWidget(heading)
+            copy.addWidget(sub)
+            line.addLayout(copy, 1)
+            line.addWidget(Badge(stage, tone_for(stage) or "neutral"))
+            button = QPushButton("Open lead")
+            button.setObjectName("compactButton")
+            button.clicked.connect(lambda _checked=False, target=lead_id: self.open_requested.emit(target))
+            line.addWidget(button)
+            self._layout.insertWidget(self._layout.count() - 1, row)
+            self._rows.append(row)
+            self.texts.append(f"{date_text(day)} · {title} · {detail}")
+        if self._rows:
+            self._layout.addStretch(0)
 
 
 class LeadsPage(QWidget):
@@ -191,7 +270,7 @@ class LeadsPage(QWidget):
         self._spend_by_source: dict[str, float] = {}
         self._revenue_by_client: dict[str, float] = {}
         self._extras: dict[str, lead_service.LeadExtras] = {}
-        self._layout_mode: tuple[int, int, int] | None = None
+        self._layout_mode: tuple[int, int, int, bool] | None = None
 
         self.setObjectName("leadsPage")
         self.setAccessibleName("Leads workspace")
@@ -213,6 +292,7 @@ class LeadsPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         scroll = QScrollArea()
+        scroll.setObjectName("pageScrollArea")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setAccessibleName("Scrollable leads content")
@@ -221,47 +301,40 @@ class LeadsPage(QWidget):
         self._body = QWidget()
         self._body.setObjectName("pageBody")
         self._layout = QVBoxLayout(self._body)
-        self._layout.setContentsMargins(24, 20, 24, 32)
-        self._layout.setSpacing(18)
+        self._layout.setContentsMargins(28, 24, 28, 40)
+        self._layout.setSpacing(20)
         scroll.setWidget(self._body)
 
-        header = QHBoxLayout()
-        titles = QVBoxLayout()
-        title = QLabel("Leads")
-        title.setObjectName("pageTitle")
-        subtitle = QLabel("Track pipeline health, source performance, and upcoming meetings.")
-        subtitle.setObjectName("pageSubtitle")
-        subtitle.setWordWrap(True)
-        titles.addWidget(title)
-        titles.addWidget(subtitle)
-        header.addLayout(titles, 1)
+        self.header = PageHeader("Leads", "Track pipeline health, source performance and upcoming meetings.")
         self.export_button = QPushButton("Export HTML")
         self.export_button.setObjectName("secondaryButton")
         self.export_button.setToolTip("Export the currently filtered lead snapshot (Ctrl+E)")
         self.export_button.setAccessibleName("Export filtered leads to HTML")
+        set_button_icon(self.export_button, "download")
         self.export_button.clicked.connect(self.export_report)
-        self.assign_button = QPushButton("Assign selected…")
+        self.assign_button = QPushButton("Assign selected")
         self.assign_button.setObjectName("secondaryButton")
         self.assign_button.setToolTip("Give the selected leads to one owner (select rows with Ctrl or Shift)")
+        set_button_icon(self.assign_button, "assign")
         self.assign_button.clicked.connect(self.assign_selected)
         self.new_lead_button = QPushButton("New lead")
         self.new_lead_button.setObjectName("primaryButton")
         self.new_lead_button.setToolTip("Add a lead by hand (imports add leads automatically)")
+        set_button_icon(self.new_lead_button, "plus", "onPrimary")
         self.new_lead_button.clicked.connect(self.new_lead)
         for button in (self.export_button, self.assign_button, self.new_lead_button):
-            header.addWidget(button, 0, Qt.AlignmentFlag.AlignTop)
-        self._layout.addLayout(header)
+            self.header.add_action(button)
+        self._layout.addWidget(self.header)
 
-        filters_box = QGroupBox("Filters")
-        filters_box.setObjectName("card")
+        filters_box = SectionCard("Filters", ALL_LEADS_DESCRIPTION)
         filters_box.setAccessibleDescription("Filter the lead snapshot without modifying the database")
-        self._filter_grid = QGridLayout(filters_box)
-        self._filter_grid.setContentsMargins(16, 18, 16, 16)
-        self._filter_grid.setHorizontalSpacing(12)
-        self._filter_grid.setVerticalSpacing(10)
+        self._filter_grid = QGridLayout()
+        self._filter_grid.setContentsMargins(1, 0, 1, 2)
+        self._filter_grid.setHorizontalSpacing(16)
+        self._filter_grid.setVerticalSpacing(14)
+        filters_box.body.addLayout(self._filter_grid)
 
-        self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Search lead ID, source, or client…")
+        self.search_edit = SearchField("Search lead ID, source or client")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setAccessibleName("Search leads")
         self.search_edit.setToolTip("Searches lead ID, source, and client name")
@@ -288,6 +361,7 @@ class LeadsPage(QWidget):
         self.clear_filters_button = QPushButton("Clear filters")
         self.clear_filters_button.setObjectName("secondaryButton")
         self.clear_filters_button.setAccessibleName("Clear all lead filters")
+        set_button_icon(self.clear_filters_button, "close")
 
         self._filter_widgets = [
             labeled_field("Search", self.search_edit),
@@ -300,84 +374,99 @@ class LeadsPage(QWidget):
             self.clear_filters_button,
         ]
         self._layout.addWidget(filters_box)
-
-        self.filter_summary = QLabel(ALL_LEADS_DESCRIPTION)
-        self.filter_summary.setObjectName("filterSummary")
-        self.filter_summary.setTextFormat(Qt.TextFormat.PlainText)  # echoes search text
+        # The card's subtitle line reports the active filters and the result count.
+        self.filter_summary = filters_box.subtitle_label
         self.filter_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.filter_summary.setAccessibleName("Active lead filters")
-        self._layout.addWidget(self.filter_summary)
 
-        self._kpi_grid = QGridLayout()
-        self._kpi_grid.setHorizontalSpacing(12)
-        self._kpi_grid.setVerticalSpacing(12)
+        self.metrics_grid = MetricGrid(4)
         card_specs = (
-            ("total", "Total leads", "green"),
-            ("meetings", "Meetings", "gold"),
-            ("converted", "Converted", "green"),
-            ("lead_rate", "Lead → meeting", "blue"),
-            ("client_rate", "Meeting → client", "green"),
-            ("lost", "Lost", "red"),
-            ("new", "Awaiting action", "gold"),
-            ("avg_days", "Avg. time to meeting", "blue"),
+            ("total", "Total leads", ""),
+            ("meetings", "Meetings", ""),
+            ("converted", "Converted", "success"),
+            ("lead_rate", "Lead → meeting", ""),
+            ("client_rate", "Meeting → client", ""),
+            ("lost", "Lost", "danger"),
+            ("new", "Awaiting action", "warning"),
+            ("avg_days", "Avg. time to meeting", ""),
         )
-        self._kpi_cards = {
-            key: _MetricCard(label, accent=accent) for key, label, accent in card_specs
-        }
-        self._layout.addLayout(self._kpi_grid)
+        self._kpi_cards = {key: self.metrics_grid.add(MiniMetric(label, "0", tone)) for key, label, tone in card_specs}
 
-        funnel_box = QGroupBox("Conversion funnel")
-        funnel_box.setObjectName("card")
-        funnel_layout = QVBoxLayout(funnel_box)
+        self.funnel_card = SectionCard("Conversion funnel")
+        self.funnel_card.body.setSpacing(12)
         self._funnel_bars: dict[str, QProgressBar] = {}
+        self._funnel_values: dict[str, QLabel] = {}
         for key, label, stage in (
             ("total", "Leads", "lead"),
             ("meetings", "Meetings", "meeting"),
             ("converted", "Clients", "client"),
         ):
             row = QHBoxLayout()
+            row.setSpacing(14)
             caption = QLabel(label)
-            caption.setMinimumWidth(90)
+            caption.setObjectName("strongText")
+            caption.setMinimumWidth(80)
             bar = QProgressBar()
-            bar.setTextVisible(True)
+            bar.setTextVisible(False)
             bar.setProperty("stage", stage)
             bar.setAccessibleName(f"{label} funnel stage")
+            amount = QLabel("0")
+            amount.setObjectName("helperText")
+            amount.setMinimumWidth(96)
+            amount.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             row.addWidget(caption)
             row.addWidget(bar, 1)
-            funnel_layout.addLayout(row)
+            row.addWidget(amount)
+            self.funnel_card.body.addLayout(row)
             self._funnel_bars[key] = bar
+            self._funnel_values[key] = amount
         self.funnel_insight = QLabel()
         self.funnel_insight.setWordWrap(True)
         self.funnel_insight.setObjectName("insightText")
-        funnel_layout.addWidget(self.funnel_insight)
-        self._layout.addWidget(funnel_box)
+        self.funnel_card.body.addWidget(self.funnel_insight)
+        self.funnel_card.body.addStretch(1)
+        self._metrics_row = QGridLayout()
+        self._metrics_row.setHorizontalSpacing(16)
+        self._metrics_row.setVerticalSpacing(16)
+        self._layout.addLayout(self._metrics_row)
 
+        analytics_card = Card()
+        analytics_layout = QVBoxLayout(analytics_card)
+        analytics_layout.setContentsMargins(1, 1, 1, 1)
         analytics_tabs = QTabWidget()
         analytics_tabs.setObjectName("analyticsTabs")
+        analytics_tabs.setDocumentMode(True)
         analytics_tabs.setAccessibleName("Lead analytics")
+        analytics_layout.addWidget(analytics_tabs)
         self.source_table = self._make_table(
             ["Source", "Leads", "Meetings", "Clients", "Conversion", "M→C", "Avg. days"],
             "Lead source performance",
-            numeric=range(1, 7),
+            numeric=(1, 2, 3, 5, 6),
+            badges=(4,),
             empty="No leads in this selection.",
         )
+        self.source_table.setItemDelegate(TableDelegate(self.source_table, (4,), strong_columns=(0,)))
         set_header_tips(self.source_table, {
             2: "Leads that reached the meeting stage (Meeting, Qualified, or Client)",
             4: "Share of the source's leads that became clients",
             5: "Meetings that became clients",
             6: "Average days from the lead's date to its meeting",
         })
-        self.source_table.setMinimumHeight(230)
+        self.source_table.setMinimumHeight(250)
+        set_empty_state(self.source_table, EmptyState(
+            "No leads in this selection", "Change the filters, or add leads to see source performance.",
+            icon="leads"), "No leads in this selection.")
         # Explicit defaults: enabling sorting otherwise re-sorts by column 0, descending.
         self.source_table.sortItems(1, Qt.SortOrder.DescendingOrder)
         analytics_tabs.addTab(self.source_table, "Source performance")
         marketing_tab = QWidget()
         marketing_layout = QVBoxLayout(marketing_tab)
-        marketing_layout.setContentsMargins(12, 12, 12, 12)
-        marketing_layout.setSpacing(10)
+        marketing_layout.setContentsMargins(0, 16, 0, 0)
+        marketing_layout.setSpacing(12)
         # Overall efficiency for the active snapshot (restored from the Flet
         # UI's marketing summary); reflowed between 5 and 3 columns.
         self._marketing_summary_grid = QGridLayout()
+        self._marketing_summary_grid.setContentsMargins(20, 0, 20, 0)
         marketing_layout.addLayout(self._marketing_summary_grid)
         self._marketing_summary_grid.setHorizontalSpacing(18)
         self._marketing_summary_values: dict[str, QLabel] = {}
@@ -394,7 +483,7 @@ class LeadsPage(QWidget):
             cell_layout.setContentsMargins(0, 0, 0, 0)
             cell_layout.setSpacing(2)
             caption_label = QLabel(caption_text)
-            caption_label.setObjectName("metricLabel")
+            caption_label.setObjectName("miniLabel")
             value_label = QLabel("—")
             value_label.setObjectName("summaryValue")
             value_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -404,6 +493,7 @@ class LeadsPage(QWidget):
             self._marketing_summary_values[key] = value_label
             self._marketing_summary_cells.append(cell)
         spend_row = QHBoxLayout()
+        spend_row.setContentsMargins(20, 0, 20, 0)
         marketing_layout.addLayout(spend_row)
         self.spend_hint = QLabel("")
         self.spend_hint.setObjectName("filterSummary")
@@ -413,6 +503,7 @@ class LeadsPage(QWidget):
         self.manage_spend_button.setObjectName("secondaryButton")
         self.manage_spend_button.setToolTip("Add, correct, or delete marketing spend records")
         self.manage_spend_button.setAccessibleName("Manage marketing spend records")
+        set_button_icon(self.manage_spend_button, "money")
         self.manage_spend_button.clicked.connect(self.manage_spend)
         spend_row.addWidget(self.manage_spend_button)
         self.marketing_table = self._make_table(
@@ -428,34 +519,51 @@ class LeadsPage(QWidget):
             7: "Return on investment: (revenue − spend) ÷ spend",
         })
         self.marketing_table.setMinimumHeight(230)
+        set_empty_state(self.marketing_table, EmptyState(
+            "No leads in this selection", "Change the filters, or add leads to see marketing efficiency.",
+            icon="money"), "No leads in this selection.")
         self.marketing_table.sortItems(1, Qt.SortOrder.DescendingOrder)
         marketing_layout.addWidget(self.marketing_table, 1)
         analytics_tabs.addTab(marketing_tab, "Marketing efficiency")
-        self.upcoming_list = QListWidget()
-        self.upcoming_list.setAccessibleName("Upcoming meetings")
-        self.upcoming_list.setAlternatingRowColors(True)
+        self.upcoming_list = _MeetingList()
+        self.upcoming_list.open_requested.connect(self.open_lead)
         analytics_tabs.addTab(self.upcoming_list, "Upcoming meetings")
-        self._layout.addWidget(analytics_tabs)
+        self._layout.addWidget(analytics_card)
 
-        table_box = QGroupBox("Lead management")
-        table_box.setObjectName("card")
-        table_layout = QVBoxLayout(table_box)
+        table_box = SectionCard("Lead management", "", padded=False)
+        self.lead_count_label = table_box.subtitle_label
         self.leads_table = self._make_table(
             ["Date", "Lead", "Source", "Stage", "Owner", "Priority", "Follow-up", "Meeting", "Client", "Actions"],
             "Filtered leads",
             badges=(3, 5),
             empty="No leads match these filters. Clear the filters, or add a lead with New lead.",
             multi=True,  # several rows can be selected for "Assign selected…"
+            check_column=0,  # the checkboxes before the date pick rows for "Assign selected"
         )
-        self.leads_table.setMinimumHeight(380)
+        self.leads_table.setItemDelegate(TableDelegate(self.leads_table, (3, 5), avatar_columns=(4,),
+                                                       strong_columns=(1,), check_column=0))
+        leads_empty = EmptyState("No leads match these filters", "Clear the filters, or add a lead with New lead.",
+                                 icon="leads")
+        leads_empty.add_action("Clear filters", self.clear_filters)
+        self.empty_new_lead = leads_empty.add_action("New lead", self.new_lead, primary=True, icon="plus")
+        set_empty_state(self.leads_table, leads_empty,
+                        "No leads match these filters. Clear the filters, or add a lead with New lead.")
+        self.selected_badge = Badge("", "info")
+        self.selected_badge.hide()
+        table_box.add_action(self.selected_badge)
+        self.leads_table.itemSelectionChanged.connect(self._selection_changed)
         enable_column_choice(self.leads_table, "leads", locked=(1, _ACTIONS_COLUMN))
         self.leads_table.sortItems(0, Qt.SortOrder.DescendingOrder)  # newest first
         # Enter or double-click opens the lead; the painted buttons and the
         # context menu offer the same actions without a widget per row.
         self.leads_table.activated.connect(self._on_lead_activated)
         self._lead_row_actions = (
-            RowAction("open", "Open", "Details, timeline, tasks, and all actions"),
-            RowAction("stage", "Stage…", "Move the lead to another stage"),
+            RowAction("open", "Edit", "Open the lead: details, timeline, tasks, and all actions", icon="edit"),
+            RowAction("more", "More", "More actions", icon="more"),
+        )
+        self._lead_menu_actions = (
+            RowAction("open", "Open lead…", "Details, timeline, tasks, and all actions"),
+            RowAction("stage", "Change stage…", "Move the lead to another stage"),
         )
         self._lead_action_delegate = RowActionDelegate(
             self._lead_row_actions, id_role=Qt.ItemDataRole.UserRole, view=self.leads_table
@@ -464,11 +572,11 @@ class LeadsPage(QWidget):
         self.leads_table.setItemDelegateForColumn(_ACTIONS_COLUMN, self._lead_action_delegate)
         install_row_action_menu(
             self.leads_table,
-            self._lead_row_actions,
+            self._lead_menu_actions,
             lambda index: str(index.data(Qt.ItemDataRole.UserRole) or ""),
             self._run_lead_action,
         )
-        table_layout.addWidget(self.leads_table)
+        table_box.body.addWidget(self.leads_table)
         self._layout.addWidget(table_box)
 
         self.status_label = QLabel("")
@@ -477,6 +585,7 @@ class LeadsPage(QWidget):
         self.status_label.setAccessibleName("Leads status message")
         self.status_label.setTextFormat(Qt.TextFormat.PlainText)
         self._layout.addWidget(self.status_label)
+        self._layout.addStretch(1)
 
         # Re-filtering 5,000 leads costs up to ~0.3 s; wait for a typing pause
         # (or Enter) instead of re-rendering on every keystroke.
@@ -510,11 +619,13 @@ class LeadsPage(QWidget):
 
     @staticmethod
     def _make_table(headers: list[str], accessible_name: str, *, numeric: Iterable[int] = (),
-                    badges: Iterable[int] = (), empty: str | None = None, multi: bool = False) -> QTableWidget:
+                    badges: Iterable[int] = (), empty: str | None = None, multi: bool = False,
+                    check_column: int | None = None) -> QTableWidget:
         table = QTableWidget(0, len(headers))
         table.setHorizontalHeaderLabels(headers)
         table.setAccessibleName(accessible_name)
-        prepare_table(table, numeric_columns=numeric, badge_columns=badges, empty_text=empty, multi_select=multi)
+        prepare_table(table, numeric_columns=numeric, badge_columns=badges, empty_text=empty, multi_select=multi,
+                      check_column=check_column)
         table.setSortingEnabled(True)
         table.horizontalHeader().setStretchLastSection(False)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
@@ -526,11 +637,12 @@ class LeadsPage(QWidget):
         self._reflow()
 
     def _reflow(self) -> None:
-        width = max(self.width(), 360)
-        filter_columns = 1 if width < 620 else (2 if width < 1000 else 4)
-        kpi_columns = 2 if width < 720 else 4
-        summary_columns = 5 if width >= 1000 else 3
-        mode = (filter_columns, kpi_columns, summary_columns)
+        width = max(self.width() - 70, 300)
+        filter_columns = 1 if width < 520 else (2 if width < 880 else 4)
+        kpi_columns = 2 if width < 640 else 4
+        summary_columns = 5 if width >= 900 else 3
+        side_by_side = width >= 1000
+        mode = (filter_columns, kpi_columns, summary_columns, side_by_side)
         if mode == self._layout_mode:
             return
         self._layout_mode = mode
@@ -547,13 +659,19 @@ class LeadsPage(QWidget):
         for column in range(4):
             self._filter_grid.setColumnStretch(column, 1 if column < filter_columns else 0)
 
-        for card in self._kpi_cards.values():
-            self._kpi_grid.removeWidget(card)
-        for index, card in enumerate(self._kpi_cards.values()):
-            row, column = divmod(index, kpi_columns)
-            self._kpi_grid.addWidget(card, row, column)
-        for column in range(4):
-            self._kpi_grid.setColumnStretch(column, 1 if column < kpi_columns else 0)
+        self.metrics_grid.set_columns(kpi_columns)
+        self._metrics_row.removeWidget(self.metrics_grid)
+        self._metrics_row.removeWidget(self.funnel_card)
+        if side_by_side:
+            self._metrics_row.addWidget(self.metrics_grid, 0, 0)
+            self._metrics_row.addWidget(self.funnel_card, 0, 1)
+            self._metrics_row.setColumnStretch(0, 16)
+            self._metrics_row.setColumnStretch(1, 10)
+        else:
+            self._metrics_row.addWidget(self.metrics_grid, 0, 0)
+            self._metrics_row.addWidget(self.funnel_card, 1, 0)
+            self._metrics_row.setColumnStretch(0, 1)
+            self._metrics_row.setColumnStretch(1, 0)
 
         for cell in self._marketing_summary_cells:
             self._marketing_summary_grid.removeWidget(cell)
@@ -586,6 +704,8 @@ class LeadsPage(QWidget):
         self.export_button.setVisible(context is None or context.can("data.export"))
         self.manage_spend_button.setVisible(context is None or context.can("marketing.manage"))
         self.owner_combo.setEnabled(context is not None)
+        self.empty_new_lead.setVisible(context is not None and context.can("leads.create"))
+        self._selection_changed()
 
     def refresh(self, preserve_filters: bool = True) -> None:
         """Reload database-backed reference data and reapply active filters."""
@@ -736,13 +856,16 @@ class LeadsPage(QWidget):
 
     def _update_funnel(self) -> None:
         total = int(self._funnel_stats.get("total", 0))
-        for key, bar in self._funnel_bars.items():
+        for position, (key, bar) in enumerate(self._funnel_bars.items()):
             value = int(self._funnel_stats.get(key, 0))
-            bar.setRange(0, max(total, 1))
-            bar.setValue(value)
+            bar.setRange(0, max(total, 1) * 100)
+            # The fill sweeps in from the left (1 s, each stage 0.1 s after the previous one).
+            animate(0.0, float(value * 100), 1000, partial(_set_bar, bar), curve=EASE_OUT, delay=100 * position,
+                    owner=bar)
             percent = (value / total * 100) if total else 0.0
             bar.setFormat(f"{value}  ·  {percent:.1f}%")
             bar.setAccessibleDescription(f"{value} of {total}; {percent:.1f} percent")
+            self._funnel_values[key].setText(f"<b>{value}</b> · {percent:.1f}%")
         dropoff = int(self._funnel_stats.get("lead_dropoff", 0))
         self.funnel_insight.setText(
             f"{dropoff} lead{'s' if dropoff != 1 else ''} have not reached a meeting. "
@@ -765,7 +888,8 @@ class LeadsPage(QWidget):
                 _readonly_item(total, numeric=total),
                 _readonly_item(int(values.get("meetings", 0)), numeric=int(values.get("meetings", 0))),
                 _readonly_item(clients, numeric=clients),
-                _readonly_item(f"{conversion:.1f}%", numeric=conversion),
+                _tone_item(_readonly_item(f"{conversion:.1f}%", numeric=conversion),
+                           "success" if conversion >= 40 else "warning" if conversion > 0 else "danger"),
                 _readonly_item(
                     f"{values.get('meeting_to_client_pct', 0):.1f}%",
                     numeric=float(values.get("meeting_to_client_pct", 0)),
@@ -804,7 +928,6 @@ class LeadsPage(QWidget):
         table.setSortingEnabled(True)
 
     def _populate_upcoming_meetings(self) -> None:
-        self.upcoming_list.clear()
         today = date.today().isoformat()
         upcoming = sorted(
             (
@@ -813,19 +936,22 @@ class LeadsPage(QWidget):
             ),
             key=lambda lead: str(lead.get("meeting_date")),
         )
-        if not upcoming:
-            self.upcoming_list.addItem("No upcoming meetings in this snapshot.")
-            return
-        for lead in upcoming[:20]:
-            self.upcoming_list.addItem(
-                f"{date_text(lead.get('meeting_date'))}  ·  "
-                f"{lead.get('client_name') or lead.get('id') or 'Lead'}  ·  "
-                f"{_source_label(lead.get('source'))}"
-            )
+        self.upcoming_list.set_meetings([
+            (str(lead.get("id") or ""), str(lead.get("meeting_date"))[:10], _lead_title(lead),
+             f"{_source_label(lead.get('source'))} · {lead.get('owner_name') or 'Unassigned'}",
+             _STATUS_LABELS.get(str(lead.get("status") or "").lower(), str(lead.get("status") or "—")))
+            for lead in upcoming[:20]
+        ])
 
     def _populate_leads_table(self) -> None:
         table = self.leads_table
         zone = self.context.actor.timezone if self.context and self.context.actor else "UTC"
+        now = datetime.now(UTC)
+        overdue_color = QColor(tokens()["danger"])
+        today_color = QColor(tokens()["goldInk"])
+        count = len(self._filtered_leads)
+        self.lead_count_label.setText(f"Loaded {count} lead{'s' if count != 1 else ''}")
+        self.lead_count_label.show()
         with bulk_table_update(
             table,
             stretch_column=1,
@@ -855,12 +981,22 @@ class LeadsPage(QWidget):
                 for column, value in enumerate(values):
                     item = _readonly_item(value, sort_key=sort_keys.get(column))
                     item.setData(Qt.ItemDataRole.UserRole, lead_id)
+                    if column == 1:
+                        item.setData(SUBTEXT_ROLE, lead_id)
+                    elif column == 6 and follow_up is not None:
+                        due = follow_up if follow_up.tzinfo else follow_up.replace(tzinfo=UTC)
+                        if due < now:
+                            item.setForeground(overdue_color)
+                            item.setText(f"Overdue · {item.text()}")
+                        elif local_time(due, zone)[:11] == local_time(now, zone)[:11]:
+                            item.setForeground(today_color)
                     table.setItem(row, column, item)
                 action_item = QTableWidgetItem()
                 action_item.setFlags(action_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 action_item.setData(Qt.ItemDataRole.UserRole, lead_id)
                 action_item.setData(Qt.ItemDataRole.AccessibleTextRole, f"Actions for lead {lead_id}: open, stage")
                 table.setItem(row, _ACTIONS_COLUMN, action_item)
+        fit_table_height(table, max_rows=14)
 
     def _on_lead_activated(self, index) -> None:
         lead_id = str(index.data(Qt.ItemDataRole.UserRole) or "")
@@ -868,8 +1004,24 @@ class LeadsPage(QWidget):
             self.open_lead(lead_id)
 
     def _run_lead_action(self, key: str, lead_id: str) -> None:
-        if lead_id:
-            {"open": self.open_lead, "stage": self.change_stage, "edit": self.edit_lead}[key](lead_id)
+        if not lead_id:
+            return
+        if key == "more":  # the ⋯ button: the same actions as the context menu
+            menu = QMenu(self.leads_table)
+            for action in self._lead_menu_actions:
+                menu.addAction(action.label, partial(self._run_lead_action, action.key, lead_id))
+            menu.exec(QCursor.pos())
+            menu.deleteLater()
+            return
+        {"open": self.open_lead, "stage": self.change_stage, "edit": self.edit_lead}[key](lead_id)
+
+    def _selection_changed(self) -> None:
+        """ "Assign 2 selected" (disabled with nothing picked) and the "2 selected" badge, as in the design."""
+        count = len(self.leads_table.selectionModel().selectedRows())
+        self.assign_button.setEnabled(count > 0)
+        self.assign_button.setText(f"Assign {count} selected" if count else "Assign selected")
+        self.selected_badge.set_badge(f"{count} selected", "info")
+        self.selected_badge.setVisible(count > 0)
 
     def _require_session(self) -> AppContext | None:
         if self.context is None or not self.context.is_signed_in:

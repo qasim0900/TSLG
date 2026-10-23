@@ -13,26 +13,21 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from matplotlib.backends.backend_agg import FigureCanvasAgg
-from matplotlib.figure import Figure
-from matplotlib.ticker import FuncFormatter, MaxNLocator
-from PySide6.QtCore import QDate, QEvent, QObject, QSignalBlocker, Qt, QUrl, Signal, Slot
-from PySide6.QtGui import QColor, QDesktopServices, QImage, QPalette, QPixmap, QResizeEvent
+from PySide6.QtCore import QDate, QEvent, QObject, QSignalBlocker, Qt, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices, QResizeEvent
 from PySide6.QtWidgets import (
-    QAbstractItemView,
+    QButtonGroup,
     QComboBox,
     QDateEdit,
     QFileDialog,
     QFrame,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QSplitter,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -45,14 +40,28 @@ from controllers.ventas_controller import VentasController
 from domain.analysis_snapshot import AnalysisSnapshot
 from utils.formatting import format_eur
 
-from ..tables import align_headers, change_color, prepare_table, set_header_tips
-from ..widgets import KpiCard, labeled_field, sortable_item
+from ..icons import set_button_icon
+from ..tables import TONE_ROLE, align_headers, animate_rows, change_color, fit_table_height, prepare_table, set_header_tips
+from ..theme import tokens
+from ..widgets import (
+    BarChart,
+    BarRow,
+    EmptyState,
+    HBarList,
+    KpiCard,
+    PageHeader,
+    SectionCard,
+    SwitchButton,
+    labeled_field,
+    repolish,
+    sortable_item,
+)
 
 logger = logging.getLogger(__name__)
 
 _BRAND_GREEN = "#39B54A"
 _BRAND_GREEN_DARK = "#287D35"
-_SUMMARY_HEADERS = ("Product", "Quantity", "Total", "Average", "Minimum", "Maximum")
+_SUMMARY_HEADERS = ("Product", "Quantity", "Total", "Average", "Minimum", "Maximum", "vs Period B")
 _COMPARISON_HEADERS = ("Product", "Period A", "Period B", "Difference", "Change")
 _HEADER_TIPS = {
     _SUMMARY_HEADERS: {1: "Number of sales", 2: "Sum of all sale amounts", 3: "Average sale amount",
@@ -65,6 +74,7 @@ _INK = "#0A1414"
 _MUTED = "#62637A"
 _GRID = "#DDE1E6"
 _ALL_LABEL = "All"
+_GROUPING_WORDS = {"day": "daily", "week": "weekly", "month": "monthly", "quarter": "quarterly", "year": "yearly"}
 
 
 class _OpenOnCurrentMonth(QObject):
@@ -88,88 +98,16 @@ class _OpenOnCurrentMonth(QObject):
         return False
 
 
-class _SalesChart(QWidget):
-    """Render an isolated Matplotlib Agg figure into a native Qt label.
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
-    A static pixmap is sufficient for these analytical charts and avoids a
-    process-global interactive Matplotlib backend.  That keeps report charts
-    and repeated offscreen Qt tests deterministic in the same process.
-    """
 
-    def __init__(self, accessible_name: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.figure = Figure(figsize=(8.5, 3.6), constrained_layout=True)
-        self._canvas = FigureCanvasAgg(self.figure)
-        self._source_pixmap = QPixmap()
-        self.setMinimumHeight(300)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setAccessibleName(accessible_name)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        self.image = QLabel()
-        self.image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # A QLabel's minimum size is its pixmap's size; with Expanding the chart
-        # could grow but never shrink, forcing horizontal scrolling on narrow
-        # windows. Ignored lets the layout size it and the pixmap is re-scaled.
-        self.image.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
-        self.image.setMinimumSize(1, 1)
-        self.image.setAccessibleName(accessible_name)
-        layout.addWidget(self.image)
-
-    def draw_idle(self) -> None:
-        """Draw synchronously and update the scaled native pixmap."""
-        self._canvas.draw()
-        width, height = self._canvas.get_width_height()
-        rgba = bytes(self._canvas.buffer_rgba())
-        image = QImage(
-            rgba,
-            width,
-            height,
-            width * 4,
-            QImage.Format.Format_RGBA8888,
-        ).copy()
-        self._source_pixmap = QPixmap.fromImage(image)
-        self._update_pixmap()
-
-    def _update_pixmap(self) -> None:
-        if self._source_pixmap.isNull():
-            return
-        target = self.image.size()
-        if target.width() <= 0 or target.height() <= 0:
-            return
-        self.image.setPixmap(
-            self._source_pixmap.scaled(
-                target,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        )
-
-    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - Qt API
-        super().resizeEvent(event)
-        self._update_pixmap()
-
-    def empty(self, message: str) -> None:
-        self.figure.clear()
-        palette = self.palette()
-        surface = palette.color(QPalette.ColorRole.Base).name()
-        muted = palette.color(QPalette.ColorRole.PlaceholderText).name()
-        self.figure.set_facecolor(surface)
-        axis = self.figure.add_subplot(111)
-        axis.set_facecolor(surface)
-        axis.set_axis_off()
-        axis.text(
-            0.5,
-            0.5,
-            message,
-            ha="center",
-            va="center",
-            color=muted,
-            fontsize=11,
-            wrap=True,
-        )
-        self.setAccessibleDescription(message)
-        self.draw_idle()
+def _short_label(label: Any) -> str:
+    """ "2026-09-02" -> "2 Sep" for the chart axis (other groupings keep their own labels)."""
+    text = str(label)
+    parsed = QDate.fromString(text[:10], Qt.DateFormat.ISODate)
+    if len(text) >= 10 and parsed.isValid():
+        return f"{parsed.day()} {_MONTHS[parsed.month() - 1]}"
+    return text
 
 
 class SalesPage(QWidget):
@@ -260,69 +198,78 @@ class SalesPage(QWidget):
         self.scroll_area.setObjectName("pageScrollArea")
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         root.addWidget(self.scroll_area)
 
         body = QWidget()
         body.setObjectName("salesPageBody")
         body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(24, 22, 24, 28)
-        body_layout.setSpacing(18)
+        self._body_layout = body_layout
+        body_layout.setContentsMargins(28, 24, 28, 40)
+        body_layout.setSpacing(20)
         self.scroll_area.setWidget(body)
 
         # Attach each nested layout to its parent before populating it. PySide
         # only transfers widget ownership to the widget tree when the layout
         # already has a parent widget; otherwise Python and Qt both "own" the
         # child and the process can abort while tearing the page down.
-        heading_row = QVBoxLayout()
-        body_layout.addLayout(heading_row)
-        heading_copy = QVBoxLayout()
-        heading_row.addLayout(heading_copy)
-        title = QLabel("Sales intelligence")
-        title.setObjectName("pageTitle")
-        subtitle = QLabel(
-            "Filter revenue, compare periods, inspect product performance, and export a branded report."
+        self.header = PageHeader(
+            "Sales intelligence",
+            "Filter revenue, compare periods, inspect product performance and export a branded report.",
         )
-        subtitle.setObjectName("pageSubtitle")
-        subtitle.setWordWrap(True)
-        heading_copy.addWidget(title)
-        heading_copy.addWidget(subtitle)
+        body_layout.addWidget(self.header)
 
-        self.import_button = QPushButton("&Import data")
+        self.import_button = QPushButton("Import data")
         self.import_button.setObjectName("secondaryButton")
         self.import_button.setProperty("variant", "secondary")
         self.import_button.setToolTip("Import sales data using the application import workflow")
         self.import_button.setAccessibleDescription(self.import_button.toolTip())
+        set_button_icon(self.import_button, "upload")
         self.import_button.clicked.connect(self._request_import)
 
-        self.export_button = QPushButton("&Export HTML")
-        self.export_button.setObjectName("primaryButton")
-        self.export_button.setProperty("variant", "primary")
+        self.export_button = QPushButton("Export HTML")
+        self.export_button.setObjectName("secondaryButton")
+        self.export_button.setProperty("variant", "secondary")
         self.export_button.setToolTip("Save the currently displayed analysis as a branded HTML report")
         self.export_button.setAccessibleDescription(self.export_button.toolTip())
+        set_button_icon(self.export_button, "download")
         self.export_button.clicked.connect(self._choose_export_path)
 
         self.open_report_button = QPushButton("Open report")
-        self.open_report_button.setObjectName("tertiaryButton")
+        self.open_report_button.setObjectName("primaryButton")
         self.open_report_button.setToolTip("Open the most recently exported report")
         self.open_report_button.setEnabled(False)
+        set_button_icon(self.open_report_button, "file", "onPrimary")
         self.open_report_button.clicked.connect(self._open_last_report)
 
-        heading_actions = QHBoxLayout()
-        heading_row.addLayout(heading_actions)
-        heading_actions.addStretch(1)
-        heading_actions.addWidget(self.import_button)
-        heading_actions.addWidget(self.export_button)
+        self.header.add_action(self.import_button)
+        self.header.add_action(self.export_button)
         if self.context is not None:
             self.import_button.setVisible(self.context.can("data.import"))
             self.export_button.setVisible(self.context.can("data.export"))
-        heading_actions.addWidget(self.open_report_button)
+        self.header.add_action(self.open_report_button)
 
-        self.filter_group = QGroupBox("Filters")
-        self.filter_group.setObjectName("panel")
-        filter_outer = QVBoxLayout(self.filter_group)
+        self.filter_group = SectionCard("Filters", "All dates", padded=False)
+        self.reset_button = QPushButton("Reset")
+        self.reset_button.setObjectName("ghostButton")
+        self.reset_button.setToolTip("Clear all sales filters and comparison settings")
+        self.reset_button.clicked.connect(self.reset_filters)
+        self.apply_button = QPushButton("Apply filters")
+        self.apply_button.setObjectName("primaryButton")
+        self.apply_button.setProperty("variant", "primary")
+        self.apply_button.setToolTip("Apply the selected sales filters")
+        set_button_icon(self.apply_button, "leads", "onPrimary")
+        self.apply_button.clicked.connect(self.apply_filters)
+        self.filter_group.add_action(self.reset_button)
+        self.filter_group.add_action(self.apply_button)
+        filters_body = QWidget()
+        filter_outer = QVBoxLayout(filters_body)
+        filter_outer.setContentsMargins(20, 16, 20, 18)
+        filter_outer.setSpacing(14)
+        self.filter_group.body.addWidget(filters_body)
         self.filter_grid = QGridLayout()
-        self.filter_grid.setHorizontalSpacing(14)
-        self.filter_grid.setVerticalSpacing(10)
+        self.filter_grid.setHorizontalSpacing(16)
+        self.filter_grid.setVerticalSpacing(14)
         filter_outer.addLayout(self.filter_grid)
 
         self.start_date_edit = self._make_optional_date_edit(
@@ -345,22 +292,19 @@ class SalesPage(QWidget):
         ):
             self.grouping_combo.addItem(label, value)
 
-        self._filter_fields = [
-            self._field("From", self.start_date_edit),
-            self._field("To", self.end_date_edit),
-            self._field("Client", self.client_combo),
-            self._field("Product", self.product_combo),
-            self._field("Group trend by", self.grouping_combo),
-        ]
-
-        quick_row = QGridLayout()
-        filter_outer.addLayout(quick_row)
-        quick_row.setHorizontalSpacing(8)
-        quick_row.setVerticalSpacing(8)
-        quick_label = QLabel("Quick range:")
+        quick_block = QWidget()
+        quick_layout = QVBoxLayout(quick_block)
+        quick_layout.setContentsMargins(0, 0, 0, 0)
+        quick_layout.setSpacing(6)
+        quick_label = QLabel("Quick range")
         quick_label.setObjectName("fieldLabel")
-        quick_row.addWidget(quick_label, 0, 0, 1, 4)
+        quick_layout.addWidget(quick_label)
+        quick_row = QHBoxLayout()
+        quick_row.setSpacing(8)
+        quick_layout.addLayout(quick_row)
         self._quick_buttons: list[QPushButton] = []
+        self._quick_group = QButtonGroup(self)
+        self._quick_group.setExclusive(True)
         for text, callback in (
             ("Last 7 days", lambda: self._set_last_days(7)),
             ("Last 30 days", lambda: self._set_last_days(30)),
@@ -368,47 +312,58 @@ class SalesPage(QWidget):
             ("This year", self._set_current_year),
         ):
             button = QPushButton(text)
-            button.setObjectName("compactButton")
+            button.setObjectName("chipButton")
+            button.setCheckable(True)
             button.setToolTip(f"Set the date filter to {text.lower()}")
             button.clicked.connect(callback)
+            self._quick_group.addButton(button)
             self._quick_buttons.append(button)
-        for index, button in enumerate(self._quick_buttons):
-            quick_row.addWidget(button, 1, index)
-        quick_row.setColumnStretch(len(self._quick_buttons), 1)  # keep the chips compact
+            quick_row.addWidget(button)
+        quick_row.addStretch(1)  # keep the chips compact
 
-        action_row = QHBoxLayout()
-        filter_outer.addLayout(action_row)
-        action_row.addStretch(1)
-        self.reset_button = QPushButton("&Reset")
-        self.reset_button.setObjectName("secondaryButton")
-        self.reset_button.setToolTip("Clear all sales filters and comparison settings")
-        self.reset_button.clicked.connect(self.reset_filters)
-        self.apply_button = QPushButton("&Apply filters")
-        self.apply_button.setObjectName("primaryButton")
-        self.apply_button.setProperty("variant", "primary")
-        self.apply_button.setToolTip("Apply the selected sales filters")
-        self.apply_button.clicked.connect(self.apply_filters)
-        action_row.addWidget(self.reset_button)
-        action_row.addWidget(self.apply_button)
-        body_layout.addWidget(self.filter_group)
+        self._filter_fields = [
+            self._field("From", self.start_date_edit),
+            self._field("To", self.end_date_edit),
+            self._field("Client", self.client_combo),
+            self._field("Product", self.product_combo),
+            self._field("Group trend by", self.grouping_combo),
+            quick_block,
+        ]
 
-        self.compare_group = QGroupBox("Compare with another period")
-        self.compare_group.setObjectName("panel")
-        self.compare_group.setCheckable(True)
-        self.compare_group.setChecked(False)
+        compare_frame = QFrame()
+        compare_frame.setObjectName("cardFooter")
+        compare_outer = QVBoxLayout(compare_frame)
+        compare_outer.setContentsMargins(20, 16, 20, 18)
+        compare_outer.setSpacing(14)
+        self.filter_group.body.addWidget(compare_frame)
+        switch_row = QHBoxLayout()
+        switch_row.setSpacing(12)
+        self.compare_group = SwitchButton()
+        self.compare_group.setAccessibleName("Compare with another period")
         self.compare_group.setToolTip("Enable a second period for side-by-side analysis")
+        self.compare_group.setChecked(False)
         self.compare_group.toggled.connect(self._comparison_toggled)
-        compare_outer = QVBoxLayout(self.compare_group)
+        switch_row.addWidget(self.compare_group, 0, Qt.AlignmentFlag.AlignTop)
+        switch_copy = QVBoxLayout()
+        switch_copy.setSpacing(2)
+        switch_title = QLabel("Compare with another period")
+        switch_title.setObjectName("strongText")
+        switch_title.setBuddy(self.compare_group)
         hint = QLabel(
             "Period B uses its own dates and optional segment filters; results show B compared with A."
         )
-        hint.setObjectName("helperText")
+        hint.setObjectName("sectionSubtitle")
         hint.setWordWrap(True)
-        compare_outer.addWidget(hint)
-        self.compare_grid = QGridLayout()
-        self.compare_grid.setHorizontalSpacing(14)
-        self.compare_grid.setVerticalSpacing(10)
-        compare_outer.addLayout(self.compare_grid)
+        switch_copy.addWidget(switch_title)
+        switch_copy.addWidget(hint)
+        switch_row.addLayout(switch_copy, 1)
+        compare_outer.addLayout(switch_row)
+        self.compare_fields_box = QWidget()
+        self.compare_grid = QGridLayout(self.compare_fields_box)
+        self.compare_grid.setContentsMargins(0, 0, 0, 0)
+        self.compare_grid.setHorizontalSpacing(16)
+        self.compare_grid.setVerticalSpacing(14)
+        compare_outer.addWidget(self.compare_fields_box)
 
         self.compare_start_edit = self._make_optional_date_edit(
             "Comparison start date", "First date in comparison period B"
@@ -428,16 +383,17 @@ class SalesPage(QWidget):
             self._field("Period B client", self.compare_client_combo),
             self._field("Period B product", self.compare_product_combo),
         ]
-        body_layout.addWidget(self.compare_group)
+        self.compare_fields_box.setVisible(False)
+        body_layout.addWidget(self.filter_group)
 
         self.kpi_grid = QGridLayout()
-        self.kpi_grid.setHorizontalSpacing(12)
-        self.kpi_grid.setVerticalSpacing(12)
-        self.sales_card = KpiCard("Total sales", accent=_BRAND_GREEN)
-        self.transactions_card = KpiCard("Transactions", accent=_BRAND_GOLD)
-        self.average_card = KpiCard("Average sale", accent=_BRAND_GREEN)
-        self.clients_card = KpiCard("Unique clients", accent=_BRAND_GOLD)
-        self.products_card = KpiCard("Products", accent=_BRAND_GREEN)
+        self.kpi_grid.setHorizontalSpacing(16)
+        self.kpi_grid.setVerticalSpacing(16)
+        self.sales_card = KpiCard("Total sales", accent=_BRAND_GREEN, icon="sales")
+        self.transactions_card = KpiCard("Transactions", accent=_BRAND_GOLD, icon="receipt")
+        self.average_card = KpiCard("Average sale", accent=_BRAND_GREEN, icon="target")
+        self.clients_card = KpiCard("Unique clients", accent=_BRAND_GOLD, icon="people")
+        self.products_card = KpiCard("Products", accent=_BRAND_GREEN, icon="box")
         self._kpi_cards = [
             self.sales_card,
             self.transactions_card,
@@ -453,22 +409,15 @@ class SalesPage(QWidget):
             card.note = card.detail_label
         body_layout.addLayout(self.kpi_grid)
 
-        self.content_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.content_splitter.setObjectName("salesContentSplitter")
-        self.content_splitter.setChildrenCollapsible(False)
-        self.content_splitter.setAccessibleName("Sales table and charts")
-
-        table_panel = QGroupBox("Sales summary by product")
-        table_panel.setObjectName("panel")
-        table_layout = QVBoxLayout(table_panel)
-        self.table = QTableWidget(0, 6)
+        self.table_panel = SectionCard("Sales summary by product", "", padded=False)
+        self.table = QTableWidget(0, len(_SUMMARY_HEADERS))
         self.table.setObjectName("dataTable")
         self.table.setAccessibleName("Sales summary by product")
         self.table.setAccessibleDescription(
             "Sortable product totals, quantities, averages, minimums, and maximums"
         )
         self.table.setHorizontalHeaderLabels(list(_SUMMARY_HEADERS))
-        prepare_table(self.table, numeric_columns=range(1, 6), empty_text=_EMPTY_SALES)
+        prepare_table(self.table, numeric_columns=range(1, 6), empty_text=_EMPTY_SALES, strong_columns=(0, 2))
         self._label_columns(_SUMMARY_HEADERS)
         self.table.setSortingEnabled(True)
         header = self.table.horizontalHeader()
@@ -477,29 +426,38 @@ class SalesPage(QWidget):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         # Largest totals first; enabling sorting otherwise sorts by product, Z-A.
         self.table.sortItems(2, Qt.SortOrder.DescendingOrder)
-        table_layout.addWidget(self.table)
-        self.content_splitter.addWidget(table_panel)
+        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.table_panel.body.addWidget(self.table)
+        self.table_empty = EmptyState("No sales in this period",
+                                      "Change the dates or filters, or import sales from the Dashboard.",
+                                      icon="receipt")
+        self.table_empty.add_action("Reset filters", self.reset_filters)
+        self.table_empty_import = self.table_empty.add_action("Import data", self._request_import, primary=True)
+        self.table_empty.hide()
+        self.table_panel.body.addWidget(self.table_empty)
+        body_layout.addWidget(self.table_panel)
 
-        chart_panel = QGroupBox("Visual analysis")
-        chart_panel.setObjectName("panel")
-        chart_layout = QVBoxLayout(chart_panel)
+        self.chart_panel = SectionCard("Visual analysis", "Revenue grouped daily", padded=False, divider=False)
+        legend = QLabel()
+        legend.setObjectName("sectionSubtitle")
+        self.chart_legend = legend
+        self.chart_panel.add_action(legend)
         self.chart_tabs = QTabWidget()
         self.chart_tabs.setDocumentMode(True)
-        self.trend_chart = _SalesChart("Sales trend chart")
-        self.product_chart = _SalesChart("Sales by product chart")
-        self.top_clients_chart = _SalesChart("Top clients chart")
-        self.comparison_chart = _SalesChart("Period comparison chart")
-        self.chart_tabs.addTab(self.trend_chart, "Trend")
-        self.chart_tabs.addTab(self.product_chart, "Products")
-        self.chart_tabs.addTab(self.top_clients_chart, "Top clients")
-        self._comparison_tab_index = self.chart_tabs.addTab(
-            self.comparison_chart, "Period comparison"
-        )
-        self.chart_tabs.setTabVisible(self._comparison_tab_index, False)
-        chart_layout.addWidget(self.chart_tabs)
-        self.content_splitter.addWidget(chart_panel)
-        self.content_splitter.setSizes([360, 390])
-        body_layout.addWidget(self.content_splitter, 1)
+        self.trend_chart = BarChart("Sales trend chart")
+        self.product_chart = HBarList("Sales by product chart")
+        self.top_clients_chart = HBarList("Top clients chart")
+        self.chart_tabs.addTab(self._chart_page(self.trend_chart, (20, 24, 20, 20)), "Trend")
+        self.chart_tabs.addTab(self._chart_page(self.product_chart), "Products")
+        self.chart_tabs.addTab(self._chart_page(self.top_clients_chart), "Top clients")
+        # Period B appears beside Period A in the trend (paired bars), not in a separate tab.
+        self.chart_tabs.currentChanged.connect(lambda index: self.chart_legend.setVisible(index == 0))
+        self.chart_tabs.currentChanged.connect(lambda _index: self._replay_current_chart())
+        self.chart_panel.body.addWidget(self.chart_tabs)
+        self.chart_empty = EmptyState("No sales data for the selected filters", "", icon="chart")
+        self.chart_empty.hide()
+        self.chart_panel.body.addWidget(self.chart_empty)
+        body_layout.addWidget(self.chart_panel)
 
         self.status_label = QLabel("")
         self.status_label.setObjectName("statusMessage")
@@ -508,14 +466,29 @@ class SalesPage(QWidget):
         self.status_label.setAccessibleName("Sales page status")
         self.status_label.setTextFormat(Qt.TextFormat.PlainText)
         body_layout.addWidget(self.status_label)
+        body_layout.addStretch(1)
 
+        self._update_legend()
         self._reflow(force=True)
+
+    @staticmethod
+    def _chart_page(chart: QWidget, margins: tuple[int, int, int, int] = (20, 20, 20, 20)) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(*margins)
+        layout.addWidget(chart)
+        layout.addStretch(1)
+        return page
+
+    def _replay_current_chart(self) -> None:
+        chart = (self.trend_chart, self.product_chart, self.top_clients_chart)[max(self.chart_tabs.currentIndex(), 0)]
+        chart.replay()
 
     @staticmethod
     def _make_optional_date_edit(accessible_name: str, tooltip: str) -> QDateEdit:
         editor = QDateEdit()
         editor.setCalendarPopup(True)
-        editor.setDisplayFormat("yyyy-MM-dd")
+        editor.setDisplayFormat("dd MMM yyyy")
         editor.setMinimumDate(QDate(1900, 1, 1))
         editor.setMaximumDate(QDate(2999, 12, 31))
         editor.setSpecialValueText("Any date")
@@ -662,6 +635,12 @@ class SalesPage(QWidget):
         blocker = QSignalBlocker(self.compare_group)
         self.compare_group.setChecked(False)
         del blocker
+        self.compare_fields_box.setVisible(False)
+        self._quick_group.setExclusive(False)
+        for button in self._quick_buttons:
+            button.setChecked(False)
+        self._quick_group.setExclusive(True)
+        self._update_legend()
         self.reload_data()
 
     def reload_data(self, *, announce: bool = True) -> AnalysisSnapshot | Any | None:
@@ -708,6 +687,8 @@ class SalesPage(QWidget):
         if snapshot is None:
             for card in self._kpi_cards:
                 card.set_value("—")
+            self.filter_group.set_subtitle(f"{self._period_text()} · no sales match the selected filters")
+            self.table_panel.set_subtitle("")
             self._populate_table(None)
             self._render_charts(None)
             return
@@ -726,22 +707,32 @@ class SalesPage(QWidget):
 
         self.sales_card.set_value(
             format_eur(metrics.total_sales),
-            comparison_note("total_sales", format_eur),
+            comparison_note("total_sales", format_eur) or "Revenue in Period A",
         )
         self.transactions_card.set_value(
             f"{metrics.transactions:,}",
-            comparison_note("transactions", lambda value: f"{int(value):,}"),
+            comparison_note("transactions", lambda value: f"{int(value):,}") or "Imported sales rows",
         )
         self.average_card.set_value(
             format_eur(metrics.avg_ticket),
-            comparison_note("avg_ticket", format_eur),
+            comparison_note("avg_ticket", format_eur) or "Per transaction",
         )
         self.clients_card.set_value(
             f"{metrics.unique_clients:,}",
-            comparison_note("unique_clients", lambda value: f"{int(value):,}"),
+            comparison_note("unique_clients", lambda value: f"{int(value):,}") or "Bought in this period",
         )
-        self.products_card.set_value(f"{len(period.product_distribution.labels):,}")
+        distribution = period.product_distribution
+        top = ""
+        if distribution.labels and distribution.values:
+            top = max(zip(distribution.labels, distribution.values), key=lambda item: float(item[1]))[0]
+        self.products_card.set_value(f"{len(distribution.labels):,}", f"Top: {top}" if top else "")
 
+        period_text = self._period_text()
+        self.filter_group.set_subtitle(
+            f"{period_text} · {metrics.transactions:,} sale{'s' if metrics.transactions != 1 else ''} "
+            "match the selected filters")
+        products = len(distribution.labels)
+        self.table_panel.set_subtitle(f"{products} product{'s' if products != 1 else ''} · {period_text}")
         self._populate_table(snapshot)
         self._render_charts(snapshot)
 
@@ -752,6 +743,7 @@ class SalesPage(QWidget):
             self._label_columns(_SUMMARY_HEADERS)
             self.table.setRowCount(0)
             self.table.setSortingEnabled(True)
+            self._fit_table_height()
             return
 
         if snapshot.is_compare_mode() and snapshot.comparison is not None:
@@ -772,7 +764,7 @@ class SalesPage(QWidget):
                 difference = products.differences[row_index]
                 color = change_color(self.table, difference >= 0)
                 comparison_values[3].setForeground(color)
-                comparison_values[4].setForeground(color)
+                comparison_values[4].setData(TONE_ROLE, "success" if difference >= 0 else "danger")
                 for column, item in enumerate(comparison_values):
                     self.table.setItem(row_index, column, item)
             description = "Product sales comparison between periods A and B"
@@ -788,6 +780,7 @@ class SalesPage(QWidget):
                     self._number_item(row.avg_price, format_eur),
                     self._number_item(row.min_price, format_eur),
                     self._number_item(row.max_price, format_eur),
+                    self._vs_b_item(),
                 )
                 for column, item in enumerate(summary_values):
                     self.table.setItem(row_index, column, item)
@@ -798,6 +791,25 @@ class SalesPage(QWidget):
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.setSortingEnabled(True)
+        self._fit_table_height()
+
+    def _fit_table_height(self) -> None:
+        empty = self.table.rowCount() == 0
+        self.table.setVisible(not empty)
+        self.table_empty.setVisible(empty)
+        if self.context is not None:
+            self.table_empty_import.setVisible(self.context.can("data.import"))
+        fit_table_height(self.table)
+        animate_rows(self.table)
+
+    @staticmethod
+    def _vs_b_item() -> QTableWidgetItem:
+        """ "—" in a neutral badge: turn on the comparison to compare products with Period B."""
+        item = QTableWidgetItem("—")
+        item.setData(TONE_ROLE, "neutral")
+        item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        item.setToolTip("Turn on “Compare with another period” to compare with Period B")
+        return item
 
     def _label_columns(self, headers: tuple[str, ...]) -> None:
         """Set the columns for the summary or comparison view; numbers are right-aligned."""
@@ -821,238 +833,68 @@ class SalesPage(QWidget):
 
     # --------------------------------------------------------------- charts
 
-    @staticmethod
-    def _style_axis(
-        axis: Any,
-        colors: dict[str, str],
-        *,
-        ylabel: str = "Sales",
-        grid_axis: str = "y",
-        value_axis: str = "y",
-    ) -> None:
-        axis.spines["top"].set_visible(False)
-        axis.spines["right"].set_visible(False)
-        axis.spines["left"].set_color(colors["grid"])
-        axis.spines["bottom"].set_color(colors["grid"])
-        axis.grid(axis=grid_axis, color=colors["grid"], linewidth=0.8, alpha=0.8)
-        axis.set_axisbelow(True)
-        axis.tick_params(colors=colors["muted"], labelsize=9)
-        axis.xaxis.label.set_color(colors["text"])
-        axis.yaxis.label.set_color(colors["text"])
-        axis.set_ylabel(ylabel, color=colors["text"])
-        formatted_axis = axis.yaxis if value_axis == "y" else axis.xaxis
-        formatted_axis.set_major_formatter(
-            FuncFormatter(lambda value, _pos: f"€{value:,.0f}")
-        )
-        formatted_axis.set_major_locator(MaxNLocator(nbins=6))
-
-    def _chart_colors(self) -> dict[str, str]:
-        palette = self.palette()
-        surface_color = palette.color(QPalette.ColorRole.Base)
-        dark = surface_color.lightnessF() < 0.5
-        return {
-            "surface": surface_color.name(),
-            "text": palette.color(QPalette.ColorRole.Text).name(),
-            "muted": palette.color(QPalette.ColorRole.PlaceholderText).name(),
-            "grid": "#3F4945" if dark else _GRID,
-            "primary": _BRAND_GREEN if dark else _BRAND_GREEN_DARK,
-            "secondary": _BRAND_GOLD if dark else "#936B00",
-        }
-
-    def _prepare_chart(self, chart: _SalesChart) -> tuple[Any, dict[str, str]]:
-        colors = self._chart_colors()
-        figure = chart.figure
-        figure.clear()
-        figure.set_facecolor(colors["surface"])
-        axis = figure.add_subplot(111)
-        axis.set_facecolor(colors["surface"])
-        return axis, colors
-
     def _render_charts(self, snapshot: AnalysisSnapshot | Any | None) -> None:
-        """Render all chart pixmaps, including after an application theme change."""
+        """Fill the trend, product and top-client charts (they animate in on change)."""
+        has_data = snapshot is not None and bool(snapshot.period_a.table_data)
+        self.chart_tabs.setVisible(has_data)
+        self.chart_empty.setVisible(not has_data)
         if snapshot is None:
-            self.trend_chart.empty("No sales data for the selected filters")
-            self.product_chart.empty("No product data for the selected filters")
-            self.top_clients_chart.empty("No client data for the selected filters")
-            self.comparison_chart.empty("Enable comparison to compare two periods")
-            self.chart_tabs.setTabVisible(self._comparison_tab_index, False)
+            self.trend_chart.set_data([], [], empty="No sales data for the selected filters")
+            self.product_chart.set_rows([], empty="No product data for the selected filters")
+            self.top_clients_chart.set_rows([], empty="No client data for the selected filters")
             return
         self._render_trend_chart(snapshot)
         self._render_product_chart(snapshot)
         self._render_top_clients_chart(snapshot)
-        self._render_comparison_chart(snapshot)
-
-    @staticmethod
-    def _sparse_ticks(axis: Any, labels: list[str]) -> None:
-        count = len(labels)
-        if not count:
-            return
-        step = max(1, count // 8)
-        positions = list(range(0, count, step))
-        if count - 1 not in positions:
-            positions.append(count - 1)
-        axis.set_xticks(positions)
-        axis.set_xticklabels([labels[index] for index in positions], rotation=30, ha="right")
 
     def _render_trend_chart(self, snapshot: AnalysisSnapshot | Any) -> None:
-        evolution = snapshot.period_a.evolution
-        labels = list(evolution.labels or [])
-        values = [float(value) for value in evolution.values or []]
-        if not labels or not values:
-            self.trend_chart.empty("No trend data is available")
-            return
-
-        axis, colors = self._prepare_chart(self.trend_chart)
-        axis.plot(
-            range(len(values)),
-            values,
-            color=colors["primary"],
-            linewidth=2.4,
-            marker="o" if len(values) <= 24 else None,
-            markersize=4,
-            label="Period A",
-        )
-        axis.fill_between(
-            range(len(values)), values, color=colors["primary"], alpha=0.14
-        )
-        axis.set_title(
-            f"Sales trend · {snapshot.metadata.grouping.value.title()}",
-            loc="left",
-            color=colors["text"],
-            fontweight="bold",
-        )
-        self._style_axis(axis, colors)
-        self._sparse_ticks(axis, labels)
-        self.trend_chart.setAccessibleDescription(
-            f"Sales trend with {len(values)} {snapshot.metadata.grouping.value} data points"
-        )
-        self.trend_chart.draw_idle()
+        grouping = snapshot.metadata.grouping.value
+        self.chart_panel.set_subtitle(f"Revenue grouped {_GROUPING_WORDS.get(grouping, 'by period')}")
+        comparison = snapshot.comparison if snapshot.is_compare_mode() else None
+        money = lambda value: format_eur(value, 0)  # noqa: E731 - a short formatter
+        if comparison is not None and comparison.evolution.points:
+            points = list(comparison.evolution.points)
+            self.trend_chart.set_data([_short_label(point.label) for point in points],
+                                      [float(point.value_a) for point in points],
+                                      values_b=[float(point.value_b) for point in points], value_format=money)
+            description = f"Revenue trend comparing periods A and B across {len(points)} intervals"
+        else:
+            evolution = snapshot.period_a.evolution
+            labels = [_short_label(label) for label in evolution.labels or []]
+            values = [float(value) for value in evolution.values or []]
+            self.trend_chart.set_data(labels, values, value_format=money, empty="No trend data is available")
+            description = f"Sales trend with {len(values)} {grouping} data points"
+        self.trend_chart.setAccessibleDescription(description + ". " + self.trend_chart.accessibleDescription())
 
     def _render_product_chart(self, snapshot: AnalysisSnapshot | Any) -> None:
         distribution = snapshot.period_a.product_distribution
-        labels = list(distribution.labels or [])
-        values = [float(value) for value in distribution.values or []]
-        if not labels or not values:
-            self.product_chart.empty("No product distribution is available")
-            return
-
-        visible_rows = sorted(zip(labels, values), key=lambda item: item[1])[-12:]
-        chart_labels = [label if len(label) <= 26 else f"{label[:25]}…" for label, _ in visible_rows]
-        chart_values = [value for _, value in visible_rows]
-        axis, colors = self._prepare_chart(self.product_chart)
-        # Numeric positions: equal (e.g. truncated) category labels would
-        # otherwise be merged by Matplotlib into one overdrawn bar.
-        positions = list(range(len(chart_values)))
-        bars = axis.barh(positions, chart_values, color=colors["primary"], alpha=0.92)
-        axis.set_yticks(positions, chart_labels)
-        axis.set_title(
-            "Sales by product", loc="left", color=colors["text"], fontweight="bold"
+        pairs = sorted(zip(list(distribution.labels or []), [float(value) for value in distribution.values or []]),
+                       key=lambda item: item[1], reverse=True)[:12]
+        total = sum(value for _label, value in pairs) or 1.0
+        top = max((value for _label, value in pairs), default=1.0) or 1.0
+        # Separate rows even when two (shortened) product names are equal.
+        self.product_chart.set_rows(
+            [BarRow(label, value / top, format_eur(value), f"{value / total * 100:.0f}%")
+             for label, value in pairs],
+            empty="No product distribution is available",
         )
-        self._style_axis(
-            axis, colors, ylabel="", grid_axis="x", value_axis="x"
-        )
-        axis.bar_label(
-            bars,
-            labels=[f"€{value:,.0f}" for value in chart_values],
-            padding=4,
-            fontsize=8,
-            color=colors["text"],
-        )
-        self.product_chart.setAccessibleDescription(
-            f"Horizontal bar chart showing sales for {len(labels)} products"
-        )
-        self.product_chart.draw_idle()
 
     def _render_top_clients_chart(self, snapshot: AnalysisSnapshot | Any) -> None:
         """Rank period A's top clients by revenue (restored from the Flet UI)."""
-        ranking = sorted(
-            snapshot.period_a.top_clients or [],
-            key=lambda client: float(client.total_sales),
+        ranking = sorted(snapshot.period_a.top_clients or [], key=lambda client: float(client.total_sales),
+                         reverse=True)
+        top = max((float(client.total_sales) for client in ranking), default=1.0) or 1.0
+        self.top_clients_chart.set_rows(
+            [BarRow(str(client.client_name), float(client.total_sales) / top, format_eur(client.total_sales),
+                    f"{client.transactions:,} sales", avatar=str(client.client_name), color="chartB",
+                    tooltip=f"{client.client_name}: {format_eur(client.total_sales)} · {client.transactions:,} sales "
+                            f"· {client.percentage_of_total:.1f}% of revenue")
+             for client in ranking],
+            empty="No client ranking is available",
         )
-        if not ranking:
-            self.top_clients_chart.empty("No client ranking is available")
-            return
-
-        labels = [
-            name if len(name) <= 26 else f"{name[:25]}…"
-            for name in (str(client.client_name) for client in ranking)
-        ]
-        values = [float(client.total_sales) for client in ranking]
-        axis, colors = self._prepare_chart(self.top_clients_chart)
-        positions = list(range(len(values)))  # same-named clients stay separate bars
-        bars = axis.barh(positions, values, color=colors["primary"], alpha=0.92)
-        axis.set_yticks(positions, labels)
-        axis.set_title(
-            "Top clients by sales", loc="left", color=colors["text"], fontweight="bold"
-        )
-        self._style_axis(
-            axis, colors, ylabel="", grid_axis="x", value_axis="x"
-        )
-        axis.bar_label(
-            bars,
-            labels=[
-                f"€{client.total_sales:,.0f} · {client.transactions:,} sales · {client.percentage_of_total:.1f}%"
-                for client in ranking
-            ],
-            padding=4,
-            fontsize=8,
-            color=colors["text"],
-        )
-        axis.margins(x=0.35)  # room for the value labels
         self.top_clients_chart.setAccessibleDescription(
-            "Top clients by sales: "
-            + "; ".join(
-                f"{client.client_name} {format_eur(client.total_sales)}" for client in reversed(ranking)
-            )
-        )
-        self.top_clients_chart.draw_idle()
-
-    def _render_comparison_chart(self, snapshot: AnalysisSnapshot | Any) -> None:
-        comparison = snapshot.comparison if snapshot.is_compare_mode() else None
-        visible = comparison is not None
-        self.chart_tabs.setTabVisible(self._comparison_tab_index, visible)
-        if comparison is None:
-            self.comparison_chart.empty("Enable comparison to compare two periods")
-            return
-
-        points = list(comparison.evolution.points or [])
-        if not points:
-            self.comparison_chart.empty("No overlapping comparison trend is available")
-            return
-        labels = [point.label for point in points]
-        values_a = [float(point.value_a) for point in points]
-        values_b = [float(point.value_b) for point in points]
-        axis, colors = self._prepare_chart(self.comparison_chart)
-        positions = range(len(points))
-        axis.plot(
-            positions,
-            values_a,
-            color=colors["primary"],
-            linewidth=2.3,
-            label="Period A",
-        )
-        axis.plot(
-            positions,
-            values_b,
-            color=colors["secondary"],
-            linewidth=2.3,
-            label="Period B",
-        )
-        axis.set_title(
-            "Period A vs. Period B",
-            loc="left",
-            color=colors["text"],
-            fontweight="bold",
-        )
-        self._style_axis(axis, colors)
-        self._sparse_ticks(axis, labels)
-        legend = axis.legend(frameon=False, loc="best")
-        for label in legend.get_texts():
-            label.set_color(colors["text"])
-        self.comparison_chart.setAccessibleDescription(
-            f"Line chart comparing periods A and B across {len(points)} intervals"
-        )
-        self.comparison_chart.draw_idle()
+            "Top clients by sales: " + "; ".join(
+                f"{client.client_name} {format_eur(client.total_sales)}" for client in ranking))
 
     # -------------------------------------------------------------- actions
 
@@ -1143,6 +985,8 @@ class SalesPage(QWidget):
 
     @Slot(bool)
     def _comparison_toggled(self, enabled: bool) -> None:
+        self.compare_fields_box.setVisible(enabled)
+        self._update_legend()
         if not enabled:
             self.compare_controller.deactivate_compare()
             if self.current_snapshot is not None and self.current_snapshot.is_compare_mode():
@@ -1203,8 +1047,10 @@ class SalesPage(QWidget):
             QEvent.Type.ApplicationPaletteChange,
         }:
             return
-        if hasattr(self, "trend_chart"):
-            self._render_charts(self.current_snapshot)
+        if hasattr(self, "trend_chart"):  # the native charts paint with the current theme
+            for chart in (self.trend_chart, self.product_chart, self.top_clients_chart):
+                chart.update()
+            self._update_legend()
         if hasattr(self, "table"):  # gain/loss colours follow the theme
             self._populate_table(self.current_snapshot)
 
@@ -1213,24 +1059,62 @@ class SalesPage(QWidget):
         self._reflow()
 
     def _reflow(self, *, force: bool = False) -> None:
-        viewport_width = (
-            self.scroll_area.viewport().width()
-            if hasattr(self, "scroll_area")
-            else self.width()
-        )
-        # Match breakpoints against usable content, not the outer page. This
-        # keeps fields and KPI cards comfortably sized in a 760x600 window.
-        width = max(0, viewport_width - 48)
-        field_columns = 4 if width >= 1120 else 2 if width >= 620 else 1
-        compare_columns = 4 if width >= 1000 else 2 if width >= 620 else 1
-        kpi_columns = 5 if width >= 1240 else 3 if width >= 760 else 2 if width >= 480 else 1
+        # The page's own width: the scroll area's viewport is resized after this
+        # widget, so reading it here gave the previous (often tiny) width.
+        # Match breakpoints against usable content (page margins and scroll bar).
+        width = max(0, self.width() - 70)
+        field_columns = 4 if width >= 880 else 2 if width >= 520 else 1
+        compare_columns = field_columns
+        kpi_columns = 5 if width >= 1000 else 3 if width >= 600 else 2 if width >= 400 else 1
         bucket = (field_columns, compare_columns, kpi_columns)
         if not force and bucket == self._last_layout_bucket:
             return
         self._last_layout_bucket = bucket
-        self._replace_grid(self.filter_grid, self._filter_fields, field_columns)
+        self._place_filter_fields(field_columns)
         self._replace_grid(self.compare_grid, self._compare_fields, compare_columns)
         self._replace_grid(self.kpi_grid, self._kpi_cards, kpi_columns)
+        # Recompute the nested layouts now: the scroll area otherwise keeps the
+        # previous (wider) minimum until a later event-loop pass.
+        for layout in (self.filter_grid, self.filter_group.card_layout, self._body_layout):
+            layout.invalidate()
+            layout.activate()
+
+    def _place_filter_fields(self, columns: int) -> None:
+        """Four fields per row; the quick-range chips fill the rest of the last row."""
+        layout = self.filter_grid
+        for widget in self._filter_fields:
+            layout.removeWidget(widget)
+        for column in range(6):
+            layout.setColumnStretch(column, 0)
+        *fields, quick = self._filter_fields
+        for index, widget in enumerate(fields):
+            layout.addWidget(widget, index // columns, index % columns)
+        used = len(fields) % columns
+        row = len(fields) // columns
+        if used == 0 or columns < 4:  # narrow: the chips get a row of their own
+            layout.addWidget(quick, row + (1 if used else 0), 0, 1, columns)
+        else:
+            layout.addWidget(quick, row, used, 1, columns - used)
+        for column in range(columns):
+            layout.setColumnStretch(column, 1)
+
+    def _period_text(self) -> str:
+        start = self.start_date_edit.date()
+        end = self.end_date_edit.date()
+        if start == self.start_date_edit.minimumDate() and end == self.end_date_edit.minimumDate():
+            return "All dates"
+        first = "the beginning" if start == self.start_date_edit.minimumDate() else start.toString("d MMM yyyy")
+        last = "today" if end == self.end_date_edit.minimumDate() else end.toString("d MMM yyyy")
+        return f"{first} – {last}"
+
+    def _update_legend(self) -> None:
+        values = tokens()
+        swatch = '<span style="color:{0}">■</span>'
+        text = f'{swatch.format(values["chartA"])} Period A'
+        if self.compare_group.isChecked():
+            text += f'&nbsp;&nbsp;&nbsp;{swatch.format(values["chartB"])} Period B'
+        self.chart_legend.setTextFormat(Qt.TextFormat.RichText)
+        self.chart_legend.setText(text)
 
     @staticmethod
     def _replace_grid(
@@ -1263,9 +1147,8 @@ class SalesPage(QWidget):
         self.status_label.setText(message)
         self.status_label.setProperty("severity", "error" if error else "info")
         self.status_label.setAccessibleDescription(message)
-        style = self.status_label.style()
-        style.unpolish(self.status_label)
-        style.polish(self.status_label)
+        self.status_label.setVisible(error)  # routine updates are announced by the shell instead
+        repolish(self.status_label)
         self.statusMessage.emit(message)
         if self._on_status is not None:
             try:

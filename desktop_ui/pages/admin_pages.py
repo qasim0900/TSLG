@@ -7,12 +7,12 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
-    QDialogButtonBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import Shiboken
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -28,14 +29,20 @@ from crm.security.permissions import PERMISSIONS, ROLE_PERMISSIONS
 from crm.services import audit, users
 from crm.services.access import Actor
 from crm.services.pagination import PageRequest
-from crm.models import Activity, Client, Contact, Lead, Task, User
+from crm.models import Activity, Client, Contact, Lead, Task, User, UserSession
 from crm.services import leads
 from crm.vocabulary import ACCOUNT_STATUSES, LEAD_STATUSES, PRIORITIES, ROLES, TASK_STATUSES
 
+from ..dialogs import ask_confirmation
+from ..modal import ModalDialog
 from ..support import attempt, label, local_time, options
+from ..icons import set_button_icon
+from ..theme import apply_mono
+from ..widgets import Alert, IconChip
 from ..session import AppContext
 from ..forms import FieldSpec, FormDialog
 from ..records import Column, DetailPanel, DetailTab, DetailView, RecordPage, Row, RowPage
+from ..tables import tone_for
 
 
 def role_summary(role: str) -> str:
@@ -45,44 +52,87 @@ def role_summary(role: str) -> str:
     return text + (f"; limited to their own records for: {'; '.join(own)}" if own else "")
 
 
-class CodeDialog(QDialog):
-    """Shows a one-time activation or reset code once, with a copy button."""
+class CodeDialog(ModalDialog):
+    """Shows a one-time activation or reset code once, with a copy button (the design's invite result)."""
 
-    def __init__(self, parent: QWidget | None, *, name: str, code: str, purpose: str, hours: int) -> None:
+    def __init__(self, parent: QWidget | None, *, name: str, code: str, purpose: str, hours: int,
+                 email: str = "", role: str = "", allow_another: bool = False) -> None:
         super().__init__(parent)
-        self.setWindowTitle("One-time code")
+        self.setWindowTitle("Invite user" if purpose == "invite" else "One-time code")
         self.setModal(True)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 20, 24, 18)
-        layout.setSpacing(10)
-        action = "activate their account" if purpose == "invite" else "choose a new password"
-        heading = QLabel(f"Give this code to {name}")
-        heading.setObjectName("dialogHeading")
+        self.another = False
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(24, 28, 24, 22)
+        layout.setSpacing(16)
+        root.addWidget(content)
+        layout.addWidget(IconChip("check-circle", size=52, icon_size=24), 0, Qt.AlignmentFlag.AlignHCenter)
+        heading = QLabel(f"Account created for {name}" if purpose == "invite" else f"New sign-in code for {name}")
+        heading.setObjectName("dialogTitle")
         heading.setTextFormat(Qt.TextFormat.PlainText)
+        heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        heading.setWordWrap(True)
         layout.addWidget(heading)
+        action = "activate their account" if purpose == "invite" else "choose a new password"
         message = QLabel(
-            f"On the {QGuiApplication.applicationDisplayName() or 'Techset LeadGen'} sign-in screen they choose "
-            f"“I have an activation or password-reset code”, enter it, and {action}. The code works once, "
-            f"expires in {hours} hours, "
-            "and is not shown again. Share it privately (in person or by phone), not in a group chat."
+            "Give them this one-time code. They enter it on the sign-in screen under "
+            f"“I have an activation or password-reset code” and {action}. Share it privately "
+            "(in person or by phone), not in a group chat."
         )
+        message.setObjectName("dialogSubtitle")
+        message.setAlignment(Qt.AlignmentFlag.AlignCenter)
         message.setWordWrap(True)
         layout.addWidget(message)
+        box = QFrame()
+        box.setObjectName("codeBox")
+        box_row = QHBoxLayout(box)
+        box_row.setContentsMargins(16, 10, 10, 10)
+        box_row.setSpacing(10)
         self.code_field = QLineEdit(code)
+        self.code_field.setObjectName("codeField")
+        apply_mono(self.code_field, 22)
         self.code_field.setReadOnly(True)
+        self.code_field.setFrame(False)
         self.code_field.setAccessibleName("One-time code")
         self.code_field.selectAll()
-        layout.addWidget(self.code_field)
-        buttons = QDialogButtonBox()
-        copy = QPushButton("Copy code")
-        copy.clicked.connect(lambda: QGuiApplication.clipboard().setText(code))
+        self.copy_button = QPushButton("Copy")
+        self.copy_button.setObjectName("compactButton")
+        set_button_icon(self.copy_button, "copy")
+        self.copy_button.clicked.connect(lambda: self._copy(code))
+        box_row.addWidget(self.code_field, 1)
+        box_row.addWidget(self.copy_button)
+        layout.addWidget(box)
+        who = " · ".join(part for part in (email, role) if part)
+        layout.addWidget(Alert(f"Shown once and expires in {hours} hours." + (f" {who}" if who else ""), "warning"))
+        footer = QFrame()
+        footer.setObjectName("modalFooter")
+        buttons = QHBoxLayout(footer)
+        buttons.setContentsMargins(24, 14, 24, 14)
+        buttons.setSpacing(8)
+        buttons.addStretch(1)
+        if allow_another:
+            another = QPushButton("Invite another")
+            another.clicked.connect(self._invite_another)
+            buttons.addWidget(another)
         done = QPushButton("Done")
         done.setObjectName("primaryButton")
         done.clicked.connect(self.accept)
-        buttons.addButton(copy, QDialogButtonBox.ButtonRole.ActionRole)
-        buttons.addButton(done, QDialogButtonBox.ButtonRole.AcceptRole)
-        layout.addWidget(buttons)
+        done.setDefault(True)
+        buttons.addWidget(done)
+        root.addWidget(footer)
         self.setMinimumWidth(520)
+
+    def _copy(self, code: str) -> None:
+        QGuiApplication.clipboard().setText(code)
+        self.copy_button.setText("Copied")
+        QTimer.singleShot(1600, lambda: self.copy_button.setText("Copy") if Shiboken.isValid(self) else None)
+
+    def _invite_another(self) -> None:
+        self.another = True
+        self.accept()
 
 
 class UsersPage(RecordPage):
@@ -91,18 +141,22 @@ class UsersPage(RecordPage):
     noun = "user"
     plural = "users"
     columns = (
-        Column("name", "Name", "name"),
-        Column("email", "Email", "email"),
-        Column("role", "Role", "role"),
+        Column("name", "Name", "name", avatar=True, strong=True),
+        Column("email", "Email", "email", muted=True),
+        Column("role", "Role", "role", badge=True, tone="success"),
         Column("status", "Status", badge=True),
         Column("last_login", "Last sign-in", "last_login", keep=True),
     )
     default_sort = "name"
     create_permission = "users.manage"
+    create_icon = "assign"
 
     def __init__(self, context: AppContext, parent: QWidget | None = None) -> None:
         super().__init__(context, parent)
         self.new_button.setText("Invite user")
+        self.search.setPlaceholderText("Search users by name or email")
+        self.records.set_empty_state("No users match this search", "Clear the search, or invite a colleague.",
+                                     icon="users")
 
     def build_filters(self, bar: QHBoxLayout) -> None:
         self.active_filter = self.filter_combo(bar, "Account status", [("active", "Active only")],
@@ -125,13 +179,15 @@ class UsersPage(RecordPage):
     def describe(self, db: Session, actor: Actor, record_id: str) -> DetailView:
         user = users.get_user(db, actor, record_id)
         zone = actor.timezone
+        computer = db.scalar(select(UserSession.client_host).where(UserSession.user_id == user.id)
+                             .order_by(UserSession.created_at.desc()).limit(1))
         fields = [
-            ("Email", user.email),
             ("Role", label(ROLES, user.role)),
-            ("What the role allows", role_summary(user.role)),
             ("Status", _status(user)),
-            ("Time zone", user.timezone),
             ("Last sign-in", local_time(user.last_login_at, zone) or "Never"),
+            ("Computer", computer or "—"),
+            ("What the role allows", role_summary(user.role)),
+            ("Time zone", user.timezone),
             ("Created", local_time(user.created_at, zone)),
         ]
         granted = ROLE_PERMISSIONS.get(user.role, {})
@@ -144,21 +200,51 @@ class UsersPage(RecordPage):
             allowed.add("edit")
             if user.is_active:
                 allowed.add("code")
-        return DetailView(str(user.id), user.full_name, label(ROLES, user.role), fields, tabs, allowed, {
+            if user.id != actor.user_id:
+                allowed.add("deactivate" if user.is_active else "reactivate")
+        role = label(ROLES, user.role)
+        title = user.full_name + (" (you)" if user.id == actor.user_id else "")
+        return DetailView(str(user.id), title, user.email, fields, tabs, allowed, {
             "values": {"full_name": user.full_name, "role": user.role, "is_active": user.is_active},
             "invited": user.password_hash is None,
-        })
+        }, avatar=user.full_name, badge_fields={"Role": tone_for(role) or "success",
+                                                "Status": tone_for(_status(user)) or "neutral"})
 
     def build_actions(self, panel: DetailPanel) -> None:
-        self.edit_button = panel.add_action("Edit role or status", self.edit_current, primary=True)
-        self.code_button = panel.add_action("Issue sign-in code", self.issue_code)
+        self.edit_button = panel.add_action("Change role", self.edit_current)
+        self.code_button = panel.add_action("Reset code", self.issue_code)
+        self.deactivate_button = panel.add_action("Deactivate", self.toggle_active, destructive=True)
 
     def update_actions(self, view: DetailView | None) -> None:
         allowed = view.allowed if view else set()
         self.edit_button.setEnabled("edit" in allowed)
         self.code_button.setEnabled("code" in allowed)
+        self.deactivate_button.setEnabled(bool({"deactivate", "reactivate"} & allowed))
+        self.deactivate_button.setVisible(bool({"deactivate", "reactivate"} & allowed) or view is None)
         if view is not None:
-            self.code_button.setText("Issue activation code" if view.data["invited"] else "Issue password-reset code")
+            self.code_button.setText("Activation code" if view.data["invited"] else "Reset code")
+            self.code_button.setToolTip("Issue a one-time activation code" if view.data["invited"]
+                                        else "Issue a one-time password-reset code")
+            self.deactivate_button.setText("Reactivate" if "reactivate" in allowed else "Deactivate")
+
+    def toggle_active(self) -> None:
+        """Deactivate (after confirming) or reactivate the selected account."""
+        view = self.current_view()
+        if view is None or not ({"deactivate", "reactivate"} & view.allowed):
+            return
+        activate = "reactivate" in view.allowed
+        if not activate and not ask_confirmation(
+            self, title="Deactivate user", heading=f"Deactivate {view.title}?",
+            message="They are signed out everywhere and can no longer sign in. Their records and history stay. "
+                    "You can reactivate the account later.",
+            confirm_text="Deactivate", destructive=True,
+        ):
+            return
+        data = parse(UserAdminUpdate, {"is_active": activate})
+        ok, _ = attempt(self, self.context, lambda db, actor: users.update_user(db, actor, view.id, data),
+                        kind="user")
+        if ok:
+            self.after_change(view.id, "User reactivated" if activate else "User deactivated")
 
     def create_record(self) -> None:
         settings = self.context.settings
@@ -177,8 +263,8 @@ class UsersPage(RecordPage):
             note="The account is created without a password. You receive a one-time code to give them; "
                  "they choose their own password with it.",
             fields=[
-                FieldSpec("full_name", "Full name", required=True),
-                FieldSpec("email", "Work email", required=True),
+                FieldSpec("full_name", "Full name", required=True, placeholder="e.g. Ayesha Malik"),
+                FieldSpec("email", "Work email", required=True, placeholder="name@techsetsolutions.com"),
                 FieldSpec("role", "Role", "choice", options(ROLES), required=True, blank=None,
                           hint="Roles can be changed later. A role change signs the user out everywhere."),
             ],
@@ -186,8 +272,14 @@ class UsersPage(RecordPage):
         )
         if dialog.exec():
             user_id, name, code = dialog.result_value
-            CodeDialog(self, name=name, code=code, purpose="invite", hours=settings.token_ttl_hours).exec()
+            values = dialog.values()
+            result = CodeDialog(self, name=name, code=code, purpose="invite", hours=settings.token_ttl_hours,
+                                email=str(values.get("email") or ""), role=label(ROLES, str(values.get("role"))),
+                                allow_another=True)
+            result.exec()
             self.after_change(user_id, f"Account created for {name}")
+            if result.another:
+                self.create_record()
 
     def edit_current(self) -> None:
         view = self.current_view()
@@ -340,7 +432,8 @@ def _record_text(entry: Any, names: dict[tuple[str, str], str]) -> str:
 
 
 def _changes_summary(changes: dict[str, Any] | None, *, entity_type: str | None = None,
-                     names: dict[tuple[str, str], str] | None = None, zone: str = "UTC") -> str:
+                     names: dict[tuple[str, str], str] | None = None, zone: str = "UTC",
+                     limit: int | None = 140) -> str:
     if not changes:
         return ""
     names = names or {}
@@ -373,7 +466,7 @@ def _changes_summary(changes: dict[str, Any] | None, *, entity_type: str | None 
         else:
             parts.append(f"{field}: {shown(key, value)}")
     summary = "; ".join(parts)
-    return summary if len(summary) <= 140 else summary[:139] + "…"
+    return summary if limit is None or len(summary) <= limit else summary[:limit - 1] + "…"
 
 
 def _short(value: Any) -> str:
@@ -389,11 +482,11 @@ class AuditPage(RecordPage):
     noun = "entry"
     plural = "entries"
     columns = (
-        Column("created", "When", "created", keep=True),
-        Column("who", "Who"),
-        Column("action", "Action", alert=True, keep=True),
+        Column("created", "When", "created", keep=True, mono=True),
+        Column("who", "Who", avatar=True),
+        Column("action", "Action", alert=True, keep=True, badge=True, tone="info"),
         Column("record", "Record", tip="The record the action changed"),
-        Column("changes", "Changes", tip="What changed: old → new"),
+        Column("changes", "Changes", tip="What changed: old → new", muted=True),
         Column("computer", "Computer", tip="The computer the action came from"),
     )
     default_sort = "-created"
@@ -403,6 +496,8 @@ class AuditPage(RecordPage):
         self.search.setPlaceholderText("Filter by action, e.g. stage changed, signed in")
         self.search.setAccessibleName("Filter by action")
         self.search.setToolTip("Matches the action's name, for example \"Lead stage changed\" or \"Sign-in failed\"")
+        self.records.set_empty_state("No entries match these filters",
+                                     "Change the action filter or the record type.", icon="audit")
 
     def build_filters(self, bar: QHBoxLayout) -> None:
         self.entity_filter: QComboBox = self.filter_combo(bar, "Record type", list(_ENTITY_TYPES.items()),
@@ -428,23 +523,26 @@ class AuditPage(RecordPage):
             action_label(entry.action), _record_text(entry, names),
             _changes_summary(entry.changes, entity_type=entry.entity_type, names=names, zone=zone),
             entry.client_host or "",
-        ], emphasis="alert" if entry.action == "auth.login_failed" else ""))
+        ], emphasis="failed" if entry.action == "auth.login_failed" else ""))
 
     def describe(self, db: Session, actor: Actor, record_id: str) -> DetailView:
         entry = audit.get_entry(db, actor, record_id)
         names = record_names(db, [entry])
+        record = _record_text(entry, names)
         fields = [
             ("When", local_time(entry.created_at, actor.timezone)),
             ("Who", entry.actor.full_name if entry.actor else "System / sign-in"),
             ("Action", f"{action_label(entry.action)} ({entry.action})"),
-            ("Record", _record_text(entry, names)),
-            ("Record ID", entry.entity_id or ""),
-            ("Summary", _changes_summary(entry.changes, entity_type=entry.entity_type, names=names,
-                                         zone=actor.timezone)),
+            ("Record", record),
+            ("Changes", _changes_summary(entry.changes, entity_type=entry.entity_type, names=names,
+                                         zone=actor.timezone, limit=None) or "—"),
             ("Computer", entry.client_host or ""),
-            ("Changes", json.dumps(entry.changes, indent=2, ensure_ascii=False) if entry.changes else ""),
+            ("Record ID", entry.entity_id or ""),
+            ("Raw data", json.dumps(entry.changes, indent=2, ensure_ascii=False) if entry.changes else ""),
         ]
-        return DetailView(record_id, action_label(entry.action), local_time(entry.created_at, actor.timezone), fields)
+        action = action_label(entry.action)
+        return DetailView(record_id, record, "", fields, badges=[(action, tone_for(action) or "info")],
+                          closable=True, notice="Audit entries are read-only and cannot be edited or deleted.")
 
     def create_record(self) -> None:
         return

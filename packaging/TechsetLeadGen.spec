@@ -19,6 +19,8 @@ datas = [
     # Alembic loads the migration scripts from files at run time.
     (str(ROOT / "crm" / "alembic.ini"), "crm"),
     (str(ROOT / "crm" / "migrations"), "crm/migrations"),
+    # The password policy's local list of common passwords (read from a file, not imported).
+    (str(ROOT / "crm" / "security" / "common-passwords.txt.gz"), "crm/security"),
 ]
 # Windows has no system time-zone database; zoneinfo reads it from the tzdata package.
 datas += collect_data_files("tzdata")

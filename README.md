@@ -2,7 +2,7 @@
 
 Techset LeadGen is a local-first, native desktop application for sales analytics, lead operations, client records, follow-ups, and branded reporting. It uses Python, PySide6 (Qt Widgets), SQLite, Polars, and Matplotlib. It is not a web application and does not require a browser for its primary interface.
 
-The product keeps the established Techset Solutions identity: the official logo and icon, green/gold palette, warm light surfaces, dark mode, and bundled Inter typeface.
+The product keeps the established Techset Solutions identity: the official logo and icon, green/gold palette, warm light surfaces, dark mode, and the bundled Plus Jakarta Sans and JetBrains Mono typefaces.
 
 ## One application, one navigation system
 
@@ -12,20 +12,20 @@ The signed-in desktop shell exposes these areas according to the user's role:
 
 | Area | Responsibility |
 |---|---|
-| **Dashboard** | Real sales/client/lead KPIs, the signed-in user's work, import shortcuts, templates, and permission-gated maintenance. |
+| **Dashboard** | Real sales/client/lead KPIs, the signed-in user's work, the weekly revenue trend, import shortcuts, and templates. |
 | **Sales** | Date/client/product filters, totals, product and client rankings, trend charts, period comparison, and HTML export. |
 | **Leads** | The existing funnel and marketing analytics plus lead creation, assignment, stage changes, timelines, meetings, and follow-ups on the same lead rows. |
 | **Clients** | Search, client CRUD, sales/lead context, contacts, activity, tasks, duplicate merge, and client-profile export. |
 | **Tasks** | Paged personal/team follow-ups linked to leads and clients. |
 | **Users** | Administrator account invitation, roles, activation/reset codes, and account status. |
 | **Audit log** | Administrator view of sign-ins and record changes. Entries are read-only. |
-| **Settings** | Profile, password, organization, session, database, and backup information. |
+| **Settings** | Profile, password, organization, session, database, and backup information, plus a permission-gated **Danger zone** for clearing sales, leads, or clients. |
 
 Global search opens a matching lead in Leads or a matching company/contact in Clients; it does not create a parallel record view.
 
 ## Security and roles
 
-The first launch asks for the organization name and creates the first Super Admin. Later launches open the sign-in screen. Passwords are stored as Argon2 hashes, session tokens are kept only in memory and hashed in the database, repeated failed sign-ins are throttled, and sessions can be revoked.
+The first launch asks for the organization name and creates the first Super Admin. Later launches open the sign-in screen. Passwords must pass four rules, checked locally (length, not only numbers, not on the bundled common-password list, not like the user's name or email; see `crm/security/passwords.py` and `crm/security/COMMON_PASSWORDS.md`). They are stored as Argon2 hashes, session tokens are kept only in memory and hashed in the database, repeated failed sign-ins are throttled, and sessions can be revoked.
 
 Available roles are Super Admin, Sales Manager, Lead Researcher, BDR, Account Executive, Marketing, and Read Only. Navigation visibility is a convenience; service methods enforce the same permissions again at the data boundary. Sensitive client fields are masked for roles without the corresponding permission.
 
@@ -80,7 +80,7 @@ The reset-code command prints a one-time code for an administrator to deliver se
 ## First-run workflow
 
 1. Launch the application. It migrates the local database only after making any required pre-migration backup.
-2. Enter the organization name, first administrator's name and work email, and a strong password of at least 12 characters.
+2. Enter the organization name, first administrator's name and work email, and a password of at least 8 characters that is not only numbers, not a common password, and not like the name or email.
 3. Import a `.csv` or `.xlsx` file from Dashboard or Sales.
 4. Use the existing Sales, Leads, and Clients areas; add Tasks or invite Users as permitted.
 5. Use Settings → **Back up now…** before moving the installation or performing manual maintenance.
@@ -181,7 +181,7 @@ The executable stores data beside itself unless `FDT_DATA_DIR` is set, so extrac
 TSLG/
 ├── main.py                 # QApplication, logging, startup, small admin CLI
 ├── branding.py             # Product identity and asset names
-├── assets/                 # Official logo/icon, Inter font, UI icons
+├── assets/                 # Official logo/icon, UI fonts, control indicators
 ├── desktop_ui/             # PySide6 shell, shared UI, dialogs, workflows
 │   └── pages/              # Authoritative pages plus distinct admin/work pages
 ├── crm/                    # Internal auth, permissions, ORM models, services, migrations
@@ -206,4 +206,4 @@ TSLG/
 - A populated legacy standalone `crm.db` with richer business records needs an explicit migration tool; startup must stop rather than import only part of it.
 - Windows packaging must be built and smoke-tested on Windows.
 
-The repository has no root software-license file. The bundled Inter font is licensed under the SIL Open Font License in `assets/fonts/OFL.txt`; Techset Solutions brand assets remain subject to the brand owner's rights.
+The repository has no root software-license file. The bundled fonts (Plus Jakarta Sans, JetBrains Mono, Inter) are licensed under the SIL Open Font License in `assets/fonts/OFL*.txt`; Techset Solutions brand assets remain subject to the brand owner's rights.

@@ -4,7 +4,7 @@ Construye DashboardKPISnapshot consultando directamente SQLite
 para máximo rendimiento en la pantalla de inicio.
 """
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from typing import Optional
 
@@ -80,6 +80,32 @@ class DashboardKPIService:
 
         finally:
             conn.close()
+
+    @staticmethod
+    def weekly_revenue(weeks: int = 8, today: Optional[date] = None) -> list[tuple[str, float]]:
+        """Revenue per ISO week for the last ``weeks`` weeks, oldest first, labelled "W35"."""
+        current = today or date.today()
+        this_monday = current - timedelta(days=current.weekday())
+        mondays = [this_monday - timedelta(weeks=offset) for offset in range(weeks - 1, -1, -1)]
+        totals = {monday: 0.0 for monday in mondays}
+        conn = get_connection()
+        try:
+            rows = conn.execute(
+                "SELECT substr(date, 1, 10), SUM(price) FROM sales WHERE substr(date, 1, 10) >= ? "
+                "GROUP BY substr(date, 1, 10)",
+                (mondays[0].isoformat(),),
+            ).fetchall()
+        finally:
+            conn.close()
+        for day_text, amount in rows:
+            try:
+                day = date.fromisoformat(day_text)
+            except (TypeError, ValueError):
+                continue
+            monday = day - timedelta(days=day.weekday())
+            if monday in totals:
+                totals[monday] += float(amount or 0)
+        return [(f"W{monday.isocalendar()[1]:02d}", totals[monday]) for monday in mondays]
 
     @staticmethod
     def _format_last_import(value: Optional[str]) -> str:

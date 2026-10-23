@@ -145,7 +145,7 @@ See [core/SCHEMA.md](../core/SCHEMA.md) for the table-level contract.
 ## Authentication and session lifecycle
 
 - First run creates one organization and Super Admin.
-- Passwords use Argon2; plain text is never stored.
+- Passwords use Argon2; plain text is never stored. The password policy (`crm/security/passwords.py`) runs in the service layer for first-run setup, code activation and password reset, and password change, so no screen can skip it; the screens' live checklist calls the same rule checks. The common-password list ships with the app (`crm/security/COMMON_PASSWORDS.md`); passwords are never sent to an online service.
 - Sign-in attempts are recorded and failure windows are enforced.
 - Invitation/reset tokens and session tokens are stored only as hashes.
 - The raw session token remains in memory for the current window.

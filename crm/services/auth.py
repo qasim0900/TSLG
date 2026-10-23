@@ -204,7 +204,7 @@ def redeem_code(db: Session, settings: Settings, *, raw_code: str, password: str
     """Set a password with a one-time code, end other sessions, and sign in. Commits."""
     token = _live_token(db, raw_code)
     user = token.user
-    validate_password(password, email=user.email)
+    validate_password(password, email=user.email, full_name=user.full_name)
     user.password_hash = hash_password(password)
     token.used_at = utcnow()
     revoke_sessions(db, user.id)
@@ -224,7 +224,7 @@ def change_password(db: Session, actor: Actor, *, current_session_id: str,
     if not verify_password(user.password_hash, current_password):
         raise ValidationFailed("Your current password is incorrect.",
                                fields={"current_password": "Your current password is incorrect."})
-    validate_password(new_password, email=user.email, field="new_password")
+    validate_password(new_password, email=user.email, full_name=user.full_name, field="new_password")
     user.password_hash = hash_password(new_password)
     ended = revoke_sessions(db, user.id, keep=current_session_id)
     audit.record(db, actor, "auth.password_changed", entity_type="user", entity_id=user.id,
@@ -260,7 +260,7 @@ def bootstrap_organization(db: Session, *, organization_name: str, admin_email: 
     if fields:
         raise ValidationFailed("Please correct the highlighted fields.", fields=fields)
     assert email is not None
-    validate_password(password, email=email)
+    validate_password(password, email=email, full_name=admin_name)
     if has_users(db):
         raise Conflict("Accounts already exist. Sign in instead.")
     organization = db.get(Organization, 1)

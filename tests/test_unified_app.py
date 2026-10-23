@@ -20,7 +20,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 from sqlalchemy import select, update
 
 from core.db import get_connection, init_db
@@ -28,9 +28,9 @@ from crm.config import load_settings
 from crm.models import AuditLog, Contact, Lead, Task, User, UserSession
 from crm.errors import PermissionDenied
 from crm.schemas import BulkAssignment, parse
-from crm.security.passwords import hash_password
+from crm.security.passwords import broken_rules, hash_password
 from crm.services import leads as lead_service
-from desktop_ui.forms import FormDialog
+from desktop_ui.forms import FieldSpec, FormDialog
 from desktop_ui.main_window import SECTIONS, MainWindow
 from desktop_ui.pages import ClientsPage, DashboardPage, LeadsPage
 from desktop_ui.pages.admin_pages import AuditPage, CodeDialog, UsersPage
@@ -39,6 +39,7 @@ from desktop_ui.pages.tasks_page import TasksPage
 from desktop_ui.search_dialog import SearchDialog
 from desktop_ui.session import AppContext, ConnectionProblem
 from desktop_ui.theme import ThemeManager
+from desktop_ui.widgets import PasswordRules
 from desktop_ui.workflows import LeadDialog
 from main import create_application
 from tests.qt_helpers import TEST_PASSWORD, ModalPilot, click_button, sign_in_window
@@ -343,8 +344,24 @@ def test_invited_user_activates_with_a_code_and_sees_only_their_role(window, qap
         users_page.create_record()
     window.context.sign_out()
     window.sign_in_page.code_requested.emit()
-    window.code_page.code.setText(captured["code"])
-    assert window.code_page.check_code()
+    page = window.code_page
+
+    def shown_marks() -> int:
+        return sum(1 for label in page.findChildren(QLabel, "requiredMark") if label.isVisibleTo(page))
+
+    # Until the code is accepted only its own field shows: no stray "*" from the hidden fields.
+    assert shown_marks() == 1
+    assert not page.field_block("password").isVisibleTo(page)
+    page.code.setText(captured["code"])
+    assert page.check_code()
+    assert shown_marks() == 3 and page.field_block("password").isVisibleTo(page)
+    checklist = page.field_block("password").findChild(PasswordRules)
+    assert checklist is not None and not checklist.met("BilalAhmed1")  # like the invitee's name
+    for weak, phrase in (("password123", "too common"), ("BilalAhmed1", "too similar")):
+        page.password.setText(weak)
+        page.confirm.setText(weak)
+        assert page.submit() is False
+        assert phrase in page.error.text(), page.error.text()
     window.code_page.password.setText(TEST_PASSWORD)
     window.code_page.confirm.setText(TEST_PASSWORD)
     assert window.code_page.submit(), window.code_page.error.text()
@@ -354,6 +371,23 @@ def test_invited_user_activates_with_a_code_and_sees_only_their_role(window, qap
     window.code_page.prepare()
     window.code_page.code.setText(captured["code"])
     assert window.code_page.check_code() is False  # single use
+
+
+def test_password_checklists_use_the_service_rules(qapp):
+    """The live checklist and the services can never disagree about a password."""
+    email, name = "ayesha.malik@techset.example", "Ayesha Malik"
+    checklist = PasswordRules(email=email, name=name)
+    for password in ("", "short", "12345678", "93847261059", "password123", "AyeshaMalik1", "blue-kettle-42",
+                     "correct horse battery staple"):
+        expected = bool(password) and not broken_rules(password, email=email, names=(name,))
+        assert checklist.met(password) is expected, password
+    # The change-password form passes the signed-in account to its checklist.
+    dialog = FormDialog(None, title="Password", heading="Change your password", submit=lambda _dialog: None,
+                        fields=[FieldSpec("new_password", "New password", "password", rules=True,
+                                          rules_owner=(email, name))])
+    form_checklist = dialog.findChild(PasswordRules)
+    assert form_checklist is not None and not form_checklist.met("AyeshaMalik1")
+    dialog.deleteLater()
 
 
 def test_a_session_ended_elsewhere_returns_to_sign_in_and_drops_pages(window, qapp):

@@ -8,7 +8,7 @@ import sys
 from collections.abc import Sequence
 from logging.handlers import RotatingFileHandler
 
-from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtCore import QCoreApplication, QLocale, Qt
 from PySide6.QtWidgets import QApplication
 
 from branding import PARENT_BRAND, PRODUCT_NAME, PRODUCT_VERSION
@@ -74,6 +74,9 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
     QCoreApplication.setApplicationName(PRODUCT_NAME)
     QCoreApplication.setApplicationVersion(PRODUCT_VERSION)
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_DontShowIconsInMenus, False)
+    # The interface is English: date pickers and calendars show "23 Oct 2026" left to
+    # right even when the system locale is, for example, Urdu.
+    QLocale.setDefault(QLocale(QLocale.Language.English, QLocale.Country.UnitedKingdom))
     return QApplication(list(argv) if argv is not None else sys.argv)
 
 

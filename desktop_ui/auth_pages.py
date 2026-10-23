@@ -1,85 +1,271 @@
-"""Screens shown before the CRM opens: connection problems, first-run setup, sign-in, codes."""
+"""Screens shown before the CRM opens: connection problems, first-run setup, sign-in, codes.
+
+Every screen uses the same split layout: the dark brand panel on the left
+(hidden when the window is narrow) and the form, centred, on the right.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, Signal
+from PySide6.QtGui import QFont, QIcon, QResizeEvent
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from branding import PRODUCT_NAME
+from branding import LOGO_ASSET, PARENT_BRAND, PRODUCT_NAME, PRODUCT_TAGLINE, PRODUCT_VERSION, WORDMARK_PARTS
 from crm.errors import DomainError, ValidationFailed
-from crm.security.passwords import MIN_LENGTH
 
+from .icons import ThemedIconLabel, pixmap, set_button_icon
 from .support import explain
 from .session import AppContext, ConnectionProblem
+from .theme import BRAND_GREEN, INK, SECONDARY, TEXT_ON_DARK, apply_mono, asset_path, mono_font
+from .widgets import Alert, PasswordRules, RevealButton, set_shown
+
+_BRAND_MUTED = "#B7BDBA"
+_FEATURES = (
+    ("leads", "Pipeline you can act on", "Track every lead from first touch to signed client."),
+    ("sales", "Revenue that explains itself", "Compare periods and see which services drive growth."),
+    ("lock", "Private by default", "Data stays in a local file on this computer, with a full audit trail."),
+)
+
+
+class BrandPanel(QFrame):
+    """The dark panel beside every sign-in form (the same colours in both themes)."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("authBrand")
+        self.setStyleSheet(f"QFrame#authBrand {{ background: {INK}; border: 0; }}"
+                           f"QFrame#authBrand QLabel {{ color: {TEXT_ON_DARK}; background: transparent; }}")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(56, 48, 56, 48)
+        layout.setSpacing(40)
+
+        brand = QHBoxLayout()
+        brand.setSpacing(12)
+        logo = QLabel()
+        logo.setPixmap(QIcon(str(asset_path(LOGO_ASSET))).pixmap(QSize(40, 40)))
+        logo.setFixedSize(40, 40)
+        logo.setAccessibleName("Techset Solutions logo")
+        brand.addWidget(logo)
+        words = QVBoxLayout()
+        words.setSpacing(7)
+        name = QLabel(f'<span style="font-weight:800">{WORDMARK_PARTS[0]}</span>'
+                      f'<span style="font-weight:500; color:{BRAND_GREEN}">&nbsp;{WORDMARK_PARTS[1]}</span>')
+        name.setTextFormat(Qt.TextFormat.RichText)
+        name.setAccessibleName(PRODUCT_NAME)
+        name.setStyleSheet("font-size: 22px;")
+        tagline_row = QHBoxLayout()
+        tagline_row.setSpacing(8)
+        rule = QLabel()
+        rule.setFixedSize(18, 2)
+        rule.setStyleSheet(f"background: {SECONDARY}; border-radius: 1px;")
+        tagline = QLabel(PRODUCT_TAGLINE.upper())
+        font = QFont(tagline.font())
+        font.setPixelSize(10)
+        font.setWeight(QFont.Weight.Bold)
+        font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.4)
+        tagline.setFont(font)
+        tagline.setStyleSheet(f"color: {_BRAND_MUTED};")
+        tagline_row.addWidget(rule, 0, Qt.AlignmentFlag.AlignVCenter)
+        tagline_row.addWidget(tagline)
+        tagline_row.addStretch(1)
+        words.addWidget(name)
+        words.addLayout(tagline_row)
+        brand.addLayout(words, 1)
+        layout.addLayout(brand)
+        layout.addStretch(1)
+
+        headline = QLabel(f'Every lead, client and sale in <span style="color:{BRAND_GREEN}">one clear view.</span>')
+        headline.setTextFormat(Qt.TextFormat.RichText)
+        headline.setWordWrap(True)
+        headline.setMaximumWidth(520)
+        headline.setStyleSheet("font-size: 38px; font-weight: 800;")
+        layout.addWidget(headline)
+
+        self.features = QWidget()
+        features = QVBoxLayout(self.features)
+        features.setContentsMargins(0, 0, 0, 0)
+        features.setSpacing(18)
+        for icon_name, title, text in _FEATURES:
+            row = QHBoxLayout()
+            row.setSpacing(14)
+            chip = QLabel()
+            chip.setFixedSize(40, 40)
+            chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            chip.setPixmap(pixmap(icon_name, BRAND_GREEN, 18))
+            chip.setStyleSheet("background: #122321; border: 1px solid #26332F; border-radius: 11px;")
+            row.addWidget(chip, 0, Qt.AlignmentFlag.AlignTop)
+            copy = QVBoxLayout()
+            copy.setSpacing(2)
+            heading = QLabel(title)
+            heading.setStyleSheet("font-size: 14px; font-weight: 700;")
+            detail = QLabel(text)
+            detail.setWordWrap(True)
+            detail.setStyleSheet(f"font-size: 13px; color: {_BRAND_MUTED};")
+            copy.addWidget(heading)
+            copy.addWidget(detail)
+            row.addLayout(copy, 1)
+            features.addLayout(row)
+        layout.addWidget(self.features)
+        layout.addStretch(1)
+        footer = QLabel(f"{PARENT_BRAND} · v{PRODUCT_VERSION}")
+        footer.setStyleSheet(f"font-size: 12px; color: {_BRAND_MUTED};")
+        layout.addWidget(footer)
 
 
 class _CenteredCard(QWidget):
-    """A narrow card centred in the CRM area, with a heading, text, form rows, and an error line."""
+    """The form column of an auth screen: heading, text, an alert line, form rows, and buttons.
+
+    (The name is historical; the form now sits beside the brand panel instead of in a card.)
+    """
 
     def __init__(self, heading: str, intro: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        outer = QVBoxLayout(self)
-        outer.addStretch(1)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        self.brand_panel = BrandPanel()
+        self.brand_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        outer.addWidget(self.brand_panel, 105)
+
+        scroll = QScrollArea()
+        scroll.setObjectName("pageScrollArea")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        side = QWidget()
+        side.setObjectName("authFormSide")
+        scroll.setWidget(side)
+        outer.addWidget(scroll, 100)
+        centre = QVBoxLayout(side)
+        centre.setContentsMargins(24, 40, 24, 40)
+        centre.addStretch(1)
         row = QHBoxLayout()
         row.addStretch(1)
-        self.card = QFrame()
-        self.card.setObjectName("card")
-        self.card.setMaximumWidth(480)
-        self.card.setMinimumWidth(340)
-        row.addWidget(self.card, 3)
+        self.card = QWidget()
+        self.card.setMaximumWidth(400)
+        self.card.setMinimumWidth(300)
+        self.card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        row.addWidget(self.card, 10)
         row.addStretch(1)
-        outer.addLayout(row)
-        outer.addStretch(2)
+        centre.addLayout(row)
+        centre.addStretch(1)
+
         self.body = QVBoxLayout(self.card)
-        self.body.setContentsMargins(28, 24, 28, 22)
-        self.body.setSpacing(10)
+        self.body.setContentsMargins(0, 0, 0, 0)
+        self.body.setSpacing(20)
+        title_block = QVBoxLayout()
+        title_block.setSpacing(6)
         self.heading = QLabel(heading)
         self.heading.setObjectName("dialogTitle")
+        self.heading.setStyleSheet("font-size: 26px; font-weight: 800;")
         self.heading.setWordWrap(True)
-        self.body.addWidget(self.heading)
+        title_block.addWidget(self.heading)
         self.intro = QLabel(intro)
-        self.intro.setObjectName("dialogSubtitle")
+        self.intro.setObjectName("pageSubtitle")
+        self.intro.setStyleSheet("font-size: 14px;")
         self.intro.setWordWrap(True)
         self.intro.setTextFormat(Qt.TextFormat.PlainText)
-        self.body.addWidget(self.intro)
-        self.error = QLabel()
-        self.error.setObjectName("formError")
-        self.error.setWordWrap(True)
-        self.error.setTextFormat(Qt.TextFormat.PlainText)
-        self.error.hide()
-        self.notice = QLabel()
-        self.notice.setObjectName("statusMessage")
-        self.notice.setWordWrap(True)
-        self.notice.setTextFormat(Qt.TextFormat.PlainText)
-        self.notice.hide()
+        title_block.addWidget(self.intro)
+        self.body.addLayout(title_block)
+        set_shown(self.intro, bool(intro))
+        self.notice = Alert("", "info")
+        self.error = Alert("", "error")
+        self.error.setAccessibleName("Error")
         self.body.addWidget(self.notice)
         self.body.addWidget(self.error)
         self._inputs: dict[str, QLineEdit] = {}
+        self._blocks: dict[str, QWidget] = {}  # each field's caption, marker, input and checklist
+        self._rule_updaters: list[Callable[[], None]] = []
 
-    def field(self, name: str, label: str, *, password: bool = False, placeholder: str = "") -> QLineEdit:
+    def refresh_rules(self, *, tried: bool = False) -> None:
+        for editor in self._inputs.values():
+            if editor.property("rulesUpdate"):
+                editor.setProperty("tried", tried)
+        for update in self._rule_updaters:
+            update()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        self.brand_panel.setVisible(event.size().width() >= 900)
+        self.brand_panel.features.setVisible(event.size().height() >= 640)
+
+    def field(self, name: str, label: str, *, password: bool = False, placeholder: str = "",
+              required: bool = True, rules: QLineEdit | None = None, rules_name: QLineEdit | None = None,
+              rules_always: bool = True) -> QLineEdit:
+        """A labelled input. ``rules`` (the email field) adds the live password checklist under it;
+        ``rules_name`` (the name field) lets it check the password is not like the name too.
+
+        The caption, the required marker, the input and the checklist share one container,
+        so :meth:`field_block` hides or shows the whole field.
+        """
+        container = QWidget()
+        block = QVBoxLayout(container)
+        block.setContentsMargins(0, 0, 0, 0)
+        block.setSpacing(6)
+        caption_row = QHBoxLayout()
+        caption_row.setSpacing(4)
         caption = QLabel(label)
         caption.setObjectName("fieldLabel")
+        caption_row.addWidget(caption)
+        if required:
+            mark = QLabel("*")
+            mark.setObjectName("requiredMark")
+            mark.setAccessibleName("required")
+            caption_row.addWidget(mark)
+        caption_row.addStretch(1)
         editor = QLineEdit()
         editor.setPlaceholderText(placeholder)
         editor.setAccessibleName(label)
         if password:
             editor.setEchoMode(QLineEdit.EchoMode.Password)
+            self._add_reveal(editor)
         caption.setBuddy(editor)
-        self.body.addWidget(caption)
-        self.body.addWidget(editor)
+        block.addLayout(caption_row)
+        block.addWidget(editor)
+        if rules is not None:
+            checklist = PasswordRules()
+            block.addWidget(checklist)
+            email = rules
+
+            def update(_text: str = "") -> None:
+                value = editor.text()
+                checklist.set_owner(email.text(), rules_name.text() if rules_name else "")
+                checklist.update_rules(value, tried=bool(editor.property("tried")))
+                set_shown(checklist, rules_always or bool(value) or bool(editor.property("tried")))
+
+            editor.textChanged.connect(update)
+            email.textChanged.connect(update)
+            if rules_name is not None:
+                rules_name.textChanged.connect(update)
+            editor.setProperty("rulesUpdate", True)
+            self._rule_updaters.append(update)
+            update()
+        self.body.addWidget(container)
         self._inputs[name] = editor
+        self._blocks[name] = container
         return editor
+
+    def field_block(self, name: str) -> QWidget:
+        """The whole field ``name``: caption, required marker, input, and checklist."""
+        return self._blocks[name]
+
+    @staticmethod
+    def _add_reveal(editor: QLineEdit) -> None:
+        """An eye button inside a password field that shows or hides what was typed."""
+        RevealButton(editor)
 
     def button(self, text: str, handler: Callable[[], object], *, primary: bool = False) -> QPushButton:
         button = QPushButton(text)
@@ -90,11 +276,35 @@ class _CenteredCard(QWidget):
 
     def link(self, text: str, handler: Callable[[], object]) -> QPushButton:
         button = QPushButton(text)
-        button.setObjectName("compactButton")
+        button.setObjectName("linkButton")
         button.setFlat(True)
         button.clicked.connect(lambda _checked=False: handler())
-        self.body.addWidget(button, 0, Qt.AlignmentFlag.AlignLeft)
+        self.body.addWidget(button)
         return button
+
+    def location_row(self) -> QLabel:
+        """The "Local database · path" line under the form."""
+        holder = QFrame()
+        holder.setObjectName("cardFooter")
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(0, 16, 0, 0)
+        row.setSpacing(10)
+        row.addWidget(ThemedIconLabel("database", "text2", 16), 0, Qt.AlignmentFlag.AlignTop)
+        label = QLabel()
+        label.setObjectName("helperText")
+        label.setWordWrap(True)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        row.addWidget(label, 1)
+        self.body.addWidget(holder)
+        return label
+
+    @staticmethod
+    def show_location(label: QLabel, location: str) -> None:
+        mono = mono_font(11).family()
+        safe = location.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        label.setTextFormat(Qt.TextFormat.RichText)
+        label.setText(f'Local database · <span style="font-family:\'{mono}\'; font-size:11px">{safe}</span>')
+        label.setToolTip(location)
 
     def show_error(self, exc: BaseException | str) -> None:
         if isinstance(exc, str):
@@ -102,33 +312,36 @@ class _CenteredCard(QWidget):
         else:
             heading, details = explain(exc)
             text = heading + (f"\n{details}" if details else "")
-        self.error.setText(text)
-        self.error.show()
+        self.error.set_message(text)
 
     def show_notice(self, text: str) -> None:
-        self.notice.setText(text)
-        self.notice.setVisible(bool(text))
+        self.notice.set_message(text)
 
     def clear_messages(self) -> None:
-        self.error.hide()
-        self.notice.hide()
+        self.error.set_message("")
+        self.notice.set_message("")
 
     def clear_passwords(self) -> None:
         for editor in self._inputs.values():
-            if editor.echoMode() == QLineEdit.EchoMode.Password:
+            if editor.property("revealAction"):
                 editor.clear()
+                editor.setEchoMode(QLineEdit.EchoMode.Password)
+                reveal = editor.findChild(RevealButton)
+                if reveal is not None:
+                    reveal.sync()
 
 
 class ConnectionPage(_CenteredCard):
     retry_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__("Techset LeadGen cannot open its database", "", parent)
+        super().__init__(f"{PRODUCT_NAME} cannot open its database", "", parent)
         self.details = QLabel()
         self.details.setObjectName("statusMessage")
         self.details.setWordWrap(True)
         self.details.setTextFormat(Qt.TextFormat.PlainText)
         self.details.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        apply_mono(self.details, 12)
         self.body.addWidget(self.details)
         self.retry_button = self.button("Try again", self.retry_requested.emit, primary=True)
 
@@ -136,6 +349,7 @@ class ConnectionPage(_CenteredCard):
         self.heading.setText(problem.message)
         self.intro.setText("Nothing was changed. The details below help your administrator; "
                            "backups are kept in the data folder's backups subfolder.")
+        self.intro.show()
         self.details.setText(problem.details)
         self.retry_button.setVisible(problem.retry)
 
@@ -143,27 +357,24 @@ class ConnectionPage(_CenteredCard):
 class SetupPage(_CenteredCard):
     def __init__(self, context: AppContext, parent: QWidget | None = None) -> None:
         super().__init__(
-            "Welcome to Techset LeadGen",
+            f"Welcome to {PRODUCT_NAME}",
             "Create the first administrator account (Super Admin) to start. Your existing sales, leads, "
             "and clients stay as they are. You can invite colleagues afterwards and give each a role.",
             parent,
         )
         self.context = context
-        self.location = QLabel()
-        self.location.setObjectName("statusMessage")
-        self.location.setWordWrap(True)
-        self.body.insertWidget(2, self.location)
-        self.organization = self.field("organization_name", "Organization name", placeholder="Techset Solutions")
-        self.name = self.field("admin_name", "Your full name")
-        self.email = self.field("admin_email", "Your work email")
-        self.password = self.field("password", f"Password (at least {MIN_LENGTH} characters)", password=True)
+        self.organization = self.field("organization_name", "Organization name", placeholder=PARENT_BRAND)
+        self.name = self.field("admin_name", "Your full name", placeholder="e.g. Ayesha Malik")
+        self.email = self.field("admin_email", "Your work email", placeholder="name@company.com")
+        self.password = self.field("password", "Password", password=True, rules=self.email, rules_name=self.name)
         self.confirm = self.field("confirm", "Repeat password", password=True)
         self.confirm.returnPressed.connect(self.submit)
         self.create_button = self.button("Create organization and sign in", self.submit, primary=True)
+        self.location = self.location_row()
 
     def prepare(self) -> None:
         self.clear_messages()
-        self.location.setText(f"Data will be stored in: {self.context.settings.display_database}")
+        self.show_location(self.location, self.context.settings.display_database)
 
     def submit(self) -> bool:
         self.clear_messages()
@@ -195,26 +406,29 @@ class SignInPage(_CenteredCard):
     code_requested = Signal()
 
     def __init__(self, context: AppContext, parent: QWidget | None = None) -> None:
-        super().__init__(f"Sign in to {PRODUCT_NAME}", "", parent)
+        super().__init__("Sign in", "Use the account your administrator created for you.", parent)
         self.context = context
-        self.email = self.field("email", "Email")
-        self.password = self.field("password", "Password", password=True)
+        self.email = self.field("email", "Email", placeholder="name@company.com")
+        self.password = self.field("password", "Password", password=True, placeholder="Enter your password",
+                                   rules=self.email, rules_always=False)
         self.password.returnPressed.connect(self.submit)
         self.email.returnPressed.connect(self.password.setFocus)
         self.sign_in_button = self.button("Sign in", self.submit, primary=True)
-        self.link("I have an activation or password-reset code", self.code_requested.emit)
-        self.location = QLabel()
-        self.location.setObjectName("statusMessage")
-        self.location.setWordWrap(True)
-        self.body.addWidget(self.location)
+        self.code_button = self.link("I have an activation or password-reset code", self.code_requested.emit)
+        hint = QLabel("Forgot your password? Ask an administrator for a reset code.")
+        hint.setObjectName("helperText")
+        hint.setWordWrap(True)
+        self.body.addWidget(hint)
+        self.location = self.location_row()
+        self.body.setSpacing(18)
 
     def prepare(self, notice: str = "") -> None:
         self.clear_messages()
         self.clear_passwords()
+        if notice and "sign in" not in notice.casefold():
+            notice = f"{notice.rstrip('.')}. Sign in again to continue."
         self.show_notice(notice)
-        self.intro.setText("Use the account your administrator created for you. "
-                           "Forgot your password? Ask an administrator for a reset code.")
-        self.location.setText(f"Database: {self.context.settings.display_database}")
+        self.show_location(self.location, self.context.settings.display_database)
         (self.password if self.email.text() else self.email).setFocus(Qt.FocusReason.OtherFocusReason)
 
     def submit(self) -> bool:
@@ -224,8 +438,10 @@ class SignInPage(_CenteredCard):
         except (DomainError, ConnectionProblem, SQLAlchemyError) as exc:
             self.password.clear()
             self.show_error(exc)
+            self.refresh_rules(tried=True)
             return False
         self.clear_passwords()
+        self.refresh_rules(tried=False)
         return True
 
 
@@ -239,7 +455,8 @@ class CodePage(_CenteredCard):
             parent,
         )
         self.context = context
-        self.code = self.field("code", "One-time code")
+        self.code = self.field("code", "One-time code", placeholder="e.g. 7KQ2-M9XD")
+        apply_mono(self.code, 14)
         self.code.returnPressed.connect(self.check_code)
         self.check_button = self.button("Continue", self.check_code, primary=True)
         self.who = QLabel()
@@ -247,12 +464,20 @@ class CodePage(_CenteredCard):
         self.who.setWordWrap(True)
         self.who.setTextFormat(Qt.TextFormat.PlainText)
         self.body.addWidget(self.who)
-        self.password = self.field("password", f"New password (at least {MIN_LENGTH} characters)", password=True)
+        # The account's email and name, for the "not like your name or email" rule.
+        self._account_email = QLineEdit(self)
+        self._account_email.hide()
+        self._account_name = QLineEdit(self)
+        self._account_name.hide()
+        self.password = self.field("password", "New password", password=True, rules=self._account_email,
+                                   rules_name=self._account_name)
         self.confirm = self.field("confirm", "Repeat new password", password=True)
         self.confirm.returnPressed.connect(self.submit)
         self.save_button = self.button("Set password and sign in", self.submit, primary=True)
         self.link("Back to sign-in", self.back_requested.emit)
-        self._password_rows = [self.password, self.confirm, self.save_button, self.who]
+        # Shown once the code is accepted. Whole fields, so no caption or "*" stays behind.
+        self._password_rows = [self.field_block("password"), self.field_block("confirm"),
+                               self.save_button, self.who]
 
     def prepare(self) -> None:
         self.clear_messages()
@@ -262,9 +487,6 @@ class CodePage(_CenteredCard):
         self.check_button.show()
         for widget in self._password_rows:
             widget.hide()
-        for label in self.card.findChildren(QLabel):
-            if label.buddy() in (self.password, self.confirm):
-                label.hide()
         self.code.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def check_code(self) -> bool:
@@ -278,11 +500,10 @@ class CodePage(_CenteredCard):
         self.who.setText(f"{action} for {info.full_name} ({info.email})")
         self.code.setReadOnly(True)
         self.check_button.hide()
+        self._account_email.setText(info.email)
+        self._account_name.setText(info.full_name)
         for widget in self._password_rows:
             widget.show()
-        for label in self.card.findChildren(QLabel):
-            if label.buddy() in (self.password, self.confirm):
-                label.show()
         self.password.setFocus(Qt.FocusReason.OtherFocusReason)
         return True
 
@@ -300,4 +521,4 @@ class CodePage(_CenteredCard):
         return True
 
 
-__all__ = ["CodePage", "ConnectionPage", "SetupPage", "SignInPage"]
+__all__ = ["BrandPanel", "CodePage", "ConnectionPage", "SetupPage", "SignInPage"]

@@ -138,7 +138,7 @@ def test_sign_out_and_password_change_end_sessions(db, settings, acme):
 
 @pytest.mark.parametrize(
     ("password", "message"),
-    [("short pass", "at least 12"), ("aaaaaaaaaaaaaaaa", "repetitive"), (" padded password ", "spaces")],
+    [("short", "at least 8"), ("password123", "too common"), ("93847261059", "more than numbers")],
 )
 def test_password_policy(db, settings, acme, password, message):
     with pytest.raises(ValidationFailed) as error:

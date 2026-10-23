@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QDateEdit,
     QDateTimeEdit,
     QDialog,
-    QDialogButtonBox,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -41,7 +41,9 @@ from PySide6.QtWidgets import (
 from crm.errors import DomainError
 from crm.services.auth import SessionEnded
 
+from .modal import ModalDialog
 from .support import report
+from .widgets import PasswordRules, RevealButton
 
 Options = Sequence[tuple[str, str]]
 
@@ -59,6 +61,14 @@ class FieldSpec:
     blank: str | None = "—"  # label of the empty choice; None when a value is mandatory
     searchable: bool = False  # type-to-filter for long choice lists
     read_only: bool = False
+    rules: bool = False  # a new password: show the live password-policy checklist under it
+    rules_owner: tuple[str, str] = ("", "")  # (email, name) of the account, for the similarity rule
+
+
+def _set_text(label: str) -> str:
+    """ "Set a due date", "Set a meeting date": the checkbox that turns an optional date on."""
+    words = label.strip().lower()
+    return f"Set a {words}" if "date" in words else f"Set a {words} date"
 
 
 def _clean(value: Any) -> Any:
@@ -80,6 +90,7 @@ class _Field:
         self.error.setTextFormat(Qt.TextFormat.PlainText)
         self.error.hide()
         self.error.setAccessibleName(f"{spec.label} error")
+        self.rules = PasswordRules(email=spec.rules_owner[0], name=spec.rules_owner[1]) if spec.rules else None
 
     # --------------------------------------------------------------- widgets
 
@@ -90,6 +101,7 @@ class _Field:
             editor.setPlaceholderText(spec.placeholder or ("Comma-separated" if spec.kind == "tags" else ""))
             if spec.kind == "password":
                 editor.setEchoMode(QLineEdit.EchoMode.Password)
+                RevealButton(editor)  # the eye button shows or hides what was typed
             if spec.kind == "int":
                 editor.setValidator(QIntValidator(0, 100, editor))
             editor.setReadOnly(spec.read_only)
@@ -136,7 +148,7 @@ class _Field:
             holder = QWidget()
             row = QHBoxLayout(holder)
             row.setContentsMargins(0, 0, 0, 0)
-            self.enabled_box = QCheckBox("Set")
+            self.enabled_box = QCheckBox(_set_text(spec.label))
             self.enabled_box.setAccessibleName(f"Set {spec.label}")
             self.date_picker = QDateEdit(QDate.currentDate())
             self.date_picker.setCalendarPopup(True)
@@ -150,7 +162,7 @@ class _Field:
             holder = QWidget()
             row = QHBoxLayout(holder)
             row.setContentsMargins(0, 0, 0, 0)
-            self.enabled_box = QCheckBox("Set")
+            self.enabled_box = QCheckBox(_set_text(spec.label))
             self.enabled_box.setAccessibleName(f"Set {spec.label}")
             self.picker = QDateTimeEdit()
             self.picker.setCalendarPopup(True)
@@ -274,7 +286,7 @@ class _Field:
         target.style().polish(target)
 
 
-class FormDialog(QDialog):
+class FormDialog(ModalDialog):
     """A record form. ``submit(dialog)`` saves; raising ``DomainError`` keeps the dialog open."""
 
     def __init__(
@@ -301,31 +313,36 @@ class FormDialog(QDialog):
         self._fields: dict[str, _Field] = {spec.name: _Field(spec, timezone) for spec in fields}
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 20, 24, 18)
-        root.setSpacing(12)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        content = QWidget()
+        main = QVBoxLayout(content)
+        main.setContentsMargins(24, 20, 24, 18)
+        main.setSpacing(12)
+        root.addWidget(content, 1)
         heading_label = QLabel(heading)
-        heading_label.setObjectName("dialogHeading")
+        heading_label.setObjectName("dialogTitle")
         heading_label.setTextFormat(Qt.TextFormat.PlainText)
         heading_label.setWordWrap(True)
-        root.addWidget(heading_label)
+        main.addWidget(heading_label)
         if note:
             note_label = QLabel(note)
             note_label.setObjectName("dialogSubtitle")
             note_label.setWordWrap(True)
             note_label.setTextFormat(Qt.TextFormat.PlainText)
-            root.addWidget(note_label)
+            main.addWidget(note_label)
         self.general_error = QLabel()
         self.general_error.setObjectName("formError")
         self.general_error.setWordWrap(True)
         self.general_error.setTextFormat(Qt.TextFormat.PlainText)
         self.general_error.hide()
-        root.addWidget(self.general_error)
+        main.addWidget(self.general_error)
 
         body = QWidget()
         grid = QGridLayout(body)
         grid.setContentsMargins(0, 0, 4, 0)
-        grid.setHorizontalSpacing(18)
-        grid.setVerticalSpacing(10)
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(16)
         row = column = 0
         for field in self._fields.values():
             cell = self._cell(field)
@@ -342,19 +359,29 @@ class FormDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll.setWidget(body)
-        root.addWidget(scroll, 1)
+        main.addWidget(scroll, 1)
 
-        buttons = QDialogButtonBox()
+        # The design's footer: the safe choice first, the action on the right.
+        footer = QFrame()
+        footer.setObjectName("modalFooter")
+        buttons = QHBoxLayout(footer)
+        buttons.setContentsMargins(24, 14, 24, 14)
+        buttons.setSpacing(8)
+        buttons.addStretch(1)
         self.save_button = QPushButton(submit_text)
         self.save_button.setObjectName("primaryButton")
         self.save_button.setDefault(True)
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.setObjectName("secondaryButton")
-        buttons.addButton(self.save_button, QDialogButtonBox.ButtonRole.AcceptRole)
-        buttons.addButton(self.cancel_button, QDialogButtonBox.ButtonRole.RejectRole)
+        buttons.addWidget(self.cancel_button)
+        buttons.addWidget(self.save_button)
         self.save_button.clicked.connect(self._save)
         self.cancel_button.clicked.connect(self.reject)
-        root.addWidget(buttons)
+        root.addWidget(footer)
+        for field in self._fields.values():
+            if field.rules is not None and isinstance(field.editor, QLineEdit):
+                field.rules.update_rules("")
+                field.editor.textChanged.connect(field.rules.update_rules)
 
         self._initial: dict[str, Any] = {}
         for name, value in (values or {}).items():
@@ -362,12 +389,12 @@ class FormDialog(QDialog):
                 self._fields[name].set_value(value)
         self._initial = self.values()
 
-        width = 640 if columns > 1 else 460
+        width = 640 if columns > 1 else 480
         self.setMinimumWidth(min(width, 900))
         screen = self.screen()
         available = screen.availableGeometry().height() - 80 if screen else 900
         body.adjustSize()
-        self.resize(width, min(body.sizeHint().height() + 190, available))
+        self.resize(width, min(body.sizeHint().height() + 210, available))
         first = next(iter(self._fields.values()), None)
         if first is not None:
             first.focus_target().setFocus(Qt.FocusReason.OtherFocusReason)
@@ -377,18 +404,29 @@ class FormDialog(QDialog):
         layout = QVBoxLayout(cell)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
+        layout.setSpacing(6)
         spec = field.spec
         if spec.kind != "bool":
-            text = spec.label + (" *" if spec.required else "")
-            field.label = QLabel(text)
+            caption = QHBoxLayout()
+            caption.setSpacing(4)
+            field.label = QLabel(spec.label)
             field.label.setObjectName("fieldLabel")
             field.label.setBuddy(field.focus_target())
-            layout.addWidget(field.label)
+            caption.addWidget(field.label)
+            if spec.required:
+                mark = QLabel("*")
+                mark.setObjectName("requiredMark")
+                mark.setAccessibleName("required")
+                caption.addWidget(mark)
+            caption.addStretch(1)
+            layout.addLayout(caption)
         field.focus_target().setAccessibleName(spec.label)
         layout.addWidget(field.editor)
+        if field.rules is not None:
+            layout.addWidget(field.rules)
         if spec.hint:
             hint = QLabel(spec.hint)
-            hint.setObjectName("metricNote")
+            hint.setObjectName("helperText")
             hint.setWordWrap(True)
             layout.addWidget(hint)
         layout.addWidget(field.error)

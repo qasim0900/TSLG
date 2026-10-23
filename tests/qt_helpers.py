@@ -2,7 +2,8 @@
 
 Application code opens ``QMessageBox``, ``QFileDialog`` and custom ``QDialog``
 instances with ``exec()``, which runs a nested event loop. ``ModalPilot`` polls
-for the active modal widget from inside that loop, records what the user would
+for the active modal widget (or the dialog open inside a visible window) from
+inside that loop, records what the user would
 have seen, and answers it with a scripted action. Tests therefore exercise the
 production dialogs instead of monkeypatching them away.
 """
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from desktop_ui.dialogs import MessageDialog
+from desktop_ui.modal import current_modal
 
 ModalAction = Callable[[QWidget], None]
 
@@ -93,6 +95,10 @@ class ModalPilot:
 
     def _poll(self) -> None:
         modal = QApplication.activeModalWidget()
+        # The app's dialogs open as cards inside their window rather than as windows.
+        embedded = current_modal()
+        if embedded is not None and (modal is None or modal is embedded.window()):
+            modal = embedded
         if modal is None or not modal.isVisible():
             return
         # Mark the dialog itself rather than keeping a Python reference to it:

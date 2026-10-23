@@ -23,6 +23,7 @@ from controllers.file_import_controller import FileImportController
 from core.importer import inspect_import_file
 
 from .dialogs import show_message
+from .modal import ModalDialog, embed
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ class _InspectionWorker(QRunnable):
             self.signals.finished.emit(self.token)
 
 
-class ImportPreviewDialog(QDialog):
+class ImportPreviewDialog(ModalDialog):
     """Read-only confirmation dialog for a detected import schema."""
 
     def __init__(self, file_path: str, inspection: dict[str, Any], parent=None) -> None:
@@ -168,8 +169,10 @@ class ImportCoordinator(QObject):
         progress.setMinimumDuration(0)
         progress.setAutoClose(False)
         progress.setAutoReset(False)
+        progress.setMinimumWidth(380)
         progress.canceled.connect(lambda: self._cancel_inspection(token))
         self._progress = progress
+        embed(progress)  # a card centred in the window, like the other dialogs
         progress.show()
 
         worker = _InspectionWorker(token, path)

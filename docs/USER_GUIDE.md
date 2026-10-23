@@ -4,7 +4,7 @@ Techset LeadGen is a desktop application. Everything happens in its own window; 
 
 ## Signing in
 
-- **First start on a computer:** enter your organization's name and create the first administrator account (password of at least 12 characters). Existing sales, leads, and clients stay as they are.
+- **First start on a computer:** enter your organization's name and create the first administrator account. A password needs at least 8 characters, can't be only numbers or a common password (such as `password123`), and can't be close to your name or email; there are no upper-case, digit, or symbol requirements, and the checklist under the field shows each rule as you type. Existing sales, leads, and clients stay as they are.
 - **Every later start:** sign in with your email and password. After 5 wrong passwords the account waits 15 minutes.
 - **New colleague:** an administrator opens **Users → Invite user** and gives you a one-time code (in person or by phone). On the sign-in screen choose **I have an activation or password-reset code**, enter it, and choose your password.
 - **Forgot your password:** ask an administrator for a reset code (**Users → Issue password-reset code**). If no administrator can sign in, someone with access to the computer runs `TechsetLeadGen --issue-reset-code their@email` and uses the printed code.
@@ -14,14 +14,14 @@ Techset LeadGen is a desktop application. Everything happens in its own window; 
 
 | Area | Use it to |
 |---|---|
-| **Dashboard** | See sales, client, and lead totals, and **My work**: your overdue and due-today tasks, your open leads, and new leads nobody owns. Each button opens the matching list. Import data and download import templates. |
+| **Dashboard** | See sales, client, and lead totals, and **My work**: your overdue and due-today tasks, your open leads, and new leads nobody owns. Each button opens the matching list. The weekly revenue trend, data import, and import templates. |
 | **Sales** | Filter and compare sales, see trends and top clients and products, and export an HTML report. |
 | **Leads** | Funnel and marketing performance (cost per lead, per client, ROI) and the lead list. **Open** a lead for its details, timeline, and tasks; **Stage…** moves it on; **New lead** adds one by hand; select rows and **Assign selected…** to give them an owner; **Owner** filters to *My leads* or *Unassigned*. |
 | **Clients** | Search clients, see their sales and latest lead, add or edit them (the **Account** tab holds owner, status, industry, website), open the profile for **Contacts**, **Leads**, **Activity**, and **Tasks**, merge duplicates, export a client report. |
 | **Tasks** | Your follow-ups (or everyone's, for managers): due today, overdue, next 7 days, completed. A lead's next follow-up is its earliest open task. |
 | **Users** | (Administrators) invite people, change roles, deactivate accounts, issue codes. |
 | **Audit log** | (Super Admin) who changed what, when, from which computer. |
-| **Settings** | Your name, time zone, and password; the organization name; where the database is and **Back up now…**. |
+| **Settings** | Your name, time zone, and password; the organization name; where the database is and **Back up now…**; and, for administrators, the **Danger zone** tab that clears all sales, leads, or clients. |
 
 The search box at the top (Ctrl+K) finds clients, their contacts, and leads. Ctrl+1 to Ctrl+8 open the areas in sidebar order, Ctrl+I starts an import.
 

@@ -223,7 +223,7 @@ def test_def003_spend_and_lead_exports_are_told_apart(tmp_path, body, expected):
 def test_def003_downloaded_spend_template_round_trips_into_marketing_spend(shell, qapp, tmp_path):
     target = tmp_path / "spend.csv"
     with ModalPilot(choose_file(target)):
-        QTest.mouseClick(_button(shell.stack.currentWidget(), "Spend CSV"), Qt.MouseButton.LeftButton)
+        QTest.mouseClick(_button(shell.stack.currentWidget(), "Marketing spend CSV"), Qt.MouseButton.LeftButton)
     assert target.read_text(encoding="utf-8").startswith("source,amount,date")
 
     seen = _import_through_gui(shell, target, qapp)
@@ -641,7 +641,8 @@ def _sales_snapshot_with(top_clients, product_labels):
 
 
 def _bar_positions(chart) -> int:
-    return len({round(patch.get_y(), 6) for patch in chart.figure.axes[0].patches})
+    """Separate bars drawn by a horizontal bar chart (one row each)."""
+    return len(chart.rows)
 
 
 def test_def021_sales_page_shows_top_clients_without_merging_equal_names(qapp):
@@ -660,7 +661,7 @@ def test_def021_sales_page_shows_top_clients_without_merging_equal_names(qapp):
     )
     tabs = [page.chart_tabs.tabText(index) for index in range(page.chart_tabs.count())]
     assert "Top clients" in tabs
-    # Equal category labels are stacked at one y-position by Matplotlib.
+    # Equal category labels must stay separate bars, not be merged into one.
     assert _bar_positions(page.top_clients_chart) == 3  # two "Acme Ltd" bars kept apart
     assert _bar_positions(page.product_chart) == 2  # equal truncated labels kept apart
     assert "Acme Ltd €900.00" in page.top_clients_chart.accessibleDescription()
@@ -742,6 +743,10 @@ def test_def024_keyboard_focus_is_visible_on_every_control_variant(shell, qapp, 
     shell.navigate("leads")
     qapp.processEvents()
     search = shell.stack.currentWidget().search_edit
+    settings = shell.navigate("settings")
+    settings.tabs.setCurrentIndex(settings.danger_index)  # data clearing lives under Settings > Danger zone
+    qapp.processEvents()
+    danger = settings.clear_buttons["sales"]
     shell.navigate("dashboard")
     qapp.processEvents()
     dashboard = shell.stack.currentWidget()
@@ -750,7 +755,6 @@ def test_def024_keyboard_focus_is_visible_on_every_control_variant(shell, qapp, 
         "checked navigation": shell._nav_buttons["dashboard"],
         "primary": _button(dashboard, "Import data"),
         "secondary": _button(dashboard, "Refresh"),
-        "danger": _button(dashboard, "Clear sales"),
         "input": search,
     }
 
@@ -767,6 +771,10 @@ def test_def024_keyboard_focus_is_visible_on_every_control_variant(shell, qapp, 
         for name, widget in targets.items():
             ratio = _contrast(top_edge(widget, False), top_edge(widget, True))
             assert ratio >= 3.0, f"{name}: focus ring contrast {ratio:.2f}:1"
+        shell.navigate("settings")
+        qapp.processEvents()
+        ratio = _contrast(top_edge(danger, False), top_edge(danger, True))
+        assert ratio >= 3.0, f"danger: focus ring contrast {ratio:.2f}:1"
     finally:
         shell.theme_manager.apply(False)
 
@@ -821,6 +829,59 @@ def test_def026_dialogs_are_released_after_use(shell, qapp, tmp_path):
         qapp.processEvents()
         assert shell.findChildren(QDialog) == [], name
         assert _python_owned_children(shell) == [], name
+        # A closed dialog is detached from the window, so also check that none lives on.
+        alive = [type(obj).__name__ for obj in gc.get_objects()
+                 if isinstance(obj, QDialog) and Shiboken.isValid(obj)]
+        assert alive == [], name
+
+
+# ---------------------------------- dialogs open as cards centred in the window
+
+
+def test_dialogs_open_centred_inside_the_window_and_keep_the_keyboard(shell, qapp):
+    """On Wayland, dialog windows opened wherever the compositor put them (top-left)."""
+    from PySide6.QtWidgets import QWidget
+
+    from desktop_ui.modal import Backdrop, current_modal
+
+    shell.navigate("clients")
+    qapp.processEvents()
+    seen: dict[str, object] = {}
+
+    def offset(dialog: QWidget) -> tuple[int, int]:
+        top_left = dialog.mapTo(shell, QPoint(0, 0))
+        return (top_left.x() + dialog.width() // 2 - shell.width() // 2,
+                top_left.y() + dialog.height() // 2 - shell.height() // 2)
+
+    def inspect(dialog: QWidget) -> None:
+        seen["current"] = current_modal() is dialog
+        seen["window"] = dialog.isWindow()
+        seen["offset"] = offset(dialog)
+        seen["focus inside"] = dialog.isAncestorOf(QApplication.focusWidget())
+        close = next(button for button in dialog.findChildren(QToolButton)
+                     if button.accessibleName() == "Close dialog")
+        close.setFocus()  # the last stop in the card's Tab order
+        QTest.keyClick(close, Qt.Key.Key_Tab)
+        seen["tab wraps"] = dialog.isAncestorOf(QApplication.focusWidget())
+        QTest.keyClick(QApplication.focusWidget(), Qt.Key.Key_K, Qt.KeyboardModifier.ControlModifier)
+        seen["search focused"] = shell.search_field.hasFocus()
+        shell.resize(1100, 760)
+        qapp.processEvents()
+        seen["offset after resize"] = offset(dialog)
+        dialog.reject()
+
+    with ModalPilot(inspect):
+        shell._pages["clients"].add_client()
+    qapp.processEvents()
+
+    assert seen["current"] and seen["window"] is False
+    for key in ("offset", "offset after resize"):
+        dx, dy = seen[key]  # type: ignore[misc]
+        assert abs(dx) <= 1 and abs(dy) <= 1, (key, seen[key])
+    assert seen["focus inside"] and seen["tab wraps"]
+    assert seen["search focused"] is False  # Ctrl+K did nothing behind the dialog
+    assert current_modal() is None
+    assert [backdrop for backdrop in shell.findChildren(Backdrop) if backdrop.isVisible()] == []
 
 
 # ------------------------------------------------ end-to-end business workflow

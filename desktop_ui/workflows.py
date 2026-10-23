@@ -36,6 +36,7 @@ from domain.source_labels import SOURCE_LABELS
 
 from .dialogs import ask_confirmation
 from .forms import FieldSpec, FormDialog
+from .modal import ModalDialog
 from .records import DetailPanel, DetailTab, DetailView
 from .session import AppContext
 from .support import attempt, label, local_time, options, person, text
@@ -289,7 +290,7 @@ def assign_leads(parent: QWidget, context: AppContext, lead_ids: Sequence[str], 
     return int(dialog.result_value or 0) if dialog.exec() else 0
 
 
-class LeadDialog(QDialog):
+class LeadDialog(ModalDialog):
     """One lead: details, timeline, and tasks, with the actions the user's role allows."""
 
     def __init__(self, parent: QWidget | None, context: AppContext, lead_id: str) -> None:
