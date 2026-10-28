@@ -23,25 +23,25 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QLabel
 from sqlalchemy import select, update
 
-from core.db import get_connection, init_db
-from crm.config import load_settings
-from crm.models import AuditLog, Contact, Lead, Task, User, UserSession
-from crm.errors import PermissionDenied
-from crm.schemas import BulkAssignment, parse
-from crm.security.passwords import broken_rules, hash_password
-from crm.services import leads as lead_service
-from desktop_ui.forms import FieldSpec, FormDialog
-from desktop_ui.main_window import SECTIONS, MainWindow
-from desktop_ui.pages import ClientsPage, DashboardPage, LeadsPage
-from desktop_ui.pages.admin_pages import AuditPage, CodeDialog, UsersPage
-from desktop_ui.pages.clients_page import ClientDetailDialog
-from desktop_ui.pages.tasks_page import TasksPage
-from desktop_ui.search_dialog import SearchDialog
-from desktop_ui.session import AppContext, ConnectionProblem
-from desktop_ui.theme import ThemeManager
-from desktop_ui.widgets import PasswordRules
-from desktop_ui.workflows import LeadDialog
-from main import create_application
+from techset_leadgen.database.local_db import get_connection, init_db
+from techset_leadgen.config import load_settings
+from techset_leadgen.database.models import AuditLog, Contact, Lead, Task, User, UserSession
+from techset_leadgen.errors import PermissionDenied
+from techset_leadgen.services.schemas import BulkAssignment, parse
+from techset_leadgen.security.passwords import broken_rules, hash_password
+from techset_leadgen.services import leads as lead_service
+from techset_leadgen.desktop.forms import FieldSpec, FormDialog
+from techset_leadgen.desktop.main_window import SECTIONS, MainWindow
+from techset_leadgen.desktop.pages import ClientsPage, DashboardPage, LeadsPage
+from techset_leadgen.desktop.pages.admin_pages import AuditPage, CodeDialog, UsersPage
+from techset_leadgen.desktop.pages.clients_page import ClientDetailDialog
+from techset_leadgen.desktop.pages.tasks_page import TasksPage
+from techset_leadgen.desktop.search_dialog import SearchDialog
+from techset_leadgen.desktop.session import AppContext, ConnectionProblem
+from techset_leadgen.desktop.theme import ThemeManager
+from techset_leadgen.desktop.widgets import PasswordRules
+from techset_leadgen.desktop.workflows import LeadDialog
+from techset_leadgen.main import create_application
 from tests.qt_helpers import TEST_PASSWORD, ModalPilot, click_button, sign_in_window
 
 ALL_SECTIONS = [section.key for section in SECTIONS]
@@ -67,7 +67,7 @@ def _clear_records() -> None:
                 connection.execute(f"DELETE FROM {table}")  # noqa: S608 - fixed whitelist
             except sqlite3.OperationalError:
                 pass  # first test: the account tables do not exist until the window migrates
-    from models.client_manager import invalidate_clients_cache
+    from techset_leadgen.analytics.models.client_manager import invalidate_clients_cache
 
     invalidate_clients_cache()
 
@@ -133,7 +133,9 @@ def test_one_sidebar_with_no_duplicate_areas(window, qapp):
     assert window.root_stack.currentWidget() is window.auth_stack  # nothing before sign-in
     sign_in_window(window)
     labels = [button.text() for button in window._nav_buttons.values()]
-    assert labels == ["Dashboard", "Sales", "Leads", "Clients", "Tasks", "Users", "Audit log", "Settings"]
+    assert labels == ["Dashboard", "My Work", "Notifications", "Daily Assignments", "Meetings", "Prospects", "Follow-ups",
+                      "Tasks", "Team performance", "Users & roles", "Audit log", "Settings",
+                      "Sales overview", "Sales", "Leads", "Clients"]
     assert "CRM" not in labels and len(set(labels)) == len(labels)
     assert _visible_sections(window) == ALL_SECTIONS
     for key in ALL_SECTIONS:
@@ -142,17 +144,26 @@ def test_one_sidebar_with_no_duplicate_areas(window, qapp):
         assert window._nav_buttons[key].isChecked()
 
 
+ARCHIVE = ["sales_overview", "sales", "leads", "clients"]
+MEMBER = ["dashboard", "my_work", "notifications", "meetings", "prospects", "followups", "tasks", "settings"]
+
+
 @pytest.mark.parametrize(("role", "sections"), [
-    ("sales_manager", ["dashboard", "sales", "leads", "clients", "tasks", "users", "settings"]),
-    ("lead_researcher", ["dashboard", "sales", "leads", "clients", "tasks", "settings"]),
-    ("bdr", ["dashboard", "sales", "leads", "clients", "tasks", "settings"]),
-    ("marketing", ["dashboard", "sales", "leads", "clients", "tasks", "settings"]),
-    ("read_only", ["dashboard", "sales", "leads", "clients", "tasks", "settings"]),
+    ("sales_manager", ["dashboard", "my_work", "notifications", "assignments", "meetings", "prospects", "followups", "tasks",
+                       "team", "users", "settings", *ARCHIVE]),
+    ("lead_researcher", MEMBER),
+    ("bdr", MEMBER),
+    ("account_executive", MEMBER),
+    ("marketing", ["dashboard", "notifications", "meetings", "tasks", "settings", *ARCHIVE]),
+    ("read_only", ["dashboard", "notifications", "prospects", "followups", "tasks", "team", "settings", *ARCHIVE]),
 ])
 def test_each_role_sees_its_areas_and_actions(window, qapp, role, sections):
     sign_in_window(window)
     _sign_in_as(window, _add_user(window, role))
     assert _visible_sections(window) == sections
+    if "leads" not in sections:  # the retired analytics are not reachable, not even by shortcut
+        assert window.navigate("leads") is None and window.navigate("clients") is None
+        return
     leads = window.navigate("leads")
     assert isinstance(leads, LeadsPage)
     can = window.context.can
@@ -255,7 +266,8 @@ def test_assigning_selected_leads_and_role_limits_on_the_leads_page(window, qapp
     assert set(_query(window, select(Lead.owner_id))) == {rep_id}
 
     _sign_in_as(window, rep)
-    page = window.navigate("leads")
+    assert window.navigate("leads") is None  # retired from a rep's navigation (it is the archive now)
+    page = LeadsPage(context=window.context)  # opened anyway, the page still applies the rep's limits
     page.refresh()
     assert not page.assign_button.isVisibleTo(page)
     with ModalPilot(lambda dialog: dialog.reject()) as pilot:  # their own lead: the stage dialog opens
@@ -406,7 +418,7 @@ def test_a_session_ended_elsewhere_returns_to_sign_in_and_drops_pages(window, qa
 def test_search_opens_leads_and_client_profiles_and_dashboard_shows_my_work(window, qapp):
     _seed_imported_records()
     sign_in_window(window)
-    dashboard = window.navigate("dashboard")
+    dashboard = window.navigate("sales_overview")
     assert isinstance(dashboard, DashboardPage)
     dashboard.refresh()
     assert dashboard.work_card.isVisibleTo(dashboard)
@@ -461,7 +473,7 @@ def test_tasks_and_audit_pages_show_the_same_records(window, qapp):
 def test_an_existing_database_is_backed_up_then_upgraded_and_old_accounts_carry_over(qapp, tmp_path):
     database = tmp_path / "sales.db"
     with closing(sqlite3.connect(database)) as connection:  # an installation from before accounts existed
-        from core.db import create_base_tables
+        from techset_leadgen.database.local_db import create_base_tables
 
         create_base_tables(connection.cursor())
         connection.execute("INSERT INTO clients VALUES ('C-1', 'Acme', '-', NULL, NULL, NULL)")

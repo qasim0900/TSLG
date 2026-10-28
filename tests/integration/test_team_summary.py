@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from crm.models import Prospect, ProspectAssignment, Task
-from crm.services import team
+from techset_leadgen.database.models import Prospect, ProspectAssignment, Task
+from techset_leadgen.services import team
 
 
 def test_manager_and_member_summaries_use_stored_work(db, acme):

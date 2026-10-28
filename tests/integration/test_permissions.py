@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from crm.security.permissions import PERMISSIONS, ROLE_PERMISSIONS, Scope, scope_for
-from crm.vocabulary import ROLES
+from techset_leadgen.security.permissions import PERMISSIONS, ROLE_PERMISSIONS, Scope, scope_for
+from techset_leadgen.domain.vocabulary import ROLES
 
 A, O = Scope.ALL, Scope.OWN
 
@@ -16,29 +16,35 @@ EXPECTED: dict[str, dict[str, Scope | None]] = {
         "clients.create": None, "clients.edit": None, "clients.delete": None, "leads.create": None,
         "leads.edit": None, "leads.qualify": None, "activities.create": None, "tasks.create": None,
         "tasks.view": A, "data.export": A, "data.import": None, "marketing.manage": None, "users.view": None,
+        "meetings.view": None, "meetings.create": None, "meetings.edit": None, "meetings.cancel": None,
     },
     "marketing": {
         "clients.view_sensitive": A, "clients.edit": None, "leads.create": None, "leads.edit": None,
         "activities.create": None, "tasks.view": O, "tasks.create": A, "tasks.edit": O, "marketing.manage": A,
         "data.import": A, "data.export": A, "leads.assign": None, "data.clear": None,
+        "meetings.view": O, "meetings.create": O, "meetings.edit": O, "meetings.cancel": O,
     },
     "lead_researcher": {
         "clients.create": A, "clients.edit": A, "clients.delete": None, "clients.merge": None,
         "leads.create": A, "leads.edit": O, "leads.qualify": None, "leads.assign": None,
         "activities.create": A, "tasks.view": O, "data.import": A, "data.export": None,
+        "meetings.view": O, "meetings.create": O, "meetings.edit": O, "meetings.cancel": O,
     },
     "bdr": {
         "clients.edit": O, "clients.delete": None, "leads.edit": O, "leads.qualify": O, "leads.assign": None,
         "tasks.assign": None, "activities.create": A, "users.view": None, "data.import": None,
-        "marketing.manage": None,
+        "marketing.manage": None, "meetings.view": O, "meetings.create": O, "meetings.edit": O,
+        "meetings.cancel": O,
     },
     "account_executive": {
         "clients.edit": O, "leads.edit": O, "leads.qualify": O, "leads.assign": None, "data.export": None,
+        "meetings.view": O, "meetings.create": O, "meetings.edit": O, "meetings.cancel": O,
     },
     "sales_manager": {
         "leads.assign": A, "leads.qualify": A, "clients.delete": A, "clients.merge": A, "clients.assign": A,
         "tasks.view": A, "tasks.assign": A, "users.view": A, "users.manage": None, "org.manage": None,
         "audit.view": None, "data.clear": None, "data.import": A, "marketing.manage": A,
+        "meetings.view": A, "meetings.create": A, "meetings.edit": A, "meetings.cancel": A,
     },
     "super_admin": dict.fromkeys(PERMISSIONS, A),
 }

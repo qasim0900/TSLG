@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from crm.errors import ValidationFailed
-from crm.schemas import UserInvite, parse
-from crm.security import passwords
-from crm.security.passwords import (
+from techset_leadgen.errors import ValidationFailed
+from techset_leadgen.services.schemas import UserInvite, parse
+from techset_leadgen.security import passwords
+from techset_leadgen.security.passwords import (
     COMMON_PASSWORDS_FILE,
     MAX_LENGTH,
     MIN_LENGTH,
@@ -22,10 +22,10 @@ from crm.security.passwords import (
     password_length,
     validate_password,
 )
-from crm.services import auth, users
-from crm.services.access import Actor
+from techset_leadgen.services import auth, users
+from techset_leadgen.services.access import Actor
 
-from .conftest import PASSWORD
+from tests.integration.conftest import PASSWORD
 
 ROOT = Path(__file__).resolve().parents[2]
 EMAIL = "ayesha.malik@techset.example"
@@ -181,7 +181,7 @@ def test_the_common_password_list_is_local_normalized_and_documented():
 
 def test_the_windows_build_bundles_the_list():
     spec = (ROOT / "packaging" / "TechsetLeadGen.spec").read_text(encoding="utf-8")
-    assert re.search(r'"crm" / "security" / "common-passwords\.txt\.gz"\), "crm/security"', spec)
+    assert re.search(r'"security" / "common-passwords\.txt\.gz"\), "techset_leadgen/security"', spec)
 
 
 def test_a_missing_list_fails_loudly_instead_of_accepting_everything(monkeypatch, tmp_path):

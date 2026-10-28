@@ -19,14 +19,14 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
-from crm import migrations_util
-from crm.config import Settings, load_settings
-from crm.db import create_db_engine, create_session_factory
-from crm.models import Organization, User
-from crm.schemas import ActivityCreate, ClientCreate, ContactCreate, LeadCreate, TaskCreate, parse
-from crm.security.passwords import hash_password
-from crm.services import activities, clients, contacts, leads, tasks
-from crm.services.access import Actor
+from techset_leadgen.database import migrations_util
+from techset_leadgen.config import Settings, load_settings
+from techset_leadgen.database.engine import create_db_engine, create_session_factory
+from techset_leadgen.database.models import Organization, User
+from techset_leadgen.services.schemas import ActivityCreate, ClientCreate, ContactCreate, LeadCreate, TaskCreate, parse
+from techset_leadgen.security.passwords import hash_password
+from techset_leadgen.services import activities, clients, contacts, leads, tasks
+from techset_leadgen.services.access import Actor
 
 PASSWORD = "correct horse battery staple"
 ROLES = ("super_admin", "sales_manager", "lead_researcher", "bdr", "account_executive", "marketing", "read_only")

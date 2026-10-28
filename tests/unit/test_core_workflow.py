@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from analysis.leads_analysis import get_funnel_stats, get_leads
-from analysis.sales_analysis import get_sales_summary
-from core.db import get_connection, init_db
-from core.importer import import_csv_to_db, import_leads_to_db, inspect_import_file
-from models.client_manager import invalidate_clients_cache
+from techset_leadgen.analytics.analysis.leads_analysis import get_funnel_stats, get_leads
+from techset_leadgen.analytics.analysis.sales_analysis import get_sales_summary
+from techset_leadgen.database.local_db import get_connection, init_db
+from techset_leadgen.analytics.importer import import_csv_to_db, import_leads_to_db, inspect_import_file
+from techset_leadgen.analytics.models.client_manager import invalidate_clients_cache
 
 
 def _clear_database() -> None:

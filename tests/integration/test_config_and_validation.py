@@ -5,18 +5,18 @@ from __future__ import annotations
 
 import pytest
 
-from crm.config import ConfigurationError, load_settings
-from crm.errors import ValidationFailed
-from crm.schemas import ClientCreate, ContactCreate, LeadCreate, LeadTransition, parse
-from crm.services import normalize as norm
+from techset_leadgen.config import ConfigurationError, load_settings
+from techset_leadgen.errors import ValidationFailed
+from techset_leadgen.services.schemas import ClientCreate, ContactCreate, LeadCreate, LeadTransition, parse
+from techset_leadgen.services import normalize as norm
 
 # --- configuration -------------------------------------------------------------
 
 
 def test_the_application_database_is_the_analytics_file(monkeypatch, tmp_path):
-    import core.db
+    from techset_leadgen.database import local_db
 
-    monkeypatch.setattr(core.db, "DB_PATH", tmp_path / "sales.db")
+    monkeypatch.setattr(local_db, "DB_PATH", tmp_path / "sales.db")
     settings = load_settings({})
     assert settings.database_path == (tmp_path / "sales.db").resolve()
     assert settings.database_url == f"sqlite:///{(tmp_path / 'sales.db').resolve().as_posix()}"
@@ -126,7 +126,7 @@ def test_schema_errors_are_per_field_and_user_facing():
 
 
 def test_lead_stage_names_from_imports_map_to_codes_or_are_refused():
-    from domain.lead_stages import normalize_lead_status
+    from techset_leadgen.domain.lead_stages import normalize_lead_status
 
     assert [normalize_lead_status(value) for value in ("Client", " contacted ", None, "Qualified", "Lost")] == [
         "converted", "contacted", "new", "qualified", "lost"]

@@ -10,10 +10,10 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
-from crm.errors import Conflict, PermissionDenied, ValidationFailed
-from crm.models import AuditLog, Client, Contact, Lead, Task
-from crm.schemas import ClientCreate, ClientUpdate, ContactCreate, ContactUpdate, parse
-from crm.services import clients, contacts
+from techset_leadgen.errors import Conflict, PermissionDenied, ValidationFailed
+from techset_leadgen.database.models import AuditLog, Client, Contact, Lead, Task
+from techset_leadgen.services.schemas import ClientCreate, ClientUpdate, ContactCreate, ContactUpdate, parse
+from techset_leadgen.services import clients, contacts
 
 
 def _create(db, actor, **values):

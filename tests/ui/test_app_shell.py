@@ -11,12 +11,17 @@ import pytest
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
-from branding import LOGO_ASSET, PRODUCT_NAME, PRODUCT_TAGLINE
-from core.db import init_db
-from desktop_ui.main_window import MainWindow
-from desktop_ui.pages import ClientsPage, DashboardPage, LeadsPage, SalesPage
-from desktop_ui.theme import ThemeManager, asset_path
-from main import create_application
+from techset_leadgen.branding import LOGO_ASSET, PRODUCT_NAME, PRODUCT_TAGLINE
+from techset_leadgen.database.local_db import init_db
+from techset_leadgen.desktop.main_window import MainWindow
+from techset_leadgen.desktop.pages import ClientsPage, DashboardPage, LeadsPage, SalesPage
+from techset_leadgen.desktop.pages.assignment_pages import AssignmentsPage
+from techset_leadgen.desktop.pages.operational_dashboard_page import OperationalDashboardPage
+from techset_leadgen.desktop.pages.outreach_pages import FollowUpsPage, MyWorkPage
+from techset_leadgen.desktop.pages.prospects_page import ProspectsPage
+from techset_leadgen.desktop.pages.team_pages import NotificationsPage, TeamPage
+from techset_leadgen.desktop.theme import ThemeManager, asset_path
+from techset_leadgen.main import create_application
 from tests.qt_helpers import sign_in_window
 
 
@@ -56,7 +61,14 @@ def test_shell_uses_brand_assets_and_all_native_pages(window, qt_app) -> None:
     assert PRODUCT_TAGLINE
 
     expected = {
-        "dashboard": DashboardPage,
+        "dashboard": OperationalDashboardPage,
+        "my_work": MyWorkPage,
+        "assignments": AssignmentsPage,
+        "prospects": ProspectsPage,
+        "followups": FollowUpsPage,
+        "team": TeamPage,
+        "notifications": NotificationsPage,
+        "sales_overview": DashboardPage,  # the archive: the original analytics, unchanged
         "sales": SalesPage,
         "leads": LeadsPage,
         "clients": ClientsPage,

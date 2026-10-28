@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from domain.analysis_snapshot import (
+from techset_leadgen.domain.analysis_snapshot import (
     AnalysisMode,
     AnalysisSnapshot,
     EvolutionData,
@@ -16,9 +16,9 @@ from domain.analysis_snapshot import (
     ProductDistribution,
     TimeGrouping,
 )
-from reports.report_client_html import generate_client_html_report
-from reports.report_html import generate_html_report_from_snapshot
-from reports.report_leads_html import generate_leads_html_report
+from techset_leadgen.reports.report_client_html import generate_client_html_report
+from techset_leadgen.reports.report_html import generate_html_report_from_snapshot
+from techset_leadgen.reports.report_leads_html import generate_leads_html_report
 
 
 def _normal_snapshot() -> AnalysisSnapshot:

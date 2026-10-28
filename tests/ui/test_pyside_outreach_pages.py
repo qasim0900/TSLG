@@ -16,12 +16,13 @@ pytest.importorskip("PySide6.QtWidgets")
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QTableWidget
 
-from crm.db import utcnow
-from crm.models import OutreachEvent, Prospect, ProspectAssignment
-from crm.schemas import ProspectCreate, parse
-from crm.services import prospects
-from desktop_ui.pages import prospects_page as page_module
-from desktop_ui.pages.prospects_page import HISTORY_LIMIT, ProspectImportDialog, ProspectsPage
+from techset_leadgen.database.engine import utcnow
+from techset_leadgen.database.models import OutreachEvent, Prospect, ProspectAssignment
+from techset_leadgen.services.pagination import PageRequest
+from techset_leadgen.services.schemas import ProspectCreate, parse
+from techset_leadgen.services import prospects
+from techset_leadgen.desktop.pages import prospects_page as page_module
+from techset_leadgen.desktop.pages.prospects_page import HISTORY_LIMIT, ProspectImportDialog, ProspectsPage
 from tests.qt_helpers import signed_in_context
 
 
@@ -139,7 +140,7 @@ def test_detail_is_authoritative_bounded_role_aware_and_opens_canonical_link(
     view = page.current_view()
     assert view is not None
     fields = dict(view.fields)
-    assert fields["LinkedIn"] == "https://www.linkedin.com/in/ayesha-malik"
+    assert fields["LinkedIn"] == "https://www.linkedin.com/in/ayesha-malik/"  # the canonical form
     assert fields["Status"] == "Replied"
     assert fields["Assigned to"] == "Test Admin"
     assert fields["Last activity"] != "No activity recorded"
@@ -159,7 +160,7 @@ def test_detail_is_authoritative_bounded_role_aware_and_opens_canonical_link(
 
     monkeypatch.setattr(page_module, "QDesktopServices", _DesktopServices)
     page.open_link("linkedin")
-    assert opened == ["https://www.linkedin.com/in/ayesha-malik"]
+    assert opened == ["https://www.linkedin.com/in/ayesha-malik/"]
 
     assert not page.new_button.isHidden()
     assert not page.import_button.isHidden()

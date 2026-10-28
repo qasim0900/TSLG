@@ -26,21 +26,21 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QToolButton
 from shiboken6 import Shiboken
 
-from analysis.leads_analysis import _log_lead_consistency
-from analysis.time_grouping import group_time_series
-from core.db import get_connection, init_db
-from core.importer import inspect_import_file
-from desktop_ui.main_window import MainWindow
-from desktop_ui.pages.clients_page import ClientDetailDialog, ClientFormDialog, ClientsPage
-from desktop_ui.forms import FieldSpec, FormDialog
-from desktop_ui.pages.leads_page import LeadsPage
-from desktop_ui.pages.marketing_spend_dialog import MarketingSpendDialog
-from desktop_ui.pages.sales_page import SalesPage
-from domain.analysis_snapshot import ClientRank
-from desktop_ui.row_actions import RowActionDelegate
-from desktop_ui.theme import ThemeManager
-from main import create_application
-from models.client_manager import invalidate_clients_cache
+from techset_leadgen.analytics.analysis.leads_analysis import _log_lead_consistency
+from techset_leadgen.analytics.analysis.time_grouping import group_time_series
+from techset_leadgen.database.local_db import get_connection, init_db
+from techset_leadgen.analytics.importer import inspect_import_file
+from techset_leadgen.desktop.main_window import MainWindow
+from techset_leadgen.desktop.pages.clients_page import ClientDetailDialog, ClientFormDialog, ClientsPage
+from techset_leadgen.desktop.forms import FieldSpec, FormDialog
+from techset_leadgen.desktop.pages.leads_page import LeadsPage
+from techset_leadgen.desktop.pages.marketing_spend_dialog import MarketingSpendDialog
+from techset_leadgen.desktop.pages.sales_page import SalesPage
+from techset_leadgen.domain.analysis_snapshot import ClientRank
+from techset_leadgen.desktop.row_actions import RowActionDelegate
+from techset_leadgen.desktop.theme import ThemeManager
+from techset_leadgen.main import create_application
+from techset_leadgen.analytics.models.client_manager import invalidate_clients_cache
 from tests.qt_helpers import (
     ModalPilot,
     choose_file,
@@ -50,10 +50,10 @@ from tests.qt_helpers import (
     signed_in_context,
     wait_until,
 )
-from utils.formatting import format_datetime_us, format_day_month_year_time
-from utils.import_templates import write_template
+from techset_leadgen.utils.formatting import format_datetime_us, format_day_month_year_time
+from techset_leadgen.utils.import_templates import write_template
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 # --------------------------------------------------------------------- fixtures
@@ -122,8 +122,8 @@ def _button(root, text: str) -> QPushButton:
 
 
 def _import_through_gui(shell: MainWindow, path: Path, qapp) -> list:
-    """Click Dashboard > Import data, pick ``path`` in the file dialog, confirm the preview."""
-    shell.navigate("dashboard")
+    """Click Sales overview > Import data, pick ``path`` in the file dialog, confirm the preview."""
+    shell.navigate("sales_overview")
     qapp.processEvents()
     with ModalPilot(choose_file(path), click_button("Import data")) as pilot:
         QTest.mouseClick(_button(shell.stack.currentWidget(), "Import data"), Qt.MouseButton.LeftButton)
@@ -170,8 +170,8 @@ def test_def001_destroying_rendered_sales_pages_exits_cleanly():
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
         from PySide6.QtWidgets import QApplication
         app = QApplication([])
-        from tests.test_pyside_sales_page import _FakeSalesController, _snapshot
-        from desktop_ui.pages.sales_page import SalesPage
+        from tests.ui.test_pyside_sales_page import _FakeSalesController, _snapshot
+        from techset_leadgen.desktop.pages.sales_page import SalesPage
         for _ in range(5):
             page = SalesPage(
                 controller=_FakeSalesController(_snapshot()),
@@ -188,7 +188,7 @@ def test_def001_destroying_rendered_sales_pages_exits_cleanly():
     result = subprocess.run(  # noqa: S603 - fixed interpreter and inline script
         [sys.executable, "-c", script],
         cwd=PROJECT_ROOT,
-        env=dict(os.environ),
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [str(PROJECT_ROOT / "src"), str(PROJECT_ROOT), os.environ.get("PYTHONPATH", "")]))},
         capture_output=True,
         text=True,
         timeout=180,
@@ -222,6 +222,8 @@ def test_def003_spend_and_lead_exports_are_told_apart(tmp_path, body, expected):
 
 def test_def003_downloaded_spend_template_round_trips_into_marketing_spend(shell, qapp, tmp_path):
     target = tmp_path / "spend.csv"
+    shell.navigate("sales_overview")  # the import templates live on the archive's overview
+    qapp.processEvents()
     with ModalPilot(choose_file(target)):
         QTest.mouseClick(_button(shell.stack.currentWidget(), "Marketing spend CSV"), Qt.MouseButton.LeftButton)
     assert target.read_text(encoding="utf-8").startswith("source,amount,date")
@@ -399,7 +401,7 @@ def test_def007_dates_stay_english_under_a_non_english_locale(non_english_time_l
 
 def test_def017_lead_consistency_is_logged_once_per_load(caplog):
     leads = [{"id": f"L{index}", "status": "new", "client_id": "C1"} for index in range(50)]
-    with caplog.at_level(logging.DEBUG, logger="analysis.leads_analysis"):
+    with caplog.at_level(logging.DEBUG, logger="techset_leadgen.analytics.analysis.leads_analysis"):
         _log_lead_consistency(leads)
     warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
     assert len(warnings) == 1
@@ -411,8 +413,8 @@ def test_def017_lead_consistency_is_logged_once_per_load(caplog):
 
 
 def test_def019_duplicate_client_names_are_caught_in_any_script(empty_db):
-    from controllers.clients_controller import ClientsController
-    from models.client_manager import get_clients
+    from techset_leadgen.analytics.controllers.clients_controller import ClientsController
+    from techset_leadgen.analytics.models.client_manager import get_clients
 
     assert ClientsController.create_client("Café Müller", "", "", "", "")[0] is True
     for variant in ("CAFÉ MÜLLER", "café müller", "  Café Müller  "):
@@ -625,7 +627,7 @@ def test_def020_marketing_spend_can_be_added_corrected_and_deleted(shell, qapp):
 
 
 def _sales_snapshot_with(top_clients, product_labels):
-    from tests.test_pyside_sales_page import _snapshot
+    from tests.ui.test_pyside_sales_page import _snapshot
 
     snapshot = _snapshot()
     distribution = dataclasses.replace(
@@ -646,7 +648,7 @@ def _bar_positions(chart) -> int:
 
 
 def test_def021_sales_page_shows_top_clients_without_merging_equal_names(qapp):
-    from tests.test_pyside_sales_page import _FakeSalesController
+    from tests.ui.test_pyside_sales_page import _FakeSalesController
 
     ranking = [
         ClientRank(rank=1, client_name="Acme Ltd", total_sales=900.0, transactions=3, percentage_of_total=45.0),
@@ -696,7 +698,7 @@ def test_def022_marketing_summary_reports_efficiency_for_the_active_snapshot(qap
 
 
 def test_def023_any_date_picker_opens_on_the_current_month(qapp):
-    from tests.test_pyside_sales_page import _FakeSalesController, _snapshot
+    from tests.ui.test_pyside_sales_page import _FakeSalesController, _snapshot
 
     page = SalesPage(controller=_FakeSalesController(_snapshot()), clients_provider=list, products_provider=list)
     page.resize(1200, 900)
@@ -747,12 +749,13 @@ def test_def024_keyboard_focus_is_visible_on_every_control_variant(shell, qapp, 
     settings.tabs.setCurrentIndex(settings.danger_index)  # data clearing lives under Settings > Danger zone
     qapp.processEvents()
     danger = settings.clear_buttons["sales"]
-    shell.navigate("dashboard")
+    shell.navigate("sales_overview")
+    shell.activateWindow()  # keyboard focus needs the active window (see the dialog test above)
     qapp.processEvents()
     dashboard = shell.stack.currentWidget()
     targets = {
         "navigation": shell._nav_buttons["sales"],
-        "checked navigation": shell._nav_buttons["dashboard"],
+        "checked navigation": shell._nav_buttons["sales_overview"],
         "primary": _button(dashboard, "Import data"),
         "secondary": _button(dashboard, "Refresh"),
         "input": search,
@@ -801,7 +804,7 @@ def test_def026_dialogs_are_released_after_use(shell, qapp, tmp_path):
 
     from PySide6.QtWidgets import QDialog
 
-    from core.importer import import_csv_to_db, import_leads_to_db
+    from techset_leadgen.analytics.importer import import_csv_to_db, import_leads_to_db
 
     sales = tmp_path / "sales.csv"
     sales.write_text("client_name,client_id,product_type,price,date\nAcme,C-1,Audit,100,2026-01-05\n", encoding="utf-8")
@@ -842,9 +845,12 @@ def test_dialogs_open_centred_inside_the_window_and_keep_the_keyboard(shell, qap
     """On Wayland, dialog windows opened wherever the compositor put them (top-left)."""
     from PySide6.QtWidgets import QWidget
 
-    from desktop_ui.modal import Backdrop, current_modal
+    from techset_leadgen.desktop.modal import Backdrop, current_modal
 
     shell.navigate("clients")
+    # A person pressing keys is in the active window; the offscreen test platform drops activation
+    # after the outreach dashboard is hidden (see docs/IMPLEMENTATION_LOG.md, open risks).
+    shell.activateWindow()
     qapp.processEvents()
     seen: dict[str, object] = {}
 
@@ -908,7 +914,7 @@ def test_end_to_end_import_edit_delete_and_restart(shell, qapp, tmp_path):
     _import_through_gui(shell, leads_file, qapp)
     assert wait_until(lambda: _count("leads") == 1)
 
-    shell.navigate("dashboard")
+    shell.navigate("sales_overview")
     qapp.processEvents()
     assert shell.stack.currentWidget().sales_card.value_label.text() == "3"
     shell.navigate("sales")
@@ -942,8 +948,8 @@ def test_end_to_end_import_edit_delete_and_restart(shell, qapp, tmp_path):
     assert _count("sales") == 2
     assert [client["client_id"] for client in clients_page.visible_clients] == ["C-1"]
 
-    # The dashboard reflects the change, and a fresh window reads the persisted state.
-    shell.navigate("dashboard")
+    # The sales overview reflects the change, and a fresh window reads the persisted state.
+    shell.navigate("sales_overview")
     qapp.processEvents()
     assert shell.stack.currentWidget().sales_card.value_label.text() == "2"
     restarted = MainWindow(shell.theme_manager)

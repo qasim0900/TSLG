@@ -27,8 +27,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from desktop_ui.dialogs import MessageDialog
-from desktop_ui.modal import current_modal
+from techset_leadgen.desktop.dialogs import MessageDialog
+from techset_leadgen.desktop.modal import current_modal
 
 ModalAction = Callable[[QWidget], None]
 
@@ -182,8 +182,8 @@ def sign_in_window(window) -> None:
 
 def signed_in_context(database: Path):
     """An ``AppContext`` on a fresh database file, signed in as a new Super Admin."""
-    from crm.config import load_settings
-    from desktop_ui.session import AppContext
+    from techset_leadgen.config import load_settings
+    from techset_leadgen.desktop.session import AppContext
 
     context = AppContext(load_settings({}, database_path=database))
     context.open()

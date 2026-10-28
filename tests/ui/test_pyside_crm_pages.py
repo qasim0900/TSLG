@@ -13,8 +13,8 @@ pytest.importorskip("PySide6.QtWidgets")
 
 from PySide6.QtWidgets import QApplication
 
-from desktop_ui.pages.clients_page import ClientsPage
-from desktop_ui.pages.leads_page import LeadsPage
+from techset_leadgen.desktop.pages.clients_page import ClientsPage
+from techset_leadgen.desktop.pages.leads_page import LeadsPage
 from tests.qt_helpers import wait_until
 
 

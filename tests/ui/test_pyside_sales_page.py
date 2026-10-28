@@ -12,8 +12,8 @@ pytest.importorskip("PySide6.QtWidgets")
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
-from desktop_ui.pages.sales_page import SalesPage
-from domain.analysis_snapshot import (
+from techset_leadgen.desktop.pages.sales_page import SalesPage
+from techset_leadgen.domain.analysis_snapshot import (
     AnalysisMode,
     AnalysisSnapshot,
     EvolutionData,

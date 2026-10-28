@@ -7,13 +7,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import select
 
-from analysis.leads_analysis import get_funnel_stats
-from crm.errors import Conflict, NotFound, PermissionDenied, ValidationFailed
-from crm.models import AuditLog, Lead, LeadStatusChange
-from crm.schemas import BulkAssignment, LeadCreate, LeadTransition, LeadUpdate, TaskUpdate, parse
-from crm.services import leads, tasks, work
-from crm.services.pagination import PageRequest
-from crm.vocabulary import LEAD_STATUSES, LEAD_TRANSITIONS
+from techset_leadgen.analytics.analysis.leads_analysis import get_funnel_stats
+from techset_leadgen.errors import Conflict, NotFound, PermissionDenied, ValidationFailed
+from techset_leadgen.database.models import AuditLog, Lead, LeadStatusChange
+from techset_leadgen.services.schemas import BulkAssignment, LeadCreate, LeadTransition, LeadUpdate, TaskUpdate, parse
+from techset_leadgen.services import leads, tasks, work
+from techset_leadgen.services.pagination import PageRequest
+from techset_leadgen.domain.vocabulary import LEAD_STATUSES, LEAD_TRANSITIONS
 
 
 def _move(db, actor, lead_id, status, reason=None, **extra):

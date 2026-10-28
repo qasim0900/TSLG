@@ -14,15 +14,15 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QTableWidget, QTableWidgetItem
 
-from crm.vocabulary import ACCOUNT_STATUSES, LEAD_STATUSES, PRIORITIES, TASK_STATUSES
-from desktop_ui.pages.admin_pages import ACTION_LABELS, _changes_summary, action_label, actions_matching
-from desktop_ui.pages.clients_page import ClientsPage
-from desktop_ui.pages.leads_page import LeadsPage
-from desktop_ui.support import date_text
-from desktop_ui.tables import EmptyMessage, TableDelegate, copy_selection, prepare_table, set_empty_text, tone_for
-from desktop_ui.widgets import sortable_item
+from techset_leadgen.domain.vocabulary import ACCOUNT_STATUSES, LEAD_STATUSES, PRIORITIES, TASK_STATUSES
+from techset_leadgen.desktop.pages.admin_pages import ACTION_LABELS, _changes_summary, action_label, actions_matching
+from techset_leadgen.desktop.pages.clients_page import ClientsPage
+from techset_leadgen.desktop.pages.leads_page import LeadsPage
+from techset_leadgen.desktop.support import date_text
+from techset_leadgen.desktop.tables import EmptyMessage, TableDelegate, copy_selection, prepare_table, set_empty_text, tone_for
+from techset_leadgen.desktop.widgets import sortable_item
 from tests.qt_helpers import wait_until
-from tests.test_pyside_crm_pages import _ClientsController, _LeadsController
+from tests.ui.test_pyside_crm_pages import _ClientsController, _LeadsController
 
 
 @pytest.fixture(scope="module")
@@ -145,7 +145,7 @@ def test_wide_tables_shrink_text_columns_so_actions_stay_visible(qapp):
                    ["Name", "Notes", "Email", "Stage", "Actions"], badge_columns=(3,))
     table.resize(640, 240)
     table.show()
-    from desktop_ui.tables import fit_columns
+    from techset_leadgen.desktop.tables import fit_columns
 
     fit_columns(table, stretch_column=0, fixed_columns={4: 120}, min_widths={0: 150})
     qapp.processEvents()
@@ -175,7 +175,7 @@ def scratch_settings(tmp_path):
 
 
 def test_columns_can_be_hidden_and_the_choice_is_remembered(qapp, scratch_settings):
-    from desktop_ui.tables import enable_column_choice, reset_columns, set_column_shown
+    from techset_leadgen.desktop.tables import enable_column_choice, reset_columns, set_column_shown
 
     headers = ["Name", "Tax ID", "Email", "Actions"]
     first = _table([["Acme", "B1", "a@x", ""]], headers)

@@ -7,13 +7,13 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import select
 
-from crm.errors import DomainError, PermissionDenied, ValidationFailed
-from crm.models import AuditLog, AuthAttempt, User, UserSession, UserToken
-from crm.schemas import UserAdminUpdate, UserInvite, parse
-from crm.services import auth, users
-from crm.services.access import Actor
+from techset_leadgen.errors import DomainError, PermissionDenied, ValidationFailed
+from techset_leadgen.database.models import AuditLog, AuthAttempt, User, UserSession, UserToken
+from techset_leadgen.services.schemas import UserAdminUpdate, UserInvite, parse
+from techset_leadgen.services import auth, users
+from techset_leadgen.services.access import Actor
 
-from .conftest import PASSWORD
+from tests.integration.conftest import PASSWORD
 
 
 def _sign_in(db, settings, user, password=PASSWORD):

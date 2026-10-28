@@ -14,13 +14,13 @@ from typing import Any
 
 import pytest
 
-from analysis.leads_analysis import get_leads_with_client_info
-from controllers.clients_controller import ClientsController
-from core import db
-from core.db import get_connection, init_db
-from models.client_manager import invalidate_clients_cache
-from models.client_duplicates import merge_clients_by_name
-from services.dashboard_kpi_service import DashboardKPIService
+from techset_leadgen.analytics.analysis.leads_analysis import get_leads_with_client_info
+from techset_leadgen.analytics.controllers.clients_controller import ClientsController
+from techset_leadgen.database import local_db as db
+from techset_leadgen.database.local_db import get_connection, init_db
+from techset_leadgen.analytics.models.client_manager import invalidate_clients_cache
+from techset_leadgen.analytics.models.client_duplicates import merge_clients_by_name
+from techset_leadgen.analytics.dashboard_kpi_service import DashboardKPIService
 
 
 @dataclass
