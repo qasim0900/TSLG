@@ -7,9 +7,9 @@ from pathlib import Path
 
 # Agregar raíz del proyecto al path
 project_root = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "src"))
 
-from core.db import get_connection, DB_NAME
+from techset_leadgen.database.local_db import get_connection, DB_NAME
 
 def main():
     print(f"🔍 IMPORT DIAGNOSTICS")

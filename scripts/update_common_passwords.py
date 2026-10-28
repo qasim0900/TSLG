@@ -22,9 +22,9 @@ import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
-from crm.security.passwords import COMMON_PASSWORDS_FILE, comparison_form  # noqa: E402
+from techset_leadgen.security.passwords import COMMON_PASSWORDS_FILE, comparison_form  # noqa: E402
 
 
 def build(source: Path, target: Path = COMMON_PASSWORDS_FILE) -> int:

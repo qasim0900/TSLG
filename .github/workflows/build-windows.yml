@@ -61,3 +61,35 @@ jobs:
       - name: Report test results
         if: always()
         run: poetry run python scripts/ci_report_tests.py test-results.xml
+
+  # The shared team database: the service and migration tests against a real PostgreSQL server
+  # (Windows runners cannot run service containers, so this job runs on Linux).
+  postgresql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-only-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry and dependencies
+        run: |
+          pipx install poetry
+          poetry install --with dev --no-interaction
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Integration tests on PostgreSQL
+        env:
+          TSLG_TEST_POSTGRES_URL: postgresql://postgres:ci-only-password@localhost:5432/postgres
+          QT_QPA_PLATFORM: offscreen
+        run: poetry run pytest -q tests/integration

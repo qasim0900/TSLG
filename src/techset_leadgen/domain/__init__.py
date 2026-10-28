@@ -1,0 +1,1 @@
+from techset_leadgen.domain.compare_preset import ComparePreset, ComparePresetRegistry, PRESET_REGISTRY

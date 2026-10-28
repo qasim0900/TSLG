@@ -1,4 +1,7 @@
-"""Fill the application database with realistic demo data for trying the app out.
+"""Fill the local database with demo data for the Archive (sales, leads, clients analytics).
+
+For the LinkedIn-outreach workflow (on the team database or a local file) use
+``scripts/seed_outreach_demo.py`` instead.
 
     poetry run python scripts/seed_demo_data.py         # asks before changing anything
     poetry run python scripts/seed_demo_data.py --yes   # no question
@@ -30,23 +33,23 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
 from sqlalchemy import select  # noqa: E402
 
-from core.db import init_db  # noqa: E402
-from core.importer import import_csv_to_db, import_leads_to_db, import_marketing_spend_to_db  # noqa: E402
-from crm import migrations_util  # noqa: E402
-from crm.config import load_settings  # noqa: E402
-from crm.db import create_db_engine, create_session_factory  # noqa: E402
-from crm.models import Client, Lead, User  # noqa: E402
-from crm.schemas import (  # noqa: E402
+from techset_leadgen.database.local_db import init_db  # noqa: E402
+from techset_leadgen.analytics.importer import import_csv_to_db, import_leads_to_db, import_marketing_spend_to_db  # noqa: E402
+from techset_leadgen.database import migrations_util  # noqa: E402
+from techset_leadgen.config import load_settings  # noqa: E402
+from techset_leadgen.database.engine import create_db_engine, create_session_factory  # noqa: E402
+from techset_leadgen.database.models import Client, Lead, User  # noqa: E402
+from techset_leadgen.services.schemas import (  # noqa: E402
     ActivityCreate, BulkAssignment, ClientCreate, ClientUpdate, ContactCreate, LeadCreate, LeadTransition,
     TaskCreate, UserAdminUpdate, UserInvite, parse,
 )
-from crm.services import activities, auth, clients, contacts, leads, maintenance, tasks, users  # noqa: E402
-from crm.services.access import Actor  # noqa: E402
-from desktop_ui.session import system_timezone  # noqa: E402
+from techset_leadgen.services import activities, auth, clients, contacts, leads, maintenance, tasks, users  # noqa: E402
+from techset_leadgen.services.access import Actor  # noqa: E402
+from techset_leadgen.desktop.session import system_timezone  # noqa: E402
 
 DEMO_DOMAIN = "demo.techset.example"
 DEMO_PASSWORD = "Demo-Kettle-2026"  # passes the password policy; shared by every demo account
@@ -152,6 +155,9 @@ def main() -> None:
     args = parser.parse_args()
 
     settings = load_settings()
+    if settings.is_server:
+        raise SystemExit("These are demo records for the Archive (sales, leads, clients), which uses the local "
+                         "file only. For the team database use scripts/seed_outreach_demo.py. Nothing was changed.")
     database = settings.database_path
     init_db()
     engine = create_db_engine(settings)

@@ -5,22 +5,23 @@
 #
 # PyInstaller builds for the operating system it runs on: build the Windows
 # executable on Windows. Output: dist/TechsetLeadGen/TechsetLeadGen(.exe).
-# The data folder (data/sales.db, backups) is created next to the executable
-# unless FDT_DATA_DIR points elsewhere, so install it in a folder the user can write to.
+# Runtime data is kept outside the bundle; FDT_DATA_DIR can point at the
+# user-writable application-data folder selected for a deployment.
 
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 ROOT = Path(SPECPATH).resolve().parent  # noqa: F821 - provided by PyInstaller
+PACKAGE = ROOT / "src" / "techset_leadgen"
 
 datas = [
-    (str(ROOT / "assets"), "assets"),
+    (str(PACKAGE / "assets"), "techset_leadgen/assets"),
     # Alembic loads the migration scripts from files at run time.
-    (str(ROOT / "crm" / "alembic.ini"), "crm"),
-    (str(ROOT / "crm" / "migrations"), "crm/migrations"),
+    (str(PACKAGE / "database" / "alembic.ini"), "techset_leadgen/database"),
+    (str(PACKAGE / "database" / "migrations"), "techset_leadgen/database/migrations"),
     # The password policy's local list of common passwords (read from a file, not imported).
-    (str(ROOT / "crm" / "security" / "common-passwords.txt.gz"), "crm/security"),
+    (str(PACKAGE / "security" / "common-passwords.txt.gz"), "techset_leadgen/security"),
 ]
 # Windows has no system time-zone database; zoneinfo reads it from the tzdata package.
 datas += collect_data_files("tzdata")
@@ -29,13 +30,16 @@ hiddenimports = [
     # Imported by the migration scripts, which are data files (not the bundled test suite).
     *collect_submodules("alembic", filter=lambda name: not name.startswith("alembic.testing")),
     "sqlalchemy.dialects.sqlite",
+    # The shared team database (TSLG_DATABASE_URL=postgresql+psycopg://...).
+    "sqlalchemy.dialects.postgresql",
+    "psycopg",
     "argon2",
     "_cffi_backend",
 ]
 
 a = Analysis(  # noqa: F821
-    [str(ROOT / "main.py")],
-    pathex=[str(ROOT)],
+    [str(PACKAGE / "__main__.py")],
+    pathex=[str(ROOT / "src")],
     datas=datas,
     hiddenimports=hiddenimports,
     excludes=["tkinter", "pytest", "mypy", "ruff"],
@@ -48,7 +52,7 @@ exe = EXE(  # noqa: F821
     [],
     exclude_binaries=True,
     name="TechsetLeadGen",
-    icon=str(ROOT / "assets" / "techset_favicon.ico"),
+    icon=str(PACKAGE / "assets" / "techset_favicon.ico"),
     console=False,  # a desktop window, no terminal
     disable_windowed_traceback=False,
     version=None,

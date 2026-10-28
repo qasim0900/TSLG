@@ -1,19 +1,14 @@
 [tool.pytest.ini_options]
-testpaths = ["tests", "analysis/tests"]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
 python_files = ["test_*.py"]
 markers = [
     "gui: headless Qt widget tests (no display required)",
+    "postgres: needs a PostgreSQL server (TSLG_TEST_POSTGRES_URL); skipped otherwise",
 ]
 
 [tool.coverage.run]
-source = ["."]
-omit = [
-    ".venv/*",
-    "tests/*",
-    "analysis/tests/*",
-    "scripts/*",
-    "conftest.py",
-]
+source = ["src/techset_leadgen"]
 
 [tool.coverage.report]
 skip_empty = true
@@ -28,43 +23,20 @@ select = ["E9", "F63", "F7", "F82", "F811", "F841", "B006", "B008", "B011", "B01
 [tool.mypy]
 python_version = "3.12"
 ignore_missing_imports = true
+mypy_path = "src"
 explicit_package_bases = true
-files = ["core", "models", "controllers", "services", "analysis", "domain", "utils", "reports", "desktop_ui", "crm", "main.py", "branding.py"]
-exclude = ["analysis/tests/"]
+files = ["src/techset_leadgen"]
 
 [tool.bandit]
-exclude_dirs = [".venv", "tests", "analysis/tests"]
+exclude_dirs = [".venv", "tests"]
 
 [tool.poetry]
-# The application intentionally uses the repository's existing flat module
-# layout. Listing its runtime modules explicitly lets `poetry build` create a
-# reproducible source archive and wheel without moving or renaming imports.
-exclude = [
-    "assets/fdt_logo.ico",
-    "assets/fdt_logo.png",
-    "assets/fdt_logo_light.png",
-    "assets/WhatsApp Image 2026-10-01 at 4.58.20 PM.jpeg",
-]
-packages = [
-    { include = "main.py" },
-    { include = "branding.py" },
-    { include = "analysis" },
-    { include = "assets" },
-    { include = "controllers" },
-    { include = "core" },
-    { include = "crm" },
-    { include = "desktop_ui" },
-    { include = "domain" },
-    { include = "models" },
-    { include = "reports" },
-    { include = "services" },
-    { include = "utils" },
-]
+packages = [{ include = "techset_leadgen", from = "src" }]
 
 [project]
 name = "tslg"
 version = "0.2.0"
-description = "Techset LeadGen native desktop sales, lead, and client operations application."
+description = "Techset LeadGen: native desktop application for LinkedIn outreach teams (assignments, follow-ups, tasks)."
 authors = [
     {name = "qasim0900",email = "qasim_kamran2007@yahoo.com"}
 ]
@@ -83,12 +55,14 @@ dependencies = [
     "alembic (>=1.20.0,<2.0.0)",
     "argon2-cffi (>=25.1.0,<26.0.0)",
     "pydantic (>=2.14.1,<3.0.0)",
+    # The shared team database (PostgreSQL) for multi-computer deployments.
+    "psycopg[binary] (>=3.3.6,<4.0.0)",
     # Windows has no system time-zone database; zoneinfo falls back to this package.
     "tzdata (>=2025.2)"
 ]
 
 [project.gui-scripts]
-techset-leadgen = "main:main"
+techset-leadgen = "techset_leadgen.main:main"
 
 
 [build-system]
