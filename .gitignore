@@ -48,3 +48,15 @@ dist/
 # Operating system files
 .DS_Store
 Thumbs.db
+
+# Local application data (data/sales.db is still tracked in this checkout; untrack it separately)
+data/backups/
+data/crm.db*
+data/*.db-wal
+data/*.db-shm
+data/failed_*.csv
+# The team-database address (it contains the database password).
+data/database.ini
+
+# Keep the configuration template under version control (the **/.env.* rule above matches it).
+!.env.example

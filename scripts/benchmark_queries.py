@@ -3,9 +3,9 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from core.db import DB_PATH
+from techset_leadgen.database.local_db import DB_PATH
 
 QUERY = """
 SELECT product_type, SUM(price) AS total, COUNT(*) AS cantidad

@@ -145,7 +145,9 @@ def test_sales_page_renders_snapshot_and_filters(qt_app):
         "Consulting",
     }
     assert page.trend_chart.accessibleName() == "Sales trend chart"
-    assert not page.chart_tabs.isTabVisible(page._comparison_tab_index)
+    # Period B is drawn beside Period A in the trend; there is no separate comparison tab.
+    assert [page.chart_tabs.tabText(index) for index in range(page.chart_tabs.count())] == [
+        "Trend", "Products", "Top clients"]
 
     page._set_last_days(7)
     page.apply_filters()

@@ -2,9 +2,9 @@ import sqlite3
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from core.db import DB_PATH
+from techset_leadgen.database.local_db import DB_PATH
 
 def audit_database():
     if not DB_PATH.exists():

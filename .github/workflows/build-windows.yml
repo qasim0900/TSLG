@@ -1,0 +1,95 @@
+# Builds the Windows desktop application (TechsetLeadGen.exe) on a Windows machine.
+# The result is a zip under the run's "Artifacts": unzip it into a folder you can
+# write to (for example Documents\TechsetLeadGen) and start TechsetLeadGen.exe.
+name: Build Windows app
+
+on:
+  workflow_dispatch:
+  push:  # every branch and tag
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - name: Install dependencies
+        run: |
+          poetry env use python
+          poetry install --with dev --no-interaction
+
+      - name: Build TechsetLeadGen.exe
+        run: poetry run pyinstaller packaging/TechsetLeadGen.spec --noconfirm --clean
+
+      - name: Smoke test (the app starts and creates a new, empty database)
+        shell: pwsh
+        run: |
+          $data = Join-Path $env:RUNNER_TEMP "smoke-data"
+          $env:FDT_DATA_DIR = $data
+          $env:FDT_LOG_DIR = Join-Path $env:RUNNER_TEMP "smoke-logs"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $app = Start-Process -FilePath "dist\TechsetLeadGen\TechsetLeadGen.exe" -PassThru
+          Start-Sleep -Seconds 30
+          if ($app.HasExited) { throw "TechsetLeadGen.exe closed by itself (exit code $($app.ExitCode))." }
+          Stop-Process -Id $app.Id -Force
+          Start-Sleep -Seconds 2
+          if (-not (Test-Path "$data\sales.db")) { throw "TechsetLeadGen.exe did not create its database." }
+          poetry run python -c "import sqlite3, sys; db = sqlite3.connect(sys.argv[1]); print('schema', db.execute('select version_num from alembic_version').fetchone()[0]); print('accounts', db.execute('select count(*) from users').fetchone()[0])" "$data\sales.db"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: TechsetLeadGen-windows
+          path: dist/TechsetLeadGen/
+          retention-days: 30
+
+      # After the upload, so a Windows-specific test failure still leaves the build to try.
+      - name: Tests on Windows
+        continue-on-error: true
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: poetry run pytest -q --junitxml=test-results.xml
+
+      # Failures become annotations and a summary on the run page; the job fails if any test did.
+      - name: Report test results
+        if: always()
+        run: poetry run python scripts/ci_report_tests.py test-results.xml
+
+  # The shared team database: the service and migration tests against a real PostgreSQL server
+  # (Windows runners cannot run service containers, so this job runs on Linux).
+  postgresql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-only-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry and dependencies
+        run: |
+          pipx install poetry
+          poetry install --with dev --no-interaction
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Integration tests on PostgreSQL
+        env:
+          TSLG_TEST_POSTGRES_URL: postgresql://postgres:ci-only-password@localhost:5432/postgres
+          QT_QPA_PLATFORM: offscreen
+        run: poetry run pytest -q tests/integration

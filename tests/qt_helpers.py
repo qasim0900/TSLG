@@ -2,7 +2,8 @@
 
 Application code opens ``QMessageBox``, ``QFileDialog`` and custom ``QDialog``
 instances with ``exec()``, which runs a nested event loop. ``ModalPilot`` polls
-for the active modal widget from inside that loop, records what the user would
+for the active modal widget (or the dialog open inside a visible window) from
+inside that loop, records what the user would
 have seen, and answers it with a scripted action. Tests therefore exercise the
 production dialogs instead of monkeypatching them away.
 """
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from desktop_ui.dialogs import MessageDialog
+from desktop_ui.modal import current_modal
 
 ModalAction = Callable[[QWidget], None]
 
@@ -93,6 +95,10 @@ class ModalPilot:
 
     def _poll(self) -> None:
         modal = QApplication.activeModalWidget()
+        # The app's dialogs open as cards inside their window rather than as windows.
+        embedded = current_modal()
+        if embedded is not None and (modal is None or modal is embedded.window()):
+            modal = embedded
         if modal is None or not modal.isVisible():
             return
         # Mark the dialog itself rather than keeping a Python reference to it:
@@ -146,3 +152,41 @@ def choose_file(path: str | Path) -> ModalAction:
         editor.returnPressed.emit()
 
     return action
+
+
+TEST_ADMIN_EMAIL = "test.admin@techset.example"
+TEST_PASSWORD = "correct horse battery staple"
+
+
+def sign_in_window(window) -> None:
+    """Get a ``MainWindow`` past its sign-in screen as the test Super Admin.
+
+    The sandboxed database is shared by a test session, so the first call
+    completes first-run setup and later calls sign in with the same account.
+    """
+    if window.auth_stack.currentWidget() is window.setup_page:
+        page = window.setup_page
+        page.organization.setText("Techset Solutions")
+        page.name.setText("Test Admin")
+        page.email.setText(TEST_ADMIN_EMAIL)
+        page.password.setText(TEST_PASSWORD)
+        page.confirm.setText(TEST_PASSWORD)
+        assert page.submit(), page.error.text()
+    else:
+        page = window.sign_in_page
+        page.email.setText(TEST_ADMIN_EMAIL)
+        page.password.setText(TEST_PASSWORD)
+        assert page.submit(), page.error.text()
+    assert window.context.is_signed_in
+
+
+def signed_in_context(database: Path):
+    """An ``AppContext`` on a fresh database file, signed in as a new Super Admin."""
+    from crm.config import load_settings
+    from desktop_ui.session import AppContext
+
+    context = AppContext(load_settings({}, database_path=database))
+    context.open()
+    context.create_organization(organization_name="Techset Solutions", admin_name="Test Admin",
+                                email=TEST_ADMIN_EMAIL, password=TEST_PASSWORD)
+    return context

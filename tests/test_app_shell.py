@@ -17,6 +17,7 @@ from desktop_ui.main_window import MainWindow
 from desktop_ui.pages import ClientsPage, DashboardPage, LeadsPage, SalesPage
 from desktop_ui.theme import ThemeManager, asset_path
 from main import create_application
+from tests.qt_helpers import sign_in_window
 
 
 @pytest.fixture(scope="module")
@@ -41,6 +42,7 @@ def window(qt_app):
     shell = MainWindow(manager)
     shell.show()
     qt_app.processEvents()
+    sign_in_window(shell)
     yield shell
     shell.close()
     shell.deleteLater()
