@@ -235,3 +235,30 @@ def test_bug109_clicking_the_number_of_a_kpi_card_opens_its_area(qapp, context):
         assert opened == ["card"], (card.accessibleName(), type(target).__name__)
         opened.clear()
     page.close()
+
+
+@pytest.mark.parametrize("pixels", [13, 15, 16])
+def test_bug110_the_stretched_name_column_is_not_cut_with_wider_fonts(qapp, pixels):
+    """BUG-110: when space was short, the stretched column (the rows' names) shrank with the others. With
+    Windows' wider fonts "Globex Corporation" needed 152 px and got 151, so names were cut ("Globex Corporati…");
+    the Windows CI run failed test_tables. A larger font reproduces it on any system."""
+    from PySide6.QtGui import QFont
+
+    from techset_leadgen.desktop.tables import fit_columns
+    from tests.ui.test_tables import _table
+
+    long = "A very long description that would push every later column off screen"
+    table = _table([["Globex Corporation", long, "someone@example.com", "Qualified", ""]],
+                   ["Name", "Notes", "Email", "Stage", "Actions"], badge_columns=(3,))
+    font = QFont(table.font())
+    font.setPixelSize(pixels)
+    table.setFont(font)
+    table.resize(640, 240)
+    table.show()
+    fit_columns(table, stretch_column=0, fixed_columns={4: 120}, min_widths={0: 150})
+    qapp.processEvents()
+    header = table.horizontalHeader()
+    assert header.sectionSize(0) >= table.sizeHintForColumn(0)  # the name is not cut
+    assert sum(header.sectionSize(column) for column in range(5)) <= table.viewport().width() + 1
+    table.close()
+    table.deleteLater()

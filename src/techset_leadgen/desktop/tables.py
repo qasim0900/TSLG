@@ -757,7 +757,7 @@ def fit_columns(table: QTableWidget, *, stretch_column: int | None = None,
     When the columns are wider than the table, text columns give up width in proportion
     to how wide they are (long text is shortened with "…" and shown in full on hover), so
     the last columns and the row actions stay on screen. Nothing shrinks below its header
-    or ``min_widths``, and ``keep_columns`` (like numbers and badges) are never shortened;
+    or ``min_widths``, and ``keep_columns`` (like numbers and badges) and the stretched column are never shortened;
     past that point the table scrolls sideways.
     """
     header = table.horizontalHeader()
@@ -783,7 +783,10 @@ def fit_columns(table: QTableWidget, *, stretch_column: int | None = None,
     fitter = table.findChild(_ColumnFitter)
     if fitter is None:
         fitter = _ColumnFitter(table)
-    fitter.configure(natural, fixed, stretch_column, min_widths or {}, badge_columns | numeric | set(keep_columns))
+    # The stretched column names the rows (a person, a client): like numbers and badges, it is never cut.
+    stretched = set() if stretch_column is None else {stretch_column}
+    fitter.configure(natural, fixed, stretch_column, min_widths or {},
+                     badge_columns | numeric | set(keep_columns) | stretched)
 
 
 class _ColumnFitter(QObject):
