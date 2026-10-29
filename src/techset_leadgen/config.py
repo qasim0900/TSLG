@@ -11,6 +11,8 @@ from sqlalchemy.exc import ArgumentError
 
 _PREFIX = "TSLG_"
 SERVER_FILE = "database.ini"
+ENV_FILE = ".env"
+_ENV_ALIASES = {"DATABASE_URL": _PREFIX + "DATABASE_URL"}
 
 
 class ConfigurationError(RuntimeError):
@@ -88,6 +90,27 @@ def _server_file_url(path: Path) -> str | None:
     return server_url(parser.get("database", "url", fallback=""), f"The url in {path}")
 
 
+def _env_file_values(path: Path) -> dict[str, str]:
+    if not path.is_file():
+        return {}
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigurationError(f"{path} could not be read: {type(exc).__name__}.") from None
+    values: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.removeprefix("export ").partition("=")
+        key, value = _ENV_ALIASES.get(key.strip(), key.strip()), value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if key.startswith(_PREFIX):
+            values[key] = value
+    return values
+
+
 def load_settings(env: Mapping[str, str] | None = None, *, database_path: Path | str | None = None) -> Settings:
     values = dict(os.environ if env is None else env)
     path = Path(database_path) if database_path is not None else default_database_path()
@@ -95,7 +118,12 @@ def load_settings(env: Mapping[str, str] | None = None, *, database_path: Path |
         raise ConfigurationError("The database must be a file path")
     remote = None
     if database_path is None:
-        remote = server_url(values.get(_PREFIX + "DATABASE_URL")) or _server_file_url(path.with_name(SERVER_FILE))
+        env_file = path.parent.parent / ENV_FILE
+        from_file = _env_file_values(env_file)
+        name = _PREFIX + "DATABASE_URL"
+        source = f"DATABASE_URL in {env_file}" if name in from_file and name not in values else name
+        values = {**from_file, **values}
+        remote = server_url(values.get(name), source) or _server_file_url(path.with_name(SERVER_FILE))
     return Settings(
         database_path=path.expanduser().resolve(),
         session_idle_minutes=_int(values, "SESSION_IDLE_MINUTES", 30),

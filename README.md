@@ -11,7 +11,7 @@ profiles in their own browser and record the outcome here.
 ## How it is deployed
 
 * **Team server** – every computer runs the desktop application and connects to one shared
-  PostgreSQL database on the office server (`TSLG_DATABASE_URL` or `data/database.ini`).
+  PostgreSQL database on the office server (`DATABASE_URL` in `.env`, `TSLG_DATABASE_URL`, or `data/database.ini`).
 * **Single computer** – one local SQLite file, `data/sales.db`. The earlier sales, lead, and client
   analytics remain available here as the **Archive**.
 
