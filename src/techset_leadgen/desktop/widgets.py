@@ -1,11 +1,3 @@
-"""Small reusable, accessible Qt widgets for the branded desktop UI.
-
-These are the building blocks of the redesign: page headers, cards with a
-header row, KPI cards with an icon chip, badges, avatars, alerts, the search
-field, a switch, a toast, a definition list, and a bar chart. Colours come from
-:func:`desktop_ui.theme.tokens` (painted widgets) or the global stylesheet.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
@@ -38,17 +30,10 @@ from techset_leadgen.desktop.icons import ThemedIconLabel, pixmap
 from techset_leadgen.desktop.motion import EASE, EASE_OUT, SPRING, animate, clear_effect, reduced_motion
 from techset_leadgen.desktop.theme import BRAND_GREEN, BUTTON_HEIGHT, ERROR, PRIMARY, SECONDARY, tokens
 
-# Dedicated role for sort keys; pages already use UserRole for record IDs.
 SORT_ROLE = Qt.ItemDataRole.UserRole + 64
 
 
 class SortableItem(QTableWidgetItem):
-    """Table item that sorts by its raw key, e.g. ``1500.0`` rather than "€1,500.00".
-
-    ``QTableWidgetItem`` compares display text, so "106" sorts before "60" and
-    "€9,000" after "€10,000". Items without a key fall back to text order.
-    """
-
     def __lt__(self, other: QTableWidgetItem) -> bool:
         left = self.data(SORT_ROLE)
         right = other.data(SORT_ROLE)
@@ -57,12 +42,10 @@ class SortableItem(QTableWidgetItem):
                 return bool(left < right)
             except TypeError:
                 pass
-        # Not super().__lt__(): PySide routes that call back into this override.
         return self.text() < other.text()
 
 
 def labeled_field(label_text: str, editor: QWidget) -> QWidget:
-    """Stack a visible label above ``editor`` and make it the label's buddy."""
     field = QWidget()
     layout = QVBoxLayout(field)
     layout.setContentsMargins(0, 0, 0, 0)
@@ -76,7 +59,6 @@ def labeled_field(label_text: str, editor: QWidget) -> QWidget:
 
 
 def sortable_item(text: str, sort_key: Any = None) -> QTableWidgetItem:
-    """Return a numeric-aware item, or a plain (natively sorted) item for text."""
     if sort_key is None:
         return QTableWidgetItem(text)
     item = SortableItem(text)
@@ -87,12 +69,6 @@ def sortable_item(text: str, sort_key: Any = None) -> QTableWidgetItem:
 @contextmanager
 def bulk_table_update(table: QTableWidget, *, stretch_column: int, fixed_columns: dict[int, int] | None = None,
                       min_widths: dict[int, int] | None = None, sortable: bool = True) -> Iterator[None]:
-    """Fill ``table`` in linear time, then size and sort it once (``sortable=False`` keeps the given order).
-
-    With ``ResizeToContents`` sections, every ``setItem`` on a visible table
-    re-measures the whole column, making a refresh quadratic in the row count
-    (400 clients took 0.4 s, 200 rows with a Python delegate took 11 s).
-    """
     header = table.horizontalHeader()
     table.setSortingEnabled(False)
     table.setUpdatesEnabled(False)
@@ -100,7 +76,7 @@ def bulk_table_update(table: QTableWidget, *, stretch_column: int, fixed_columns
     try:
         yield
     finally:
-        from techset_leadgen.desktop.tables import fit_columns  # columns sized once, capped, and still resizable by the user
+        from techset_leadgen.desktop.tables import fit_columns
 
         fit_columns(table, stretch_column=stretch_column, fixed_columns=fixed_columns, min_widths=min_widths)
         table.setSortingEnabled(sortable)
@@ -108,7 +84,6 @@ def bulk_table_update(table: QTableWidget, *, stretch_column: int, fixed_columns
 
 
 def initials(name: str) -> str:
-    """Two-letter initials for an avatar ("Osama Yaseen" -> "OY", "system" -> "SY")."""
     words = [word for word in name.replace("/", " ").split() if word[:1].isalnum()]
     if not words:
         return "—"
@@ -118,12 +93,6 @@ def initials(name: str) -> str:
 
 
 def set_shown(widget: QWidget, shown: bool) -> None:
-    """``setVisible`` that never shows a widget which has no parent yet.
-
-    ``setVisible(True)`` on a parentless widget opens it as a separate window
-    (a brief flash that also takes focus from the main window); left alone, it
-    appears with the parent it is added to later.
-    """
     if not shown:
         widget.hide()
     elif widget.parentWidget() is not None:
@@ -131,14 +100,10 @@ def set_shown(widget: QWidget, shown: bool) -> None:
 
 
 def repolish(widget: QWidget) -> None:
-    """Re-apply the stylesheet after a dynamic property used by a selector changed."""
     style = widget.style()
     style.unpolish(widget)
     style.polish(widget)
     widget.update()
-
-
-# ------------------------------------------------------------------ containers
 
 
 class Card(QFrame):
@@ -146,16 +111,10 @@ class Card(QFrame):
         super().__init__(parent)
         self.setObjectName("card")
         self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setAttribute(Qt.WidgetAttribute.WA_Hover)  # the border darkens under the mouse
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover)
 
 
 class SectionCard(Card):
-    """A card with a header row (title, optional subtitle, actions on the right) and a body.
-
-    ``body`` is the layout for the card's content; pass ``padded=False`` when the
-    content (a table, a tab bar) should run edge to edge.
-    """
-
     def __init__(self, title: str = "", subtitle: str = "", *, padded: bool = True, divider: bool = True,
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -181,7 +140,7 @@ class SectionCard(Card):
         heading.addWidget(self.title_label)
         heading.addWidget(self.subtitle_label)
         header_row.addLayout(heading, 1)
-        self.actions_row = QHBoxLayout()  # not "actions": that would hide QWidget.actions()
+        self.actions_row = QHBoxLayout()
         self.actions_row.setSpacing(8)
         header_row.addLayout(self.actions_row)
         outer.addWidget(self.header)
@@ -205,8 +164,6 @@ class SectionCard(Card):
 
 
 class PageHeader(QWidget):
-    """Page title and subtitle on the left, the page's main actions on the right."""
-
     def __init__(self, title: str, subtitle: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         row = QHBoxLayout(self)
@@ -244,15 +201,7 @@ class PageHeader(QWidget):
         return widget
 
 
-# ------------------------------------------------------------------ small parts
-
-
 class IconChip(QWidget):
-    """A rounded square holding an icon: green tint, or gold for the secondary accent.
-
-    ``set_hover`` scales and tilts it (the design's KPI hover: scale 1.12, rotate -4deg).
-    """
-
     def __init__(self, name: str, tone: str = "green", size: int = 34, icon_size: int = 16,
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -275,7 +224,7 @@ class IconChip(QWidget):
         self._hover = value
         self.update()
 
-    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt API
+    def paintEvent(self, event: QPaintEvent) -> None:
         t = tokens()
         background, ink = {
             "gold": (t["goldTint"], t["goldChipInk"]),
@@ -299,8 +248,6 @@ class IconChip(QWidget):
 
 
 class Avatar(QWidget):
-    """Initials in a tinted circle; grows slightly under the mouse (design: scale 1.08)."""
-
     def __init__(self, name: str = "", size: int = 32, parent: QWidget | None = None, *,
                  neutral: bool = False) -> None:
         super().__init__(parent)
@@ -332,7 +279,7 @@ class Avatar(QWidget):
             animate(self._hover, 0.0, 200, self._set_hover, curve=SPRING, owner=self)
         return super().event(event)
 
-    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt API
+    def paintEvent(self, event: QPaintEvent) -> None:
         if not self._text:
             return
         t = tokens()
@@ -363,13 +310,11 @@ _BADGE_TONES: dict[str, tuple[tuple[str, str], tuple[str, str]]] = {
 
 
 def badge_colors(tone: str, dark: bool) -> tuple[str, str]:
-    """(background, text) of a badge tone on the light or dark theme; every pair is >= 4.5:1."""
     return _BADGE_TONES.get(tone, _BADGE_TONES["neutral"])[1 if dark else 0]
 
 
 def paint_badge(painter: QPainter, rect: QRectF, text: str, tone: str, dark: bool, font: QFont,
                 *, dot: bool = True) -> float:
-    """Draw a badge pill (dot + bold text) left-aligned in ``rect``; returns its width."""
     background, foreground = badge_colors(tone, dark)
     painter.save()
     bold = QFont(font)
@@ -400,8 +345,6 @@ def paint_badge(painter: QPainter, rect: QRectF, text: str, tone: str, dark: boo
 
 
 class Badge(QWidget):
-    """A coloured status label ("Open", "High", "Super Admin") with a leading dot."""
-
     def __init__(self, text: str = "", tone: str = "neutral", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._text = text
@@ -418,13 +361,13 @@ class Badge(QWidget):
     def text(self) -> str:
         return self._text
 
-    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+    def sizeHint(self) -> QSize:
         font = QFont(self.font())
         font.setPixelSize(12)
         font.setWeight(QFont.Weight.Bold)
         return QSize(QFontMetrics(font).horizontalAdvance(self._text) + 34, 24)
 
-    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt API
+    def paintEvent(self, event: QPaintEvent) -> None:
         if not self._text:
             return
         painter = QPainter(self)
@@ -435,8 +378,6 @@ class Badge(QWidget):
 
 
 class Alert(QFrame):
-    """An inline message with an icon: info (blue), warning (gold), error (red), success (green)."""
-
     _ICONS = {"info": "info", "warning": "warning", "error": "alert", "success": "check-circle"}
     _ROLES = {"info": "infoInk", "warning": "warnInk", "error": "danger", "success": "primaryInk"}
 
@@ -470,15 +411,13 @@ class Alert(QFrame):
         if appearing and self.isVisible():
             from techset_leadgen.desktop.motion import fade_in
 
-            fade_in(self)  # the design's alert fade-in
+            fade_in(self)
 
     def text(self) -> str:
         return self.label.text()
 
 
 class SearchField(QLineEdit):
-    """A line edit with a leading search icon and an optional keyboard hint ("Ctrl K")."""
-
     def __init__(self, placeholder: str = "Search", hint: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setPlaceholderText(placeholder)
@@ -490,7 +429,7 @@ class SearchField(QLineEdit):
         self.hint.setVisible(bool(hint))
         self.hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
-    def resizeEvent(self, event: Any) -> None:  # noqa: N802 - Qt API
+    def resizeEvent(self, event: Any) -> None:
         super().resizeEvent(event)
         self._icon.move(12, (self.height() - self._icon.height()) // 2)
         if not self.hint.isHidden():
@@ -499,8 +438,6 @@ class SearchField(QLineEdit):
 
 
 class SwitchButton(QCheckBox):
-    """A checkbox drawn as an on/off switch (42 × 24) whose knob springs across."""
-
     def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
         super().__init__(text, parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -508,10 +445,10 @@ class SwitchButton(QCheckBox):
         self._knob = 0.0
         self.toggled.connect(self._animate)
 
-    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+    def sizeHint(self) -> QSize:
         return QSize(42, 24)
 
-    def hitButton(self, pos: Any) -> bool:  # noqa: N802 - Qt API
+    def hitButton(self, pos: Any) -> bool:
         return self.rect().contains(pos)
 
     def _set_knob(self, value: float) -> None:
@@ -521,13 +458,13 @@ class SwitchButton(QCheckBox):
     def _animate(self, checked: bool) -> None:
         animate(self._knob, 1.0 if checked else 0.0, 240, self._set_knob, curve=SPRING, owner=self)
 
-    def setChecked(self, checked: bool) -> None:  # noqa: N802 - Qt API
+    def setChecked(self, checked: bool) -> None:
         super().setChecked(checked)
-        if self.signalsBlocked():  # no toggled signal: jump to the new state
+        if self.signalsBlocked():
             self._knob = 1.0 if checked else 0.0
             self.update()
 
-    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt API
+    def paintEvent(self, event: QPaintEvent) -> None:
         t = tokens()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -559,8 +496,6 @@ def _mix(first: QColor, second: QColor, amount: float) -> QColor:
 
 
 class DefinitionList(QWidget):
-    """Label/value rows separated by hairlines (the design's ``dl``)."""
-
     def __init__(self, key_width: int = 170, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._key_width = key_width
@@ -589,7 +524,7 @@ class DefinitionList(QWidget):
             else:
                 label = QLabel(value or "—")
                 label.setWordWrap(True)
-                label.setTextFormat(Qt.TextFormat.PlainText)  # values are user-entered
+                label.setTextFormat(Qt.TextFormat.PlainText)
                 label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
                 label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
                 self.value_labels[name] = label
@@ -606,8 +541,6 @@ class DefinitionList(QWidget):
 
 
 class EmptyState(QWidget):
-    """A centred empty state: icon chip, title, a short explanation, and optional actions."""
-
     def __init__(self, title: str, message: str = "", icon: str = "file", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
@@ -628,8 +561,6 @@ class EmptyState(QWidget):
         self.message.setMaximumWidth(380)
         self.message.setTextFormat(Qt.TextFormat.PlainText)
         layout.addWidget(self.title)
-        # Centred by stretches, not an alignment flag: an aligned label is sized from its
-        # one-line hint, which cut a wrapped second line in half.
         message_row = QHBoxLayout()
         message_row.addStretch(1)
         message_row.addWidget(self.message, 100)
@@ -660,12 +591,7 @@ class EmptyState(QWidget):
         self.message.setText(message)
 
 
-# ------------------------------------------------------------------ KPI cards
-
-
 class KpiCard(Card):
-    """A metric: label and icon chip on top, a large value, and a short note."""
-
     clicked = Signal()
 
     def __init__(
@@ -719,7 +645,7 @@ class KpiCard(Card):
         layout.addLayout(top)
         self.value_label = QLabel(value)
         self.value_label.setObjectName("metricValue")
-        if not clickable:  # a selectable number would swallow the click that opens a clickable card's area
+        if not clickable:
             self.value_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         if compact:
             self.value_label.setStyleSheet("font-size: 22px;")
@@ -727,8 +653,6 @@ class KpiCard(Card):
         self.detail_label.setObjectName("metricNote")
         self.detail_label.setWordWrap(True)
         set_shown(self.detail_label, bool(detail))
-        # Compatibility aliases keep existing page/test integrations stable as
-        # their former private KPI widgets are consolidated onto this one.
         self.label = self.title_label
         self.value = self.value_label
         self.note = self.detail_label
@@ -750,24 +674,22 @@ class KpiCard(Card):
         self.setToolTip(detail)
 
     def set_metric(self, value: str, note: str = "") -> None:
-        """Update a metric using the API retained from the Sales KPI widget."""
         self.set_value(value, note)
 
-    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - Qt API
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         super().mouseReleaseEvent(event)
         if self._clickable and event.button() == Qt.MouseButton.LeftButton and self.rect().contains(
                 event.position().toPoint()):
             self.clicked.emit()
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 - Qt API
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         if self._clickable and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
             self.clicked.emit()
             return
         super().keyPressEvent(event)
 
-    # ------------------------------------------------------------ hover lift
 
-    def enterEvent(self, event: Any) -> None:  # noqa: N802 - Qt API
+    def enterEvent(self, event: Any) -> None:
         super().enterEvent(event)
         if self._lift_base is None:
             self._lift_base = QPoint(self.pos())
@@ -775,7 +697,7 @@ class KpiCard(Card):
         if self.icon_chip is not None:
             animate(self._chip_hover, 1.0, 250, self._set_chip, curve=SPRING, owner=self)
 
-    def leaveEvent(self, event: Any) -> None:  # noqa: N802 - Qt API
+    def leaveEvent(self, event: Any) -> None:
         super().leaveEvent(event)
         animate(self._lift, 0.0, 250, self._set_lift, curve=EASE, owner=self, done=self._end_lift)
         if self.icon_chip is not None:
@@ -791,7 +713,7 @@ class KpiCard(Card):
         if base is None:
             return
         expected = base.y() - round(3 * self._lift)
-        if abs(self.y() - expected) > 1:  # a layout pass moved the card: follow it
+        if abs(self.y() - expected) > 1:
             base = QPoint(self.x(), self.y() + round(3 * self._lift))
             self._lift_base = base
         self._lift = value
@@ -816,9 +738,6 @@ class KpiCard(Card):
                 self._clear_shadow_later()
 
     def _clear_shadow_later(self) -> None:
-        # Never at once: leaving the card can happen inside Qt's own walk over this card's
-        # children (the Leave event sent while its page is hidden; with reduced motion the
-        # lift ends synchronously), and deleting the shadow, a child, there crashes the process.
         QTimer.singleShot(0, self, self._clear_shadow)
 
     def _clear_shadow(self) -> None:
@@ -827,8 +746,6 @@ class KpiCard(Card):
 
 
 class MiniMetric(QFrame):
-    """One cell of a metric grid: a small label and a value (optionally coloured)."""
-
     def __init__(self, title: str, value: str = "—", tone: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("miniCell")
@@ -845,7 +762,6 @@ class MiniMetric(QFrame):
         layout.addWidget(self.value_label)
         layout.addStretch(1)
         self.setAccessibleName(title)
-        # Aliases shared with KpiCard so pages can treat both alike.
         self.label = self.title_label
         self.value = self.value_label
 
@@ -856,8 +772,6 @@ class MiniMetric(QFrame):
 
 
 class MetricGrid(Card):
-    """Mini metrics in a grid with hairlines between the cells (the design's ``mini`` card)."""
-
     def __init__(self, columns: int = 4, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._columns = columns
@@ -898,12 +812,7 @@ class MetricGrid(Card):
             self._grid.setColumnStretch(column * 2, 1)
 
 
-# ------------------------------------------------------------------ feedback
-
-
 class Toast(QFrame):
-    """A short confirmation floating at the bottom centre of a window (springs in, fades out)."""
-
     def __init__(self, host: QWidget) -> None:
         super().__init__(host)
         self.setObjectName("toast")
@@ -983,18 +892,13 @@ class Toast(QFrame):
             self.setFixedHeight(self.sizeHint().height())
         self.move((host.width() - self.width()) // 2, host.height() - self.height() - 24)
 
-    def eventFilter(self, watched: Any, event: QEvent) -> bool:  # noqa: N802 - Qt API
+    def eventFilter(self, watched: Any, event: QEvent) -> bool:
         if event.type() == QEvent.Type.Resize and self.isVisible():
             self._place()
         return False
 
 
-# ------------------------------------------------------------------ charts
-
-
 class BarChart(QWidget):
-    """Vertical bars (optionally A/B pairs) with a light grid; bars grow in, one after another."""
-
     def __init__(self, accessible_name: str = "Bar chart", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setAccessibleName(accessible_name)
@@ -1028,7 +932,6 @@ class BarChart(QWidget):
         return bool(self._values) and max(self._values + (self._values_b or [0.0])) > 0
 
     def replay(self) -> None:
-        """Grow the bars from the axis (the design's growy, 0.8 s with a 0.05 s stagger)."""
         span = 800 + 50 * max(len(self._values) - 1, 0)
         animate(0.0, 1.0, span, self._set_progress, curve=EASE_OUT, owner=self)
 
@@ -1071,7 +974,7 @@ class BarChart(QWidget):
             result.append(rects)
         return result
 
-    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt API
+    def paintEvent(self, event: QPaintEvent) -> None:
         t = tokens()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -1103,7 +1006,7 @@ class BarChart(QWidget):
         slot = (area.width() - 10 * (count - 1)) / count
         metrics = painter.fontMetrics()
         widest = max((metrics.horizontalAdvance(label) for label in self._labels), default=0) + 12
-        every = max(1, -(-widest // max(int(slot + 10), 1)))  # show every n-th label so none overlap
+        every = max(1, -(-widest // max(int(slot + 10), 1)))
         for index, label in enumerate(self._labels):
             if index % every:
                 continue
@@ -1112,7 +1015,7 @@ class BarChart(QWidget):
             painter.drawText(box, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, label)
         painter.end()
 
-    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - Qt API
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
         point = event.position()
         for index, rects in enumerate(self._bar_rects()):
             for number, rect in enumerate(rects):
@@ -1125,8 +1028,6 @@ class BarChart(QWidget):
 
 
 class BarRow:
-    """One row of a :class:`HBarList`."""
-
     def __init__(self, label: str, fraction: float, value: str, detail: str = "", *, avatar: str = "",
                  color: str = "chartA", tooltip: str = "") -> None:
         self.label = label
@@ -1139,8 +1040,6 @@ class BarRow:
 
 
 class HBarList(QWidget):
-    """Label | track with a fill | value rows (products, top clients, the funnel); fills sweep in."""
-
     def __init__(self, accessible_name: str, *, label_width: int = 220, value_width: int = 170, track: int = 10,
                  row_height: int = 22, gap: int = 14, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1165,7 +1064,6 @@ class HBarList(QWidget):
         self.replay()
 
     def replay(self) -> None:
-        """Sweep the fills in from the left (the design's reveal, 1 s with a 0.1 s stagger)."""
         span = 1000 + 100 * max(len(self.rows) - 1, 0)
         animate(0.0, 1.0, span, self._set_progress, curve=EASE_OUT, owner=self)
 
@@ -1178,17 +1076,17 @@ class HBarList(QWidget):
         local = (self._progress - 100 * index / span) / (1000 / span)
         return EASE_OUT.valueForProgress(max(0.0, min(1.0, local)))
 
-    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+    def sizeHint(self) -> QSize:
         rows = max(len(self.rows), 1)
         return QSize(520, rows * self._row_height + (rows - 1) * self._gap)
 
-    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+    def minimumSizeHint(self) -> QSize:
         return QSize(260, self.sizeHint().height())
 
     def _label_column(self) -> float:
         return min(self._label_width, max(140.0, self.width() * 0.3))
 
-    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt API
+    def paintEvent(self, event: QPaintEvent) -> None:
         t = tokens()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -1250,7 +1148,7 @@ class HBarList(QWidget):
                              Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, row.value)
         painter.end()
 
-    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - Qt API
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
         index = int(event.position().y() // (self._row_height + self._gap))
         if 0 <= index < len(self.rows):
             row = self.rows[index]
@@ -1259,14 +1157,7 @@ class HBarList(QWidget):
             self.setToolTip("")
 
 
-
 class CountChip(QPushButton):
-    """A pill button showing a count and a label ("1 Overdue", "5 Open tasks").
-
-    With a tone the count sits in a coloured badge (overdue: red, due today: gold);
-    otherwise it is bold. ``text()`` stays the plain sentence for screen readers.
-    """
-
     def __init__(self, label: str, tone: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("chipButton")
@@ -1294,12 +1185,12 @@ class CountChip(QPushButton):
             count.setPixelSize(12)
         return label, count
 
-    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+    def sizeHint(self) -> QSize:
         label, count = self._fonts()
         count_width = QFontMetrics(count).horizontalAdvance(self._count) + (30 if self._tone else 0)
         return QSize(14 + count_width + 8 + QFontMetrics(label).horizontalAdvance(self._label) + 14, 40)
 
-    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt API
+    def paintEvent(self, event: QPaintEvent) -> None:
         t = tokens()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -1333,8 +1224,6 @@ class CountChip(QPushButton):
 
 
 class Pager(QWidget):
-    """Previous / numbered pages (with "…") / next, as in the design's table footers."""
-
     page_requested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -1366,7 +1255,6 @@ class Pager(QWidget):
 
     @staticmethod
     def numbers(page: int, pages: int) -> list[int | None]:
-        """Page numbers to show; ``None`` is an ellipsis (1 … 4 5 6 … 12)."""
         if pages <= 7:
             return list(range(1, pages + 1))
         shown: list[int | None] = [1]
@@ -1404,13 +1292,6 @@ class Pager(QWidget):
 
 
 class PasswordRules(QWidget):
-    """A live checklist of the password policy.
-
-    It runs the services' own rule checks (``crm.security.passwords``), so it can never
-    disagree with what is enforced when the password is saved. ``email`` and ``name``
-    are the account's, for the "not like your name or email" rule.
-    """
-
     def __init__(self, parent: QWidget | None = None, *, email: str = "", name: str = "") -> None:
         super().__init__(parent)
         from techset_leadgen.security.passwords import RULES
@@ -1439,13 +1320,12 @@ class PasswordRules(QWidget):
         self.update_rules("")
 
     def set_owner(self, email: str = "", name: str = "") -> None:
-        """The account the password is for (its email and name), used by later checks."""
         self._email, self._name = email, name
 
     def _broken(self, value: str, email: str | None, name: str | None) -> set[str]:
         from techset_leadgen.security.passwords import broken_rules
 
-        if not value:  # nothing typed yet: no rule is met
+        if not value:
             return {rule.key for rule in self._rules}
         owner_email = self._email if email is None else email
         owner_name = self._name if name is None else name
@@ -1469,8 +1349,6 @@ class PasswordRules(QWidget):
 
 
 class RevealButton(QToolButton):
-    """The eye button at the right of a password field (kept centred as the field resizes)."""
-
     def __init__(self, editor: QLineEdit) -> None:
         super().__init__(editor)
         self.editor = editor
@@ -1497,14 +1375,13 @@ class RevealButton(QToolButton):
         self.setToolTip(label)
         self.setAccessibleName(label)
 
-    def eventFilter(self, watched: Any, event: QEvent) -> bool:  # noqa: N802 - Qt API
+    def eventFilter(self, watched: Any, event: QEvent) -> bool:
         if watched is self.editor and event.type() == QEvent.Type.Resize:
             self.move(self.editor.width() - self.width() - 5, (self.editor.height() - self.height()) // 2)
         return False
 
 
 def set_table_defaults(table: QTableWidget, **options: Any) -> None:
-    """The shared table style (see ``desktop_ui.tables.prepare_table``) with content-sized columns."""
     from techset_leadgen.desktop.tables import prepare_table
 
     prepare_table(table, **options)
@@ -1513,7 +1390,6 @@ def set_table_defaults(table: QTableWidget, **options: Any) -> None:
 
 
 def icon_pixmap_label(name: str, role: str = "text2", size: int = 16) -> ThemedIconLabel:
-    """A small theme-following icon (alias kept short for page code)."""
     return ThemedIconLabel(name, role, size)
 
 
@@ -1523,3 +1399,4 @@ __all__ = [
     "RevealButton", "SearchField", "SectionCard", "SORT_ROLE", "SortableItem", "SwitchButton", "Toast", "badge_colors", "bulk_table_update", "icon_pixmap_label", "initials",
     "labeled_field", "paint_badge", "pixmap", "repolish", "set_shown", "set_table_defaults", "sortable_item",
 ]
+

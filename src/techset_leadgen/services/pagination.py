@@ -1,5 +1,3 @@
-"""Server-side pagination, sorting, and safe LIKE search."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -22,7 +20,6 @@ class PageRequest:
 
     @classmethod
     def of(cls, page: Any = 1, page_size: Any = DEFAULT_PAGE_SIZE, sort: str | None = None) -> PageRequest:
-        """Build from untrusted query values; invalid numbers fall back to defaults."""
         def _int(value: Any, default: int) -> int:
             try:
                 return int(value)
@@ -81,11 +78,6 @@ def paginate(
     tiebreaker: Any,
     rows: bool = False,
 ) -> Page[Any]:
-    """Apply a whitelisted sort and LIMIT/OFFSET; unknown sort keys use the default.
-
-    ``rows=True`` returns whole result rows (tuples) for statements that select
-    several entities or columns, such as a record with its current owner's name.
-    """
     key = request.sort if request.sort in sort_columns else default_sort.lstrip("-")
     descending = request.descending if request.sort in sort_columns else default_sort.startswith("-")
     column = sort_columns[key]
@@ -96,3 +88,4 @@ def paginate(
     window = ordered.limit(request.page_size).offset((number - 1) * request.page_size)
     items = list(session.execute(window).all()) if rows else list(session.scalars(window).unique().all())
     return Page(items=items, page=number, page_size=request.page_size, total=total)
+

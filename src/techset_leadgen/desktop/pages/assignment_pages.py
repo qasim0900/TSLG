@@ -1,15 +1,7 @@
-"""Daily Assignments: a manager gives LinkedIn profiles to team members for a work day.
-
-A batch is created in one transaction from a reviewed plan (who gets which
-profile). The plan evens out total open work (``domain.outreach.balance_plan``)
-and can be saved as a draft that members do not see until it is activated.
-Reassigning closes the old assignment and opens a new one, so history is kept.
-"""
-
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 from PySide6.QtCore import QDate, Qt, QTimer
 from PySide6.QtWidgets import (
@@ -52,8 +44,6 @@ ID_ROLE = Qt.ItemDataRole.UserRole
 
 
 class _Batch(NamedTuple):
-    """A batch as the toolbar needs it, copied out of the session that read it."""
-
     id: str
     name: str
     status: str
@@ -63,13 +53,11 @@ class _Batch(NamedTuple):
 
 
 class BatchDialog(ModalDialog):
-    """Choose profiles and people, review the resulting workload, then create the batch in one save."""
-
     def __init__(self, parent: QWidget, context: AppContext, *, preselected: list[str] | None = None) -> None:
         super().__init__(parent)
         self.context = context
         self.result_value: str | None = None
-        self.chosen: dict[str, str] = {}  # prospect id -> display name, kept across searches
+        self.chosen: dict[str, str] = {}
         self._members: list[assignments.Member] = []
         for prospect_id in preselected or []:
             self.chosen[prospect_id] = ""
@@ -153,8 +141,6 @@ class BatchDialog(ModalDialog):
         self.member_table.setAccessibleName("Team members and their workload")
         set_table_defaults(self.member_table, numeric_columns=[1, 2, 3],
                            empty_text="Nobody can record outreach yet.")
-        # The workload numbers (especially "After") must stay visible: they size to their content, the name
-        # takes what is left.
         header = self.member_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for column in (1, 2, 3):
@@ -191,7 +177,6 @@ class BatchDialog(ModalDialog):
         if not self.name.isModified():
             self.name.setText(f"Daily batch {date_text(self.work_date.date().toString(Qt.DateFormat.ISODate))}")
 
-    # ------------------------------------------------------------ loading
 
     def load_members(self) -> None:
         ok, members = attempt(self, self.context, lambda db, actor: assignments.assignable_members(db, actor),
@@ -222,10 +207,10 @@ class BatchDialog(ModalDialog):
                      PROSPECT_STATUSES.get(item.prospect.status, item.prospect.status)) for item in page.items]
             unnamed = [prospect_id for prospect_id, name in self.chosen.items() if not name]
             names = {}
-            for prospect_id in unnamed:  # preselected from the Prospects page: bounded by that selection
+            for prospect_id in unnamed:
                 try:
                     names[prospect_id] = _display_name(prospects.get_prospect(db, actor, prospect_id))
-                except Exception:  # no longer visible: dropped from the plan below
+                except Exception:
                     names[prospect_id] = ""
             return rows, page.total, names
 
@@ -260,7 +245,6 @@ class BatchDialog(ModalDialog):
                 self.chosen[prospect_id] = ""
             self.load_prospects()
 
-    # ------------------------------------------------------------ plan
 
     def _prospect_toggled(self, item: QTableWidgetItem) -> None:
         if item.column() != 0:
@@ -310,7 +294,7 @@ class BatchDialog(ModalDialog):
         plan = self.plan()
         if not plan:
             return
-        work_date: date = self.work_date.date().toPython()  # type: ignore[assignment]
+        work_date = cast(date, self.work_date.date().toPython())
         payload = {"name": self.name.text(), "work_date": work_date, "draft": self.draft.isChecked(),
                    "plan": [{"prospect_id": prospect_id, "assignee_id": user_id} for prospect_id, user_id in plan]}
 
@@ -324,8 +308,6 @@ class BatchDialog(ModalDialog):
 
 
 class AssignmentsPage(RecordPage):
-    """Team assignments: create daily batches, follow progress, reassign or cancel."""
-
     title = "Daily Assignments"
     subtitle = "Give LinkedIn profiles to team members for a work day, follow progress, and reassign when needed."
     noun = "assignment"
@@ -413,7 +395,7 @@ class AssignmentsPage(RecordPage):
             if combo.currentData():
                 filters[key] = combo.currentData()
         if filters.get("batch_id") and "status" not in filters:
-            filters["status"] = "all"  # a chosen batch shows all its rows, drafts included
+            filters["status"] = "all"
         return filters
 
     def set_filter_values(self, values: dict[str, str]) -> None:
@@ -552,3 +534,4 @@ class AssignmentsPage(RecordPage):
 
 
 __all__ = ["AssignmentsPage", "BatchDialog"]
+

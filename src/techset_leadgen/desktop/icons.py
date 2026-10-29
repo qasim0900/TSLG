@@ -1,12 +1,3 @@
-"""Theme-aware line icons, drawn from one 24 × 24 stroke set with QtSvg.
-
-Every icon in the desktop UI comes from ``_PATHS`` (the redesign's icon set:
-1.8 px rounded strokes), rendered in a colour taken from the active theme.
-Widgets that show an icon register it with ``set_button_icon`` /
-``ThemedIconLabel``; ``refresh_themed_icons`` re-tints them all when the theme
-changes, so no icon is ever drawn in the previous theme's colours.
-"""
-
 from __future__ import annotations
 
 from PySide6.QtCore import QByteArray, QRectF, QSize, Qt
@@ -14,13 +5,12 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QAbstractButton, QApplication, QLabel, QWidget
 
-_SCALE = 2  # render at 2x for high-DPI screens
+_SCALE = 2
 _ICON_PROPERTY = "themedIcon"
 _ROLE_PROPERTY = "themedIconRole"
 _SIZE_PROPERTY = "themedIconSize"
 
 _PATHS: dict[str, str] = {
-    # Navigation
     "dashboard": '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>'
                  '<rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
     "sales": '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
@@ -44,7 +34,6 @@ _PATHS: dict[str, str] = {
              '<path d="M9 13h6M9 17h4"/>',
     "settings": '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1'
                 'M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
-    # Shell
     "database": '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/>'
                 '<path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
     "sidebar": '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/>',
@@ -58,7 +47,6 @@ _PATHS: dict[str, str] = {
     "user": '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.2-6.5 8-6.5s7 2.5 8 6.5"/>',
     "guest": '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6"/>',
     "logout": '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5M5 12h11"/>',
-    # Actions
     "refresh": '<path d="M20 11a8 8 0 0 0-14.6-4.5L3 9"/><path d="M3 4v5h5"/>'
                '<path d="M4 13a8 8 0 0 0 14.6 4.5L21 15"/><path d="M21 20v-5h-5"/>',
     "upload": '<path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>',
@@ -83,7 +71,6 @@ _PATHS: dict[str, str] = {
     "folder": '<path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>',
     "file": '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/><path d="M14 3v5h5"/>',
     "clock": '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-    # Status and metrics
     "info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/>',
     "alert": '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/>',
     "warning": '<path d="M12 3l9.5 17h-19L12 3z"/><path d="M12 10v4M12 17.5v.01"/>',
@@ -120,11 +107,6 @@ def _svg(name: str, color: QColor, stroke: float) -> bytes:
 
 
 def pixmap(name: str, color: str | QColor, size: int = 18, stroke: float = 1.8, *, gap: int = 0) -> QPixmap:
-    """Render icon ``name`` as a transparent pixmap ``size`` logical pixels square.
-
-    ``gap`` adds transparent space on the right: Qt puts a fixed 4 px between a
-    button's icon and its text, and the design wants 8 px.
-    """
     renderer = QSvgRenderer(QByteArray(_svg(name, QColor(color), stroke)))
     image = QPixmap((size + gap) * _SCALE, size * _SCALE)
     image.setDevicePixelRatio(_SCALE)
@@ -138,7 +120,6 @@ def pixmap(name: str, color: str | QColor, size: int = 18, stroke: float = 1.8, 
 
 def icon(name: str, color: str | QColor, size: int = 18, *, checked_color: str | QColor | None = None,
          disabled_color: str | QColor | None = None, gap: int = 0) -> QIcon:
-    """A QIcon in ``color``; optionally another colour when checked or disabled."""
     result = QIcon()
     normal = pixmap(name, color, size, gap=gap)
     on = pixmap(name, checked_color, size, gap=gap) if checked_color is not None else normal
@@ -153,11 +134,7 @@ def icon(name: str, color: str | QColor, size: int = 18, *, checked_color: str |
 
 
 def navigation_icon(name: str, color: str, checked_color: str, size: int = 18) -> QIcon:
-    """Return an icon drawn in ``color``, and in ``checked_color`` when its button is checked."""
     return icon(name, color, size, checked_color=checked_color)
-
-
-# ---------------------------------------------------------------- theme-following icons
 
 
 def _role_color(role: str) -> str:
@@ -168,11 +145,6 @@ def _role_color(role: str) -> str:
 
 
 def set_button_icon(button: QAbstractButton, name: str | None, role: str = "text", size: int = 16) -> None:
-    """Give ``button`` icon ``name`` in the theme colour ``role``; it follows theme changes.
-
-    ``role`` is a token name from :func:`desktop_ui.theme.tokens` ("text", "text2",
-    "onPrimary", "primaryInk", "danger", ...). ``None`` removes the icon.
-    """
     button.setProperty(_ICON_PROPERTY, name)
     button.setProperty(_ROLE_PROPERTY, role)
     button.setProperty(_SIZE_PROPERTY, size)
@@ -194,8 +166,6 @@ def _apply_button_icon(button: QAbstractButton) -> None:
 
 
 class ThemedIconLabel(QLabel):
-    """A QLabel showing one icon in a theme colour (re-tinted on theme changes)."""
-
     def __init__(self, name: str, role: str = "text2", size: int = 16, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setProperty(_ICON_PROPERTY, name)
@@ -219,7 +189,6 @@ class ThemedIconLabel(QLabel):
 
 
 def refresh_themed_icons() -> None:
-    """Re-tint every registered icon after the theme changed."""
     for widget in QApplication.allWidgets():
         try:
             if widget.property(_ICON_PROPERTY) is None:
@@ -228,7 +197,7 @@ def refresh_themed_icons() -> None:
                 widget.refresh_icon()
             elif isinstance(widget, QAbstractButton):
                 _apply_button_icon(widget)
-        except RuntimeError:  # a widget being destroyed
+        except RuntimeError:
             continue
 
 
@@ -236,3 +205,4 @@ __all__ = [
     "NAVIGATION_ICON_NAMES", "ThemedIconLabel", "icon", "icon_names", "navigation_icon", "pixmap",
     "refresh_themed_icons", "set_button_icon",
 ]
+

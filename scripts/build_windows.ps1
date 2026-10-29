@@ -1,6 +1,3 @@
-# Build the Windows desktop application with PyInstaller.
-# Requires Python 3.12+ and Poetry on PATH. Run from any folder:
-#   powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root

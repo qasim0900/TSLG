@@ -1,5 +1,3 @@
-"""All ORM models; importing this package registers them on ``Base.metadata``."""
-
 from techset_leadgen.database.models.audit import AuditLog
 from techset_leadgen.database.models.identity import AuthAttempt, Organization, User, UserSession, UserToken
 from techset_leadgen.database.models.meetings import Meeting, MeetingAttendee
@@ -27,3 +25,4 @@ __all__ = [
     "UserSession",
     "UserToken",
 ]
+

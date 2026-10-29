@@ -1,5 +1,3 @@
-"""User administration, self-service profile, and the organization profile."""
-
 from __future__ import annotations
 
 from typing import Any
@@ -32,7 +30,6 @@ def list_users(db: Session, actor: Actor, *, page: PageRequest, q: str | None = 
 
 
 def assignable_users(db: Session, actor: Actor) -> list[User]:
-    """Active users, for owner and assignee pickers."""
     return list(db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.full_name)))
 
 
@@ -43,11 +40,6 @@ def get_user(db: Session, actor: Actor, user_id: Any) -> User:
 
 
 def invite_user(db: Session, actor: Actor, settings: Settings, data: UserInvite) -> tuple[User, str]:
-    """Create an account without a password and return its one-time activation code.
-
-    The code is shown once to the inviting administrator, who hands it over
-    (no email service is configured). Only its hash is stored.
-    """
     actor.require("users.manage")
     if db.scalar(select(User.id).where(User.email == data.email)) is not None:
         raise Conflict("A user with this email address already exists.", fields={"email": "This email is already in use."})
@@ -90,18 +82,13 @@ def update_user(db: Session, actor: Actor, user_id: Any, data: UserAdminUpdate) 
     delta = audit.diff(before, audit.snapshot(user, ("full_name", "role", "is_active")))
     if delta:
         if ("is_active" in delta and not user.is_active) or "role" in delta:
-            revoke_sessions(db, user.id)  # new permissions apply from the next sign-in
+            revoke_sessions(db, user.id)
         audit.record(db, actor, "user.updated", entity_type="user", entity_id=user.id, changes=delta)
     db.flush()
     return user
 
 
 def issue_access_code(db: Session, actor: Actor, settings: Settings, user_id: Any) -> tuple[str, str]:
-    """Administrator-issued activation or password-reset code (shown once).
-
-    Returns ``(code, purpose)``: "invite" for accounts that never set a
-    password, otherwise "password_reset".
-    """
     actor.require("users.manage")
     user = get_record(db, User, user_id)
     if not user.is_active:
@@ -130,7 +117,7 @@ def update_profile(db: Session, actor: Actor, data: ProfileUpdate) -> User:
 
 def get_organization(db: Session) -> Organization:
     organization = db.get(Organization, 1)
-    if organization is None:  # an upgraded database whose first account came from elsewhere
+    if organization is None:
         organization = Organization(id=1, name="My organization")
         db.add(organization)
         db.flush()
@@ -152,3 +139,4 @@ def update_organization(db: Session, actor: Actor, data: OrganizationUpdate) -> 
                      changes=changes)
     db.flush()
     return organization
+

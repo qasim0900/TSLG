@@ -1,7 +1,3 @@
-"""
-Controlador de lógica para gestión de leads.
-Separa la lógica de negocio de la UI.
-"""
 from techset_leadgen.analytics.analysis import (
     get_leads,
     get_leads_stats,
@@ -26,22 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 class LeadsController:
-    """Controlador centralizado para operaciones de leads."""
-    
     @staticmethod
     def get_leads_data(start_date=None, end_date=None, source=None, status=None):
-        """
-        Obtiene lista de leads con filtros opcionales.
-        
-        Args:
-            start_date: Fecha de inicio (YYYY-MM-DD)
-            end_date: Fecha de fin (YYYY-MM-DD)
-            source: Filtrar por source
-            status: Filtrar por status
-        
-        Returns:
-            list: Leads obtenidos
-        """
         try:
             return get_leads(
                 start_date=start_date,
@@ -52,15 +34,9 @@ class LeadsController:
         except Exception:
             logger.exception("Could not load leads")
             return []
-    
+
     @staticmethod
     def get_leads_stats():
-        """
-        Obtiene estadísticas de leads.
-        
-        Returns:
-            dict: {"total_leads", "with_meeting", "with_client"}
-        """
         try:
             return get_leads_stats()
         except Exception:
@@ -70,15 +46,9 @@ class LeadsController:
                 "with_meeting": 0,
                 "with_client": 0,
             }
-    
+
     @staticmethod
     def get_leads_enriched(start_date=None, end_date=None, source=None, status=None):
-        """
-        Obtiene leads con información del cliente.
-        
-        Returns:
-            list: Leads con datos de cliente asociado
-        """
         try:
             return get_leads_with_client_info(
                 start_date=start_date,
@@ -89,19 +59,17 @@ class LeadsController:
         except Exception:
             logger.exception("Could not load enriched leads")
             return []
-    
+
     @staticmethod
     def get_available_sources():
-        """Obtiene lista de fuentes disponibles."""
         try:
             return get_unique_sources()
         except Exception:
             logger.exception("Could not load lead sources")
             return []
-    
+
     @staticmethod
     def get_available_statuses():
-        """Obtiene lista de estados disponibles."""
         try:
             return get_unique_statuses()
         except Exception:
@@ -110,43 +78,16 @@ class LeadsController:
 
     @staticmethod
     def get_funnel_stats(leads: list) -> dict:
-        """
-        Calcula estadísticas del funnel sobre una lista de leads en memoria.
-
-        Wrapper puro: no realiza queries. Delega a analysis.leads_analysis.
-
-        Args:
-            leads: Lista de leads enriched (ya cargados).
-
-        Returns:
-            dict con total, meetings, converted, porcentajes y tiempos.
-        """
         from techset_leadgen.analytics.analysis.leads_analysis import get_funnel_stats
         return get_funnel_stats(leads)
 
     @staticmethod
     def group_leads_by_source(leads: list) -> dict:
-        """
-        Agrupa leads por fuente con métricas de conversión (en memoria).
-
-        Wrapper puro: no realiza queries. Delega a analysis.leads_analysis.
-
-        Args:
-            leads: Lista de leads enriched (ya cargados).
-
-        Returns:
-            dict[source] = {total, meetings, clients, meeting_to_client_pct, avg_time_to_meeting}
-        """
         from techset_leadgen.analytics.analysis.leads_analysis import group_leads_by_source
         return group_leads_by_source(leads)
 
     @staticmethod
     def get_spend_by_source() -> dict:
-        """
-        Obtiene gasto de marketing por fuente como dict {source: spend}.
-
-        Diseñado para cargarse UNA VEZ al iniciar la vista y usarse en memoria.
-        """
         try:
             from techset_leadgen.analytics.analysis.marketing_analysis import get_spend_by_source_as_dict
             return get_spend_by_source_as_dict()
@@ -156,11 +97,6 @@ class LeadsController:
 
     @staticmethod
     def get_revenue_by_client() -> dict:
-        """
-        Obtiene revenue total por cliente como dict {client_id: revenue}.
-
-        Diseñado para cargarse UNA VEZ al iniciar la vista y usarse en memoria.
-        """
         try:
             from techset_leadgen.analytics.analysis.marketing_analysis import get_revenue_per_client
             return get_revenue_per_client()
@@ -174,20 +110,6 @@ class LeadsController:
         spend_by_source: dict | None = None,
         revenue_by_client: dict | None = None,
     ) -> dict:
-        """
-        Obtiene métricas consolidadas de marketing.
-
-        - leads=None → marketing global desde BD (inicio frío)
-        - leads!=None → marketing reactivo in-memory (post-filtro)
-
-        Args:
-            leads: Lista de leads filtrados. None = usar datos globales de BD.
-            spend_by_source: {source: spend} precargado. Requerido si leads != None.
-            revenue_by_client: {client_id: revenue} precargado. Requerido si leads != None.
-
-        Returns:
-            dict: {"summary": dict, "metrics": list}
-        """
         try:
             if leads is None:
                 from techset_leadgen.analytics.analysis.marketing_analysis import (
@@ -217,7 +139,6 @@ class LeadsController:
 
     @staticmethod
     def get_marketing_spend_entries() -> list[dict]:
-        """Return individual spend records for the native spend editor."""
         try:
             return list(get_all_spend() or [])
         except Exception:
@@ -230,7 +151,6 @@ class LeadsController:
         amount: float,
         date_str: str,
     ) -> tuple[bool, str, int | None]:
-        """Validate and persist one marketing spend record."""
         try:
             spend_id = insert_spend(source, amount, date_str)
             return True, "Spend record saved.", spend_id
@@ -247,7 +167,6 @@ class LeadsController:
         amount: float,
         date_str: str,
     ) -> tuple[bool, str]:
-        """Validate and update one marketing spend record."""
         try:
             if update_spend(spend_id, source, amount, date_str):
                 return True, "Spend record updated."
@@ -260,7 +179,6 @@ class LeadsController:
 
     @staticmethod
     def delete_marketing_spend(spend_id: int) -> tuple[bool, str]:
-        """Delete one marketing spend record after UI confirmation."""
         try:
             if delete_spend(spend_id):
                 return True, "Spend record deleted."
@@ -271,17 +189,6 @@ class LeadsController:
 
     @staticmethod
     def update_lead_info(lead_id: str, status: str, meeting_date: str | None):
-        """
-        Actualiza status y meeting_date de un lead.
-
-        Args:
-            lead_id: ID del lead.
-            status: Nuevo estado del lead.
-            meeting_date: Fecha ISO o cadena vacía/None.
-
-        Returns:
-            tuple: (success: bool, message: str)
-        """
         if not lead_id:
             return False, "Lead ID is missing."
 
@@ -291,7 +198,6 @@ class LeadsController:
         if not validate_meeting_date(meeting_date):
             return False, "The meeting date must use the YYYY-MM-DD format."
 
-        # Normalizar meeting_date vacío a None
         clean_meeting = meeting_date.strip() if meeting_date else None
         if clean_meeting == "":
             clean_meeting = None
@@ -303,3 +209,4 @@ class LeadsController:
             return False, str(e)
         except Exception as e:
             return False, f"Could not update the lead: {e}"
+

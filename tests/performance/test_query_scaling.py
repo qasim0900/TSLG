@@ -1,9 +1,3 @@
-"""Regression tests that keep read-query counts independent of dataset size.
-
-These tests deliberately measure SQL statements rather than elapsed time. Wall-clock
-timings vary across CI hosts, while a query count catches an accidental N+1 reliably.
-"""
-
 from __future__ import annotations
 
 import sqlite3
@@ -25,8 +19,6 @@ from techset_leadgen.analytics.dashboard_kpi_service import DashboardKPIService
 
 @dataclass
 class ReadQueryCounter:
-    """Collect SELECT/CTE statements emitted by newly opened connections."""
-
     statements: list[str] = field(default_factory=list)
 
     def trace(self, statement: str) -> None:
@@ -43,8 +35,6 @@ class ReadQueryCounter:
 
 @pytest.fixture()
 def query_counter(monkeypatch: pytest.MonkeyPatch) -> ReadQueryCounter:
-    """Attach one trace callback to every connection created during a test."""
-
     counter = ReadQueryCounter()
     real_connect = sqlite3.connect
 
@@ -59,8 +49,6 @@ def query_counter(monkeypatch: pytest.MonkeyPatch) -> ReadQueryCounter:
 
 @pytest.fixture(autouse=True)
 def isolated_database() -> None:
-    """Reset the pytest-only database around every query-scaling scenario."""
-
     init_db()
     _clear_database()
     yield
@@ -78,13 +66,11 @@ def _clear_database() -> None:
                 "import_metadata",
                 "clients",
             ):
-                connection.execute(f"DELETE FROM {table}")  # noqa: S608 - fixed whitelist
+                connection.execute(f"DELETE FROM {table}")
     invalidate_clients_cache()
 
 
 def _seed_dataset(client_count: int) -> None:
-    """Create clients with two sales and one joined lead each."""
-
     clients = [
         (
             f"C-{index:04d}",
@@ -258,8 +244,6 @@ def test_duplicate_merge_batches_client_lookup_at_both_scales(
 
     assert small_result[0] == 1
     assert large_result[0] == 99
-    # Before batching this path issued 3, 11, and 101 SELECTs for groups of
-    # 2, 10, and 100 respectively. It must now remain fixed at three reads.
     assert len(small_sql) == len(large_sql) == 3
 
     with closing(get_connection()) as connection:
@@ -268,3 +252,4 @@ def test_duplicate_merge_batches_client_lookup_at_both_scales(
         assert connection.execute(
             "SELECT COUNT(DISTINCT client_id) FROM sales"
         ).fetchone()[0] == 1
+

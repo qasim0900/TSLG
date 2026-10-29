@@ -1,13 +1,5 @@
 import math
 
-# ------------------------------
-# :: get Rod Width Function
-# ------------------------------
-
-"""
-This module provides utility functions for determining chart dimensions based on the number of bars in a chart.
-"""
-
 
 def get_rod_width(bar_count: int) -> int:
     if bar_count <= 7:
@@ -24,15 +16,6 @@ def get_rod_width(bar_count: int) -> int:
         return 8
 
 
-# ---------------------------------
-# :: get label interval Function
-# ---------------------------------
-
-"""
-This module provides utility functions for determining chart dimensions based on the number of bars in a chart.
-"""
-
-
 def get_label_interval(bar_count: int) -> int:
     if bar_count <= 15:
         return 1
@@ -44,15 +27,6 @@ def get_label_interval(bar_count: int) -> int:
         return 5
     else:
         return 10
-
-
-# ------------------------------------
-# :: Round to nice numbers Function
-# ------------------------------------
-
-"""
-This module provides utility functions for determining chart dimensions based on the number of bars in a chart. 
-"""
 
 
 def round_to_nice_number(value: float) -> float:
@@ -71,3 +45,4 @@ def round_to_nice_number(value: float) -> float:
     else:
         rounded = 10.0
     return rounded * magnitude
+

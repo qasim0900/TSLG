@@ -1,11 +1,3 @@
-"""Clients, leads, contacts, activities, and tasks.
-
-``clients`` and ``leads`` are the original analytics tables (created by
-``core.db``); imports, the funnel and sales analytics, and these models all read
-and write the same rows. The CRM migration only added optional columns to them.
-Dates that came with the original schema stay ``YYYY-MM-DD`` text.
-"""
-
 from __future__ import annotations
 
 from datetime import datetime
@@ -22,14 +14,12 @@ from techset_leadgen.database.models.outreach import Prospect
 class Client(Base):
     __tablename__ = "clients"
 
-    # Original columns (core.db): IDs come from imported files or are "M_XXXXXX".
     id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String)
-    cif: Mapped[str] = mapped_column(String)  # tax ID; "-" when unknown
+    cif: Mapped[str] = mapped_column(String)
     address: Mapped[str | None] = mapped_column(String)
-    contact_person: Mapped[str | None] = mapped_column(String)  # main contact
-    email: Mapped[str | None] = mapped_column(String)  # main contact's email
-    # Added by the CRM migration.
+    contact_person: Mapped[str | None] = mapped_column(String)
+    email: Mapped[str | None] = mapped_column(String)
     primary_domain: Mapped[str | None] = mapped_column(String(253))
     website_url: Mapped[str | None] = mapped_column(String(500))
     industry: Mapped[str | None] = mapped_column(String(120))
@@ -40,9 +30,9 @@ class Client(Base):
     owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     notes: Mapped[str | None] = mapped_column(Text)
     created_by_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
-    created_at: Mapped[datetime | None] = mapped_column(UTCDateTime)  # None for rows created by imports
+    created_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
-    version: Mapped[int] = mapped_column(Integer, server_default=text("1"))  # optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, server_default=text("1"))
     __mapper_args__ = {"version_id_col": version}
 
     owner: Mapped[User | None] = relationship(foreign_keys=[owner_id])
@@ -51,22 +41,20 @@ class Client(Base):
 class Lead(Base):
     __tablename__ = "leads"
 
-    # Original columns (core.db).
     id: Mapped[str] = mapped_column(String, primary_key=True)
     external_id: Mapped[str | None] = mapped_column(String)
-    created_on: Mapped[str] = mapped_column("created_at", String)  # YYYY-MM-DD the lead arrived
+    created_on: Mapped[str] = mapped_column("created_at", String)
     source: Mapped[str] = mapped_column(String)
     status: Mapped[str] = mapped_column(String)
-    meeting_date: Mapped[str | None] = mapped_column(String)  # YYYY-MM-DD
+    meeting_date: Mapped[str | None] = mapped_column(String)
     client_id: Mapped[str | None] = mapped_column(ForeignKey("clients.id", ondelete="SET NULL"))
-    # Added by the CRM migration.
     title: Mapped[str | None] = mapped_column(String(200))
     owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     priority: Mapped[str] = mapped_column(String(8), server_default=text("'medium'"))
     notes: Mapped[str | None] = mapped_column(Text)
     qualification_reason: Mapped[str | None] = mapped_column(Text)
     lost_reason: Mapped[str | None] = mapped_column(Text)
-    next_follow_up_at: Mapped[datetime | None] = mapped_column(UTCDateTime)  # earliest open task
+    next_follow_up_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     last_activity_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     created_by_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
@@ -93,8 +81,6 @@ _NOT_NULL_EMAIL = text("email IS NOT NULL")
 
 
 class Contact(Base):
-    """People at a client besides the main contact stored on the client itself."""
-
     __tablename__ = "contacts"
     __table_args__ = (
         Index("ix_contacts_client", "client_id"),
@@ -107,7 +93,7 @@ class Contact(Base):
     last_name: Mapped[str] = mapped_column(String(100), default="")
     full_name: Mapped[str] = mapped_column(String(201))
     job_title: Mapped[str | None] = mapped_column(String(150))
-    email: Mapped[str | None] = mapped_column(String(254))  # stored lower-case; unique when present
+    email: Mapped[str | None] = mapped_column(String(254))
     phone: Mapped[str | None] = mapped_column(String(40))
     do_not_contact: Mapped[bool] = mapped_column(Boolean, default=False)
     suppression_reason: Mapped[str | None] = mapped_column(String(200))
@@ -122,8 +108,6 @@ class Contact(Base):
 
 
 class Activity(Base):
-    """A note, call, email, or meeting logged against a client or lead."""
-
     __tablename__ = "activities"
     __table_args__ = (
         CheckConstraint(check_in("activity_type", ACTIVITY_TYPES), name="activity_type"),
@@ -152,13 +136,6 @@ _HAS_REQUEST = text("request_id IS NOT NULL")
 
 
 class Task(Base):
-    """A to-do, or (``kind = 'follow_up'``) a scheduled follow-up with a LinkedIn prospect.
-
-    One task model serves both: they share due dates, owners, status, the overdue
-    rules, and the audit trail. A follow-up names its prospect and, while the
-    prospect is assigned, the assignment it belongs to.
-    """
-
     __tablename__ = "tasks"
     __table_args__ = (
         CheckConstraint(check_in("status", TASK_STATUSES), name="status"),
@@ -169,7 +146,6 @@ class Task(Base):
         Index("ix_tasks_lead", "lead_id"),
         Index("ix_tasks_prospect", "prospect_id"),
         Index("ix_tasks_kind_status_due", "kind", "status", "due_at"),
-        # A prospect has at most one open follow-up: rescheduling moves it instead of adding another.
         Index("uq_tasks_open_follow_up", "prospect_id", unique=True,
               sqlite_where=_OPEN_FOLLOW_UP, postgresql_where=_OPEN_FOLLOW_UP),
         Index("uq_tasks_request", "request_id", unique=True, sqlite_where=_HAS_REQUEST,
@@ -190,15 +166,15 @@ class Task(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
     version: Mapped[int] = mapped_column(Integer, server_default=text("1"))
-    # Added for LinkedIn outreach (revision 0002).
     kind: Mapped[str] = mapped_column(String(12), default="task", server_default=text("'task'"))
     prospect_id: Mapped[str | None] = mapped_column(ForeignKey("prospects.id"))
     assignment_id: Mapped[str | None] = mapped_column(ForeignKey("prospect_assignments.id", ondelete="SET NULL"))
-    outcome: Mapped[str | None] = mapped_column(Text)  # what happened, recorded on completion
-    request_id: Mapped[str | None] = mapped_column(String(64))  # a retried save is not recorded twice
+    outcome: Mapped[str | None] = mapped_column(Text)
+    request_id: Mapped[str | None] = mapped_column(String(64))
     __mapper_args__ = {"version_id_col": version}
 
     assigned_to: Mapped[User | None] = relationship(foreign_keys=[assigned_to_id])
     lead: Mapped[Lead | None] = relationship()
     client: Mapped[Client | None] = relationship()
     prospect: Mapped[Prospect | None] = relationship()
+

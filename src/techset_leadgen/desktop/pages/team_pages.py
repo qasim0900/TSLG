@@ -1,11 +1,9 @@
-"""Team performance (the end-of-day summary and its export) and the signed-in user's notifications."""
-
 from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from PySide6.QtCore import QDate, Qt, Signal
 from PySide6.QtGui import QFont
@@ -34,8 +32,6 @@ from techset_leadgen.desktop.widgets import PageHeader, SectionCard, bulk_table_
 
 
 class TeamPage(QWidget):
-    """What each person recorded on one business day, calculated live from stored work."""
-
     status_requested = Signal(str)
 
     def __init__(self, context: AppContext, parent: QWidget | None = None) -> None:
@@ -81,7 +77,7 @@ class TeamPage(QWidget):
         self._loaded = False
 
     def _chosen_day(self) -> date:
-        return self.day.date().toPython()  # type: ignore[return-value]
+        return cast(date, self.day.date().toPython())
 
     def ensure_loaded(self) -> None:
         if not self._loaded:
@@ -98,8 +94,7 @@ class TeamPage(QWidget):
         self.summary = summary
         rows = [*summary.rows, summary.totals] if summary.rows else []
         longest = max((self.table.fontMetrics().horizontalAdvance(row.name) for row in rows), default=0)
-        # Names are never shortened (the shared column fitting shortens text columns first); the metrics scroll.
-        with bulk_table_update(self.table, stretch_column=0, sortable=False,  # people A–Z, the total last
+        with bulk_table_update(self.table, stretch_column=0, sortable=False,
                                fixed_columns={0: max(longest + 48, 160)}):
             self.table.setRowCount(len(rows))
             for index, row in enumerate(rows):
@@ -130,21 +125,17 @@ class TeamPage(QWidget):
         if not ok or result is None:
             return
         try:
-            Path(path).write_text(result[1], encoding="utf-8-sig")  # the BOM lets Excel read the names correctly
+            Path(path).write_text(result[1], encoding="utf-8-sig")
         except OSError as exc:
             self.status_requested.emit(f"The file could not be saved: {exc.strerror or exc}")
             return
         self.status_requested.emit(f"Summary exported to {Path(path).name}")
 
 
-# --- notifications -----------------------------------------------------------------------------
-
 _TARGETS = {"prospect_assignment": "my_work", "task": "followups", "meeting": "meetings"}
 
 
 class NotificationsPage(RecordPage):
-    """Work given to the signed-in user by someone else. Stored, so nothing is missed while the app is closed."""
-
     title = "Notifications"
     subtitle = "Profiles assigned or reassigned to you, follow-ups scheduled for you, and completed work."
     noun = "notification"
@@ -166,7 +157,7 @@ class NotificationsPage(RecordPage):
         set_button_icon(self.read_all_button, "check", "text")
         self.read_all_button.clicked.connect(self.mark_all_read)
         self.toolbar.addWidget(self.read_all_button)
-        self.search.hide()  # short, personal list: the unread filter is enough
+        self.search.hide()
         self.records.set_empty_state("No notifications", "You are notified when someone gives you work.",
                                      icon="notifications")
 
@@ -233,10 +224,11 @@ class NotificationsPage(RecordPage):
         record_id = str(view.data["entity_id"])
         if target == "my_work" and (view.data["kind"] == "assignment_completed"
                                     or not self.context.can("outreach.record")):
-            target = "assignments"  # a manager reviews the team's work there
+            target = "assignments"
         page = self._on_navigate(target)
         if isinstance(page, RecordPage):
             page.show_record(record_id)
 
 
 __all__ = ["NotificationsPage", "TeamPage"]
+

@@ -1,5 +1,3 @@
-"""Background file imports with process-wide mutual exclusion and callbacks."""
-
 import logging
 import os
 import re
@@ -21,17 +19,7 @@ def is_import_running() -> bool:
 
 
 class FileImportController:
-    """Controlador centralizado para la importación de archivos."""
-
     def __init__(self, on_success: Callable, on_error: Callable, on_start: Callable):
-        """
-        Inicializa el controlador.
-
-        Args:
-            on_success: Callback(message) cuando la importación es exitosa
-            on_error: Callback(message) cuando hay un error
-            on_start: Callback() cuando inicia la importación
-        """
         self.on_success = on_success
         self.on_error = on_error
         self.on_start = on_start
@@ -39,11 +27,9 @@ class FileImportController:
 
     @property
     def is_running(self) -> bool:
-        """Return whether this controller still owns a live import worker."""
         return self._thread is not None and self._thread.is_alive()
 
     def wait_for_completion(self, timeout: float | None = None) -> bool:
-        """Wait for a worker during orderly shutdown; return whether it finished."""
         worker = self._thread
         if worker is None or worker is threading.current_thread():
             return True
@@ -51,11 +37,6 @@ class FileImportController:
         return not worker.is_alive()
 
     def validate_file(self, file_path: Optional[str]) -> tuple[bool, Optional[str]]:
-        """
-        Valida que el archivo exista y sea accesible.
-
-        Retorna: (es_valido, mensaje_error_o_none)
-        """
         if not file_path:
             return False, "No file selected"
 
@@ -104,12 +85,6 @@ class FileImportController:
         self._thread = None
 
     def import_file(self, file_path: str) -> None:
-        """
-        Importa un archivo de ventas en un hilo de fondo.
-
-        Valida el archivo y ejecuta la importación de forma asincrónica.
-        Dispara los callbacks correspondientes.
-        """
         self._start_import(
             file_path,
             lambda: import_csv_to_db(file_path),
@@ -117,11 +92,9 @@ class FileImportController:
         )
 
     def import_sales(self, file_path: str) -> None:
-        """Alias explícito para importar ventas (delega a import_file)."""
         self.import_file(file_path)
 
     def import_leads(self, file_path: str) -> None:
-        """Importa leads en un hilo de fondo."""
         self._start_import(
             file_path,
             lambda: import_leads_to_db(file_path),
@@ -129,7 +102,6 @@ class FileImportController:
         )
 
     def import_marketing_spend(self, file_path: str) -> None:
-        """Importa marketing_spend en un hilo de fondo."""
         self._start_import(
             file_path,
             lambda: import_marketing_spend_to_db(file_path),
@@ -137,7 +109,6 @@ class FileImportController:
         )
 
     def import_both(self, file_path: str) -> None:
-        """Importa leads + ventas desde el mismo archivo (tipo mixed) en un solo hilo."""
         if self.validate_file(file_path)[0]:
             try:
                 total_rows = inspect_import_file(file_path).get("row_count", 0)
@@ -155,7 +126,6 @@ class FileImportController:
 
     @staticmethod
     def _parse_count(msg: str) -> int:
-        """Extrae el número de filas importadas del mensaje del importer."""
         m = re.search(r"OK (\d+)", msg)
         return int(m.group(1)) if m else 0
 
@@ -190,8 +160,6 @@ class FileImportController:
         if error_parts:
             return False, " | ".join(error_parts + success_parts)
 
-        # Filas genuinamente inválidas = filas totales - leads importados - ventas importadas
-        # (las "rechazadas esperadas" de cada importer son exactamente las filas del otro tipo)
         msg = f"Imported {pluralize(sale_count, 'sale')} and {pluralize(lead_count, 'lead')}."
         if total_rows is not None:
             genuine_invalid = total_rows - lead_count - sale_count
@@ -199,3 +167,4 @@ class FileImportController:
                 msg += f" ⚠ Skipped {pluralize(genuine_invalid, 'invalid row')}."
 
         return True, msg
+

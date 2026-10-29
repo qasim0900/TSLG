@@ -1,27 +1,3 @@
-"""Fill the database the app uses with realistic LinkedIn-outreach demo data, or remove it again.
-
-    poetry run python scripts/seed_outreach_demo.py            # asks before changing anything
-    poetry run python scripts/seed_outreach_demo.py --yes      # no question
-    poetry run python scripts/seed_outreach_demo.py --remove   # deletes the demo data (asks first)
-
-Works on the database the app opens: the team database (``data/database.ini`` or
-``TSLG_DATABASE_URL``) or the local file ``data/sales.db``.
-
-* A demo team signs in with ``<name>@demo.techset.example`` and the password below: a manager
-  (Ayesha Malik), five team members, and a read-only viewer. A database with no accounts also gets
-  a demo organization and Super Admin (``admin@demo.techset.example``).
-* About 150 LinkedIn prospects, daily batches for the last five working days, today (active) and the
-  next working day (draft), recorded outcomes, follow-ups that are overdue, due today, and upcoming,
-  a reassignment, a cancellation, general tasks, and notifications.
-* Everything goes through the app's services (validation, permissions, audit log, notifications)
-  acting as the person who would do it. The services stamp the real clock time, so the script then
-  moves the timestamps of past work onto the days it belongs to; nothing is ever dated in the future.
-* Demo records are recognisable: demo e-mail domain, prospects with source "Demo data". ``--remove``
-  deletes exactly those (and their history), in one transaction, and leaves everything else alone.
-
-Random but reproducible (fixed seed); dates are relative to today in the organization's time zone.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -35,25 +11,25 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from sqlalchemy import delete, func, or_, select  # noqa: E402
-from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
+from sqlalchemy import delete, func, or_, select
+from sqlalchemy.orm import Session, sessionmaker
 
-from techset_leadgen.config import Settings, load_settings  # noqa: E402
-from techset_leadgen.database import migrations_util  # noqa: E402
-from techset_leadgen.database.engine import create_db_engine, create_session_factory, utcnow  # noqa: E402
-from techset_leadgen.database.models import (  # noqa: E402
+from techset_leadgen.config import Settings, load_settings
+from techset_leadgen.database import migrations_util
+from techset_leadgen.database.engine import create_db_engine, create_session_factory, utcnow
+from techset_leadgen.database.models import (
     AssignmentBatch, AuditLog, AuthAttempt, Notification, Organization, OutreachEvent, Prospect,
     ProspectAssignment, Task, User, UserSession, UserToken,
 )
-from techset_leadgen.domain.outreach import balance_plan  # noqa: E402
-from techset_leadgen.services import assignments, auth, notifications, outreach, prospects, tasks, users  # noqa: E402
-from techset_leadgen.services.access import Actor  # noqa: E402
-from techset_leadgen.services.schemas import (  # noqa: E402
+from techset_leadgen.domain.outreach import balance_plan
+from techset_leadgen.services import assignments, auth, notifications, outreach, prospects, tasks, users
+from techset_leadgen.services.access import Actor
+from techset_leadgen.services.schemas import (
     BatchCreate, OutreachRecord, Reassignment, TaskCreate, UserInvite, parse,
 )
 
 DEMO_DOMAIN = "demo.techset.example"
-DEMO_PASSWORD = "Demo-Kettle-2026"  # passes the password policy; shared by every demo account
+DEMO_PASSWORD = "Demo-Kettle-2026"
 DEMO_SOURCE = "Demo data"
 MANAGER = ("Ayesha Malik", "ayesha.malik", "sales_manager")
 MEMBERS = [
@@ -76,7 +52,6 @@ COMPANIES = ["Tandoor House", "Kite Learning", "Orchid Skincare", "Harbor Logist
              "Gulf Freight", "Thames Legal", "Hunza Water", "Shalimar Interiors"]
 TITLES = ["Founder", "CEO", "Managing Director", "Head of Marketing", "Marketing Manager", "Head of Growth",
           "Operations Manager", "Brand Manager", "Chief Technology Officer", "Sales Director"]
-# Ordered outcomes for one profile, and how often each story happens (the last step decides the stage).
 STORIES: list[tuple[int, list[str]]] = [
     (10, ["connection_sent"]),
     (8, ["connection_sent", "connection_accepted"]),
@@ -96,7 +71,7 @@ NOTES = {
     "not_interested": ["Already has an agency.", "No budget this year."],
     "wrong_profile": ["Left the company; profile out of date."],
 }
-GENERAL_TASKS = [  # title, details, priority, due in days (negative: overdue), done
+GENERAL_TASKS = [
     ("Research 50 fintech founders in Karachi", "Add them as prospects with company and title.", "high", 2, False),
     ("Clean duplicate company names in prospects", "Same company written two ways; agree one spelling.",
      "medium", -1, False),
@@ -143,7 +118,6 @@ def acting_as(db: Session, user_id: str) -> Actor:
 
 
 def prepare(settings: Settings) -> sessionmaker[Session]:
-    """Open the database like the app (upgrading a local file; a team database must already be current)."""
     engine = create_db_engine(settings)
     with engine.connect() as connection:
         state = migrations_util.schema_state(connection)
@@ -160,10 +134,8 @@ def prepare(settings: Settings) -> sessionmaker[Session]:
     return create_session_factory(engine)
 
 
-# --- seeding -----------------------------------------------------------------------------------
-
 def seed(settings: Settings, say: Callable[[str], None] = print) -> dict[str, int]:
-    rng.seed(20261027)  # every run tells the same story (record IDs still differ)
+    rng.seed(20261027)
     factory = prepare(settings)
     with factory() as db:
         if db.scalar(select(User.id).where(User.email.like(f"%@{DEMO_DOMAIN}"))) is not None:
@@ -184,15 +156,9 @@ def seed(settings: Settings, say: Callable[[str], None] = print) -> dict[str, in
     today = now.astimezone(zone).date()
 
     def at(day: date, hour: int, minute: int = 0) -> datetime:
-        """A moment on ``day`` in the business time zone, never later than five minutes ago.
-
-        Earlier than ``_work_batch``'s latest moment (two minutes ago), so outcomes clamped to that
-        moment never precede an assignment clamped here (before 10:00, today's batch is clamped).
-        """
         moment = datetime.combine(day, time(hour, minute), zone).astimezone(UTC)
         return min(moment, now - timedelta(minutes=5))
 
-    # People: invited by the Super Admin, passwords set through the code (the password policy applies).
     people: dict[str, str] = {}
     with factory() as db:
         inviter = acting_as(db, admin_id)
@@ -211,14 +177,13 @@ def seed(settings: Settings, say: Callable[[str], None] = print) -> dict[str, in
         manager = acting_as(db, people[MANAGER[1]])
         researcher = acting_as(db, people["hira.shah"])
 
-        # Prospects, added by the lead researcher through the import.
         lines = []
         for number in range(150):
             first, last = rng.choice(FIRST), rng.choice(LAST)
             slug = f"{first}-{last}".lower().replace(" ", "-") + f"-{rng.randrange(16 ** 6):06x}"
             lines.append("\t".join((f"https://www.linkedin.com/in/{slug}/", f"{first} {last}",
                                     rng.choice(COMPANIES), rng.choice(TITLES))))
-        lines += ["https://lnkd.in/abc123", lines[0]]  # a short link and a repeat: rejected, not added
+        lines += ["https://lnkd.in/abc123", lines[0]]
         result = prospects.import_rows(db, researcher, prospects.rows_from_text("\n".join(lines)),
                                        source=DEMO_SOURCE)
         db.commit()
@@ -227,7 +192,6 @@ def seed(settings: Settings, say: Callable[[str], None] = print) -> dict[str, in
         say(f"Prospects: {len(prospect_ids)} added "
             f"({len(result.preview.rejected)} rejected, {len(result.preview.repeated)} repeated rows)")
 
-        # Batches: the last five working days and today (active), the next working day (draft).
         past_days = working_days_before(today, 5)
         member_ids = [people[local] for _name, local, _role in MEMBERS]
         plan_days = [(day, 16, False) for day in past_days] + [(today, 18, False),
@@ -257,8 +221,6 @@ def seed(settings: Settings, say: Callable[[str], None] = print) -> dict[str, in
                 for key, value in worked.items():
                     counts[key] += value
 
-        # Today: Zain is on leave, so two of his open profiles go to Sana (or, if he has fewer than
-        # two, two from whoever has the most). Reassigning keeps the old rows as history.
         open_today = [row for row in assignments.list_assignments(db, manager, page=_page(), view="team").items
                       if row.due_on == today]
         by_member: dict[str, list[ProspectAssignment]] = {}
@@ -271,14 +233,12 @@ def seed(settings: Settings, say: Callable[[str], None] = print) -> dict[str, in
         for row in by_member.get(source, [])[:2]:
             assignments.reassign(db, manager, row.id, parse(Reassignment, {
                 "assignee_id": target, "reason": "On leave today."}))
-        # A profile from the earliest day turned out to be a duplicate company: cancelled.
         earlier = sorted((row for row in assignments.list_assignments(db, manager, page=_page(), view="team").items
                           if row.due_on is not None and row.due_on < today), key=lambda row: row.due_on)
         for row in earlier[:1]:
             assignments.cancel_assignment(db, manager, row.id, reason="Same company as another profile.")
         db.commit()
 
-        # General tasks from the manager, one done.
         for index, (title, details, priority, due_in, done) in enumerate(GENERAL_TASKS):
             owner = member_ids[index % len(member_ids)]
             due_day = today + timedelta(days=due_in)
@@ -291,7 +251,6 @@ def seed(settings: Settings, say: Callable[[str], None] = print) -> dict[str, in
                 tasks.set_status(db, acting_as(db, owner), task.id, "done")
                 task.completed_at = at(today - timedelta(days=1), 15)
                 db.commit()
-        # Bilal has read his notifications; the others have unread ones.
         notifications.mark_read(db, acting_as(db, people["bilal.ahmed"]))
         db.commit()
     counts["tasks"] = len(GENERAL_TASKS)
@@ -307,16 +266,12 @@ def _page():
 
 def _work_batch(db: Session, batch_id: str, work_day: date, today: date, at: Callable[..., datetime],
                 manager: Actor, zone: ZoneInfo, now: datetime) -> dict[str, int]:
-    """Members record outcomes on their profiles of one batch, as they would have on that day.
-
-    Times only move forward, start after the batch was assigned, and never pass the real clock.
-    """
     counts = {"events": 0, "follow_ups": 0, "completed": 0}
     weights = [weight for weight, _story in STORIES]
     latest = now - timedelta(minutes=2)
     for row in assignments.assignments_for_batch(db, manager, batch_id):
         if work_day == today and rng.random() < 0.45:
-            continue  # today's work is still in progress
+            continue
         member = acting_as(db, row.assignee_id)
         story = rng.choices([story for _weight, story in STORIES], weights=weights)[0]
         if work_day == today:
@@ -330,7 +285,6 @@ def _work_batch(db: Session, batch_id: str, work_day: date, today: date, at: Cal
             if event in NOTES:
                 values["note"] = rng.choice(NOTES[event])
             if event == "follow_up_requested":
-                # Overdue, due today, or in the coming days, measured from today; always after the request.
                 target = today + timedelta(days=rng.choice((-2, -1, 0, 0, 1, 2, 4, 6)))
                 due = datetime.combine(target, time(rng.choice((10, 11, 15, 16))), zone).astimezone(UTC)
                 if due <= moment:
@@ -357,10 +311,7 @@ def _work_batch(db: Session, batch_id: str, work_day: date, today: date, at: Cal
     return counts
 
 
-# --- removing ---------------------------------------------------------------------------------
-
 def remove(settings: Settings, say: Callable[[str], None] = print) -> dict[str, int]:
-    """Delete the demo accounts, demo prospects, and everything recorded about them, in one transaction."""
     factory = prepare(settings)
     with factory() as db:
         demo_users = select(User.id).where(User.email.like(f"%@{DEMO_DOMAIN}"))
@@ -422,3 +373,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

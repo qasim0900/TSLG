@@ -1,24 +1,9 @@
-"""The redesign's motion layer: entrances, hover and press feedback, and transitions.
-
-The design animates only position, scale, and opacity (never layout, colour
-meaning, or content), with three curves:
-
-* ``EASE`` – cubic-bezier(.22, .61, .36, 1) for entrances and colour glides;
-* ``EASE_OUT`` – cubic-bezier(.2, .8, .2, 1) for charts and pop-overs;
-* ``SPRING`` – cubic-bezier(.34, 1.56, .64, 1), a small overshoot for toggles and markers.
-
-Every helper here is a no-op when motion is reduced: the user turned off
-animations in the operating system (Windows "Show animations in Windows"),
-``TSLG_REDUCED_MOTION`` is set (the test suite sets it so results never depend
-on timing), or the Settings "Reduce motion" switch is on. Widgets then simply
-appear in their final state, as the design's ``prefers-reduced-motion`` rule does.
-"""
-
 from __future__ import annotations
 
 import os
 import sys
 from collections.abc import Callable, Iterable, Sequence
+from typing import Any, cast
 
 from PySide6.QtCore import (
     QAbstractAnimation,
@@ -63,10 +48,9 @@ def _windows_animations_off() -> bool:
         import ctypes
 
         enabled = ctypes.c_bool(True)
-        # SPI_GETCLIENTAREAANIMATION: Settings > Accessibility > Visual effects > Animation effects.
-        ctypes.windll.user32.SystemParametersInfoW(0x1042, 0, ctypes.byref(enabled), 0)  # type: ignore[attr-defined]
+        ctypes.windll.user32.SystemParametersInfoW(0x1042, 0, ctypes.byref(enabled), 0)
         return not enabled.value
-    except Exception:  # pragma: no cover - platform dependent
+    except Exception:
         return False
 
 
@@ -75,7 +59,6 @@ def _settings() -> QSettings:
 
 
 def reduced_motion() -> bool:
-    """True when animations should be skipped (OS setting, environment, or Settings switch)."""
     if os.environ.get("TSLG_REDUCED_MOTION", "").strip() not in ("", "0"):
         return True
     if _state["override"] is not None:
@@ -86,7 +69,6 @@ def reduced_motion() -> bool:
 
 
 def set_reduced_motion(reduce: bool) -> None:
-    """Remember the Settings switch (and apply it to this session at once)."""
     _settings().setValue("appearance/reduceMotion", bool(reduce))
     _state["override"] = bool(reduce) or _windows_animations_off()
 
@@ -94,7 +76,6 @@ def set_reduced_motion(reduce: bool) -> None:
 def animate(start: float, end: float, duration: int, apply: Callable[[float], None], *,
             curve: QEasingCurve = EASE, delay: int = 0, done: Callable[[], None] | None = None,
             owner: QObject | None = None) -> QVariantAnimation | None:
-    """Run ``apply(value)`` from ``start`` to ``end``; returns the animation (None when reduced)."""
     if reduced_motion():
         apply(end)
         if done is not None:
@@ -108,8 +89,8 @@ def animate(start: float, end: float, duration: int, apply: Callable[[float], No
 
     def step(value: object) -> None:
         try:
-            apply(float(value))  # type: ignore[arg-type]
-        except RuntimeError:  # the widget was deleted mid-animation
+            apply(float(cast(float, value)))
+        except RuntimeError:
             animation.stop()
 
     animation.valueChanged.connect(step)
@@ -124,16 +105,11 @@ def animate(start: float, end: float, duration: int, apply: Callable[[float], No
     return animation
 
 
-# ------------------------------------------------------------------ entrances
-
-
 def clear_effect(widget: QWidget) -> None:
-    """Remove a widget's graphics effect (PySide accepts None; its type stubs do not say so)."""
-    widget.setGraphicsEffect(None)  # type: ignore[arg-type]
+    widget.setGraphicsEffect(cast(Any, None))
 
 
 def _opacity_effect(widget: QWidget) -> QGraphicsOpacityEffect | None:
-    """An opacity effect for the entrance; never replaces another effect (a shadow)."""
     current = widget.graphicsEffect()
     if current is not None and not isinstance(current, QGraphicsOpacityEffect):
         return None
@@ -147,19 +123,18 @@ def _finish_entrance(widget: QWidget, origin: QPoint | None) -> None:
         return
     effect = widget.graphicsEffect()
     if isinstance(effect, QGraphicsOpacityEffect):
-        clear_effect(widget)  # a lasting effect would re-render the widget off-screen forever
+        clear_effect(widget)
     if origin is not None and widget.property(_RUNNING_PROPERTY):
         widget.move(origin)
     widget.setProperty(_RUNNING_PROPERTY, False)
     parent = widget.parentWidget()
     layout = parent.layout() if parent is not None else None
     if layout is not None:
-        layout.invalidate()  # the layout puts the widget back exactly where it belongs
+        layout.invalidate()
 
 
 def enter(widget: QWidget, *, dx: int = 0, dy: int = 14, duration: int = 550, delay: int = 0,
           curve: QEasingCurve = EASE, fade: bool = True) -> None:
-    """Fade ``widget`` in while it slides ``dx``/``dy`` pixels into place (the design's rise/slidein)."""
     if reduced_motion() or not Shiboken.isValid(widget) or not widget.isVisible():
         return
     if widget.property(_RUNNING_PROPERTY):
@@ -184,7 +159,6 @@ def enter(widget: QWidget, *, dx: int = 0, dy: int = 14, duration: int = 550, de
 
 def rise(widgets: Iterable[QWidget], *, step: int = 60, start: int = 0, duration: int = 550,
          dy: int = 14, limit: int = 6) -> None:
-    """Rise a group of widgets one after another (the design's staggered page entrance)."""
     for index, widget in enumerate(widgets):
         enter(widget, dy=dy, duration=duration, delay=start + step * min(index, limit))
 
@@ -200,8 +174,6 @@ def fade_in(widget: QWidget, *, duration: int = 400, delay: int = 0) -> None:
 
 
 def visible_children(container: QWidget) -> list[QWidget]:
-    """The child widgets a layout shows, in layout order (one level into nested layouts,
-    so the cards of a KPI grid rise one by one, as in the design)."""
     layout = container.layout()
     if layout is None:
         return []
@@ -226,7 +198,6 @@ def visible_children(container: QWidget) -> list[QWidget]:
 
 
 def page_sections(page: QWidget) -> list[QWidget]:
-    """The sections of a page in reading order: its own hook, a scroll area's body, or itself."""
     hook = getattr(page, "entrance_widgets", None)
     if callable(hook):
         return list(hook())
@@ -240,7 +211,6 @@ def page_sections(page: QWidget) -> list[QWidget]:
 
 
 def page_entrance(page: QWidget) -> None:
-    """The design's page entrance: sections rise 14 px with a 60 ms stagger; charts grow again."""
     if reduced_motion():
         return
     rise(page_sections(page), step=60, duration=550, dy=14)
@@ -254,11 +224,7 @@ def replay_charts(root: QWidget) -> None:
             replay()
 
 
-# ------------------------------------------------------------------ windows
-
-
 def pop_window(window: QWidget, *, dy: int = 18, duration: int = 340) -> None:
-    """Fade a top-level window in while it rises into place (modals, menus)."""
     if reduced_motion() or not window.isWindow():
         return
     origin = QPoint(window.pos())
@@ -273,7 +239,6 @@ def pop_window(window: QWidget, *, dy: int = 18, duration: int = 340) -> None:
 
 
 def cross_fade(host: QWidget, change: Callable[[], object], *, duration: int = 300) -> None:
-    """Run ``change`` (a theme switch) and fade from a snapshot of the old look to the new one."""
     if reduced_motion() or not host.isVisible():
         change()
         return
@@ -298,26 +263,17 @@ class _Snapshot(QWidget):
             self._opacity = value
             self.update()
 
-    def paintEvent(self, event: object) -> None:  # noqa: N802 - Qt API
+    def paintEvent(self, event: object) -> None:
         painter = QPainter(self)
         painter.setOpacity(self._opacity)
         painter.drawPixmap(0, 0, self._pixmap)
         painter.end()
 
 
-# ------------------------------------------------------------------ hover and press
-
-
 class ButtonMotion(QObject):
-    """App-wide hover lift (1 px) and press dip for push buttons, as in the design.
-
-    The button is nudged inside its layout and returned to the place the layout
-    gave it; the next layout pass would put it back anyway.
-    """
-
     _LIFT = "_motionLift"
 
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         kind = event.type()
         if kind not in (QEvent.Type.Enter, QEvent.Type.Leave, QEvent.Type.MouseButtonPress,
                         QEvent.Type.MouseButtonRelease):
@@ -345,7 +301,6 @@ class ButtonMotion(QObject):
 
 
 def _press(button: QPushButton, down: bool) -> None:
-    """Shrink the button by 4% around its centre while pressed (the design's scale(.96))."""
     rect = button.geometry()
     if down:
         button.setProperty("_motionPress", rect)
@@ -359,12 +314,6 @@ def _press(button: QPushButton, down: bool) -> None:
 
 
 class _AppEvents(QObject):
-    """One app-wide event filter that hands each event only to the handlers that need it.
-
-    (Four separate application filters were each called for every event: a theme
-    change alone sends some 90,000 events.)
-    """
-
     def __init__(self, app: QApplication) -> None:
         super().__init__(app)
         from techset_leadgen.desktop.modal import FocusTrap
@@ -372,9 +321,9 @@ class _AppEvents(QObject):
         from techset_leadgen.desktop.tab_motion import TabMotion
 
         self.buttons = ButtonMotion(self)
-        self.trap = FocusTrap(self)  # keyboard stays inside a dialog open in the window
+        self.trap = FocusTrap(self)
         self.tabs = TabMotion(self)
-        self.popups = PopupStyler(self)  # drop-down lists and date pickers (not motion, but app-wide)
+        self.popups = PopupStyler(self)
         kind = QEvent.Type
         pointer: tuple[QObject, ...] = (self.buttons,)
         trap: tuple[QObject, ...] = (self.trap,)
@@ -386,12 +335,12 @@ class _AppEvents(QObject):
             kind.Show: (self.tabs, self.popups),
         }
 
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         handlers = self._routes.get(event.type())
         if handlers:
             for handler in handlers:
                 if handler.eventFilter(watched, event):
-                    return True  # swallowed (a window shortcut while a dialog is open)
+                    return True
         return False
 
 
@@ -399,12 +348,11 @@ _installed: dict[str, QObject] = {}
 
 
 def install(app: QApplication) -> None:
-    """Install the app-wide motion, dialog focus and pop-up handling once."""
     if "events" in _installed:
         return
     _installed["events"] = _AppEvents(app)
     app.installEventFilter(_installed["events"])
-    if not reduced_motion():  # Qt's own fades for menus, combo lists and tooltips
+    if not reduced_motion():
         for effect in (Qt.UIEffect.UI_AnimateMenu, Qt.UIEffect.UI_FadeMenu, Qt.UIEffect.UI_AnimateCombo,
                        Qt.UIEffect.UI_AnimateTooltip, Qt.UIEffect.UI_FadeTooltip):
             QApplication.setEffectEnabled(effect, True)
@@ -415,3 +363,4 @@ __all__ = [
     "page_entrance", "page_sections", "pop_window", "reduced_motion", "replay_charts", "rise",
     "set_reduced_motion", "slide_in", "visible_children",
 ]
+

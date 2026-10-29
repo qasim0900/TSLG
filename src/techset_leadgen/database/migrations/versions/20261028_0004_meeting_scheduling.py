@@ -1,19 +1,3 @@
-"""Meeting scheduling: several attendees per meeting, the client's email, and scheduling rules.
-
-* ``meeting_attendees`` (new) links a meeting to each team member attending it;
-  every existing meeting's single ``attendee_id`` is copied into it, then that
-  column is dropped (``meetings`` is rebuilt on SQLite; only ``meetings``).
-* ``meetings`` gains ``client_email``; ``link`` becomes optional; a
-  (client, status, start) index serves the client's schedule.
-* ``organization`` gains the buffer mode and minutes, business hours, and
-  working days used for conflict checks and suggested slots. The defaults
-  (120 minutes after each meeting) are the rule revision 0003 enforced.
-
-Revision ID: 0004
-Revises: 0003
-Create Date: 2026-10-28
-"""
-
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -52,8 +36,6 @@ def upgrade() -> None:
     op.execute("INSERT INTO meeting_attendees (meeting_id, user_id, created_at) "
                "SELECT id, attendee_id, created_at FROM meetings ORDER BY created_at, id")
 
-    # Indexes are dropped and created by name around the rebuild, so nothing depends on
-    # how a partial index is reflected.
     for name in ("ix_meetings_attendee_start", "ix_meetings_status_start", "ix_meetings_client_name",
                  "uq_meetings_request"):
         op.drop_index(name, table_name="meetings")
@@ -69,9 +51,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Revision 0003 holds one attendee per meeting and requires a link; going back would
-    # drop attendees and invent links. Fail before changing anything; operational rollback
-    # uses the pre-upgrade backup (SQLite) or --restore-team-database (PostgreSQL).
     raise RuntimeError(
         "Downgrade from revision 0004 is unsupported; restore the pre-upgrade database backup instead."
     )
+

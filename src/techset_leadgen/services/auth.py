@@ -1,12 +1,3 @@
-"""Sign-in, desktop sessions, activation codes, and password changes.
-
-Passwords are hashed with Argon2id (argon2-cffi). Each signed-in desktop app
-holds a random session token in memory; the database keeps only its hash plus
-expiry and revocation state, so a session can be ended from any computer.
-Account activation and password resets use one-time codes that an
-administrator hands over (no email provider is configured).
-"""
-
 from __future__ import annotations
 
 import re
@@ -44,8 +35,6 @@ class InvalidCode(DomainError):
 
 
 class SessionEnded(DomainError):
-    """The desktop session is no longer valid; the app must return to the sign-in screen."""
-
     status_code = 401
     code = "session_ended"
 
@@ -57,8 +46,6 @@ class SignIn:
     raw_token: str
 
 
-# --- sign-in -----------------------------------------------------------------
-
 def _recent_failures(db: Session, email: str, since: object) -> int:
     return db.scalar(
         select(func.count()).select_from(AuthAttempt).where(
@@ -69,7 +56,6 @@ def _recent_failures(db: Session, email: str, since: object) -> int:
 
 def authenticate(db: Session, settings: Settings, *, email: str, password: str,
                  client_host: str | None = None, client_app: str | None = None) -> SignIn:
-    """Verify credentials and open a session. Commits, including the record of a failure."""
     key = email_lookup_key(email)
     window_start = utcnow() - timedelta(minutes=settings.login_window_minutes)
     if _recent_failures(db, key, window_start) >= settings.login_max_failures:
@@ -88,7 +74,7 @@ def authenticate(db: Session, settings: Settings, *, email: str, password: str,
         db.commit()
         raise InvalidCredentials("Incorrect email or password.")
 
-    assert user.password_hash is not None  # verify_password() is False without a hash
+    assert user.password_hash is not None
     if needs_rehash(user.password_hash):
         user.password_hash = hash_password(password)
     user.last_login_at = utcnow()
@@ -119,13 +105,6 @@ def open_session(db: Session, settings: Settings, user: User, *, client_host: st
 
 def check_session(db: Session, settings: Settings, *, session_id: str, raw_token: str,
                   touch: bool = True) -> UserSession:
-    """Return the live session or raise ``SessionEnded`` explaining why.
-
-    ``touch`` records recent activity; the desktop passes ``False`` when the
-    user has been idle, so the server-side idle limit still applies.
-    """
-    # Always re-read the row and its user: a cached copy could hide a revocation
-    # or deactivation made from another computer.
     row = db.scalar(
         select(UserSession).options(joinedload(UserSession.user)).where(UserSession.id == session_id)
         .execution_options(populate_existing=True)
@@ -166,10 +145,7 @@ def revoke_sessions(db: Session, user_id: str, *, keep: str | None = None) -> in
     return int(getattr(result, "rowcount", 0) or 0)
 
 
-# --- one-time codes ----------------------------------------------------------
-
 def issue_token(db: Session, settings: Settings, user: User, purpose: str) -> str:
-    """Create a one-time code, invalidating older unused codes for the user."""
     now = utcnow()
     db.execute(
         update(UserToken)
@@ -194,14 +170,12 @@ def _live_token(db: Session, raw: str) -> UserToken:
 
 
 def code_owner(db: Session, raw: str) -> tuple[User, str]:
-    """Who a code belongs to and whether it activates an account or resets a password."""
     token = _live_token(db, raw)
     return token.user, token.purpose
 
 
 def redeem_code(db: Session, settings: Settings, *, raw_code: str, password: str,
                 client_host: str | None = None, client_app: str | None = None) -> SignIn:
-    """Set a password with a one-time code, end other sessions, and sign in. Commits."""
     token = _live_token(db, raw_code)
     user = token.user
     validate_password(password, email=user.email, full_name=user.full_name)
@@ -218,7 +192,6 @@ def redeem_code(db: Session, settings: Settings, *, raw_code: str, password: str
 
 def change_password(db: Session, actor: Actor, *, current_session_id: str,
                     current_password: str, new_password: str) -> int:
-    """Change the caller's password and end their other sessions; returns how many ended."""
     user = db.get(User, actor.user_id)
     assert user is not None
     if not verify_password(user.password_hash, current_password):
@@ -232,19 +205,12 @@ def change_password(db: Session, actor: Actor, *, current_session_id: str,
     return ended
 
 
-# --- first run ---------------------------------------------------------------
-
 def has_users(db: Session) -> bool:
     return db.scalar(select(User.id).limit(1)) is not None
 
 
 def bootstrap_organization(db: Session, *, organization_name: str, admin_email: str,
                            admin_name: str, password: str) -> User:
-    """Name the organization and create its first Super Admin.
-
-    The first-run screen calls this only while the database has no users at
-    all; afterwards accounts are created by administrators.
-    """
     fields: dict[str, str] = {}
     try:
         email = normalize_email(admin_email)
@@ -276,3 +242,4 @@ def bootstrap_organization(db: Session, *, organization_name: str, admin_email: 
     audit.record(db, None, "organization.created", entity_type="organization", entity_id=1,
                  changes={"name": organization.name, "admin_user_id": user.id})
     return user
+

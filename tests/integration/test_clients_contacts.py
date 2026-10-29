@@ -1,5 +1,3 @@
-"""Clients (the one client record shared with sales analytics) and their contacts."""
-
 from __future__ import annotations
 
 import sqlite3
@@ -24,7 +22,7 @@ def test_new_clients_follow_the_original_format_and_duplicate_rules(db, world, a
     admin = acme.actor()
     acme_client = world.client(admin, "Café Müller", cif="b-123.456 7", email="hola@cafe.example",
                                website_url="https://www.cafe.example/menu")
-    assert acme_client.id.startswith("M_") and len(acme_client.id) == 8  # the original manual-client IDs
+    assert acme_client.id.startswith("M_") and len(acme_client.id) == 8
     assert (acme_client.cif, acme_client.primary_domain, acme_client.account_status) == (
         "B-123.456 7".upper(), "cafe.example", "prospect")
     with pytest.raises(ValidationFailed) as error:
@@ -35,7 +33,7 @@ def test_new_clients_follow_the_original_format_and_duplicate_rules(db, world, a
         "email": "Enter a valid email address.",
         "contact_person": "The contact name must have at least 2 characters.",
     }
-    with pytest.raises(Conflict, match="already exists"):  # Unicode case folding, as the original rule
+    with pytest.raises(Conflict, match="already exists"):
         _create(db, admin, name="CAFÉ MÜLLER")
     with pytest.raises(Conflict, match="tax ID"):
         _create(db, admin, name="Another café", cif=acme_client.cif)
@@ -58,18 +56,18 @@ def test_edit_scope_follows_roles_and_ownership(db, world, acme):
     clients.update_client(db, acme.actor("bdr"), bdr_client.id, change)
     with pytest.raises(PermissionDenied):
         clients.update_client(db, acme.actor("bdr"), manager_client.id, change)
-    clients.update_client(db, acme.actor("lead_researcher"), manager_client.id, change)  # researchers edit all
+    clients.update_client(db, acme.actor("lead_researcher"), manager_client.id, change)
     for role in ("marketing", "read_only"):
         with pytest.raises(PermissionDenied):
             clients.update_client(db, acme.actor(role), bdr_client.id, change)
-    with pytest.raises(PermissionDenied):  # front-line users cannot hand clients to others
+    with pytest.raises(PermissionDenied):
         clients.update_client(db, acme.actor("bdr"), bdr_client.id,
                               parse(ClientUpdate, {"owner_id": acme.users["account_executive"].id}))
     db.rollback()
     world.imported_client("C-FREE", "Unowned Ltd")
-    with pytest.raises(PermissionDenied):  # read-only users cannot take clients
+    with pytest.raises(PermissionDenied):
         clients.assign_client(db, acme.actor("read_only"), "C-FREE", acme.users["read_only"].id)
-    clients.assign_client(db, acme.actor("bdr"), "C-FREE", acme.users["bdr"].id)  # a rep may take one
+    clients.assign_client(db, acme.actor("bdr"), "C-FREE", acme.users["bdr"].id)
     db.rollback()
     extras = clients.extras(db, acme.actor("bdr"))
     assert (extras[bdr_client.id].editable, extras[manager_client.id].editable) == (True, False)
@@ -80,9 +78,8 @@ def test_imported_and_sales_only_clients_can_be_edited_in_place(db, world, acme,
     clients.update_client(db, acme.actor(), "C-77", parse(ClientUpdate, {"industry": "Logistics", "cif": "B7654321"}))
     db.commit()
     assert db.get(Client, "C-77").industry == "Logistics"
-    db.rollback()  # end this session's read transaction (it holds SQLite's write lock)
-    # An identity known only from older sales rows (no client row) gets its row on first edit.
-    with closing(sqlite3.connect(settings.database_path)) as raw:  # foreign keys off, as in older files
+    db.rollback()
+    with closing(sqlite3.connect(settings.database_path)) as raw:
         raw.execute("INSERT INTO sales (client_name, client_id, product_type, price, date) "
                     "VALUES ('Orphan Ltd', 'C-OLD', 'Web', 50, '2025-01-01')")
         raw.commit()
@@ -120,7 +117,7 @@ def test_stale_copies_are_refused(db, world, acme, session_factory):
     db.rollback()
     with session_factory() as first, session_factory() as second:
         stale = second.get(Client, client_id)
-        second.commit()  # the desktop keeps the loaded copy between units of work
+        second.commit()
         fresh = first.get(Client, client_id)
         fresh.industry = "First"
         first.commit()
@@ -157,5 +154,6 @@ def test_contacts_belong_to_a_client_and_follow_its_permissions(db, world, acme)
                                                                   "phone": "+44 20 7946 1111"}))
     db.commit()
     entry = db.scalar(select(AuditLog).where(AuditLog.action == "contact.updated"))
-    assert entry.changes["phone"] == ["[changed]"]  # the audit trail never stores contact details
+    assert entry.changes["phone"] == ["[changed]"]
     assert contacts.delete_contact(db, bdr, ann.id) == "Ann Lee"
+

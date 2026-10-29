@@ -1,21 +1,15 @@
-"""Controlled vocabularies shared by models, validation, analytics, and the screens.
-
-Stored values are short codes; labels are for display only. Changing a stored
-value requires a data migration.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Iterable
 
-from techset_leadgen.domain.lead_stages import (  # noqa: F401  (re-exported for the services)
+from techset_leadgen.domain.lead_stages import (
     CLOSED_STATUSES,
     LEAD_STATUSES,
     LEAD_TRANSITIONS,
     MEETING_OR_LATER,
     REASON_REQUIRED,
 )
-from techset_leadgen.domain.outreach import (  # noqa: F401  (re-exported for the services)
+from techset_leadgen.domain.outreach import (
     ASSIGNMENT_STATUSES,
     BATCH_STATUSES,
     OUTREACH_EVENTS,
@@ -54,6 +48,6 @@ TOKEN_PURPOSES = ("invite", "password_reset")
 
 
 def check_in(column: str, values: Iterable[str]) -> str:
-    """SQL CHECK expression restricting ``column`` to ``values`` (module constants only)."""
     options = ", ".join(f"'{value}'" for value in values)
     return f"{column} IN ({options})"
+

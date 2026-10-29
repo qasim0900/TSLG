@@ -1,5 +1,3 @@
-"""Operational dashboard aggregates are precise and role scoped."""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta

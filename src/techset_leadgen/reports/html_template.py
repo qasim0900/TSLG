@@ -1,20 +1,4 @@
-"""
-Template base para informes HTML de Techset LeadGen.
-
-Proporciona estilos CSS unificados usados por todos los informes:
-- Ventas (normal y comparación)
-- Ficha de cliente
-- Pipeline de leads
-"""
-
-
 def get_html_base(content: str, title: str = "Techset LeadGen Report") -> str:
-    """Devuelve el HTML completo con el bloque content ya armado.
-
-    Args:
-        content: Bloque HTML interno (header + content + footer).
-        title: Título del documento HTML (pestaña del navegador).
-    """
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -535,3 +519,4 @@ def get_html_base(content: str, title: str = "Techset LeadGen Report") -> str:
 </body>
 </html>
 """
+

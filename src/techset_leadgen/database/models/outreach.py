@@ -1,14 +1,3 @@
-"""LinkedIn outreach: prospects, daily assignment batches, assignments, outreach events, notifications.
-
-A prospect is one LinkedIn member profile, identified by its canonical key
-(``crm.services.normalize.linkedin_profile``). Who works it, and when, lives in
-``prospect_assignments`` (never overwritten: a reassignment closes one row and
-opens another); what happened lives in ``outreach_events`` (append-only).
-Follow-ups are ``tasks`` rows with ``kind = 'follow_up'``.
-
-Rows here are never cascade-deleted from a prospect: history outlives edits.
-"""
-
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -33,16 +22,16 @@ class Prospect(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    linkedin_key: Mapped[str] = mapped_column(String(300), unique=True)  # "in/jane-doe-1a2b"
-    linkedin_url: Mapped[str] = mapped_column(String(400))  # canonical https address
+    linkedin_key: Mapped[str] = mapped_column(String(300), unique=True)
+    linkedin_url: Mapped[str] = mapped_column(String(400))
     full_name: Mapped[str | None] = mapped_column(String(200))
     company: Mapped[str | None] = mapped_column(String(200))
     job_title: Mapped[str | None] = mapped_column(String(200))
-    source: Mapped[str | None] = mapped_column(String(120))  # "Pasted", "Import: march.csv", ...
-    status: Mapped[str] = mapped_column(String(20), default="new")  # derived from outreach events
+    source: Mapped[str | None] = mapped_column(String(120))
+    status: Mapped[str] = mapped_column(String(20), default="new")
     notes: Mapped[str | None] = mapped_column(Text)
     last_activity_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
-    next_follow_up_at: Mapped[datetime | None] = mapped_column(UTCDateTime)  # earliest open follow-up
+    next_follow_up_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     created_by_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
@@ -53,8 +42,6 @@ class Prospect(Base):
 
 
 class AssignmentBatch(Base):
-    """A manager's daily distribution of prospects. Draft batches are invisible to assignees."""
-
     __tablename__ = "assignment_batches"
     __table_args__ = (
         CheckConstraint(check_in("status", BATCH_STATUSES), name="status"),
@@ -63,7 +50,7 @@ class AssignmentBatch(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(120))
-    work_date: Mapped[date] = mapped_column(Date)  # the business day the work is for
+    work_date: Mapped[date] = mapped_column(Date)
     status: Mapped[str] = mapped_column(String(12), default="draft")
     notes: Mapped[str | None] = mapped_column(Text)
     created_by_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
@@ -77,16 +64,9 @@ class AssignmentBatch(Base):
 
 
 class ProspectAssignment(Base):
-    """One person responsible for one prospect for a period of time.
-
-    Lifecycle: planned (draft batch) -> assigned -> in_progress (first event) ->
-    completed; or cancelled / reassigned. Closed rows are kept as history.
-    """
-
     __tablename__ = "prospect_assignments"
     __table_args__ = (
         CheckConstraint(check_in("status", ASSIGNMENT_STATUSES), name="status"),
-        # One open assignment per prospect: two managers assigning the same profile cannot both win.
         Index("uq_prospect_assignments_open", "prospect_id", unique=True,
               sqlite_where=_OPEN_ASSIGNMENT, postgresql_where=_OPEN_ASSIGNMENT),
         Index("ix_prospect_assignments_assignee", "assignee_id", "status"),
@@ -103,10 +83,10 @@ class ProspectAssignment(Base):
     previous_assignment_id: Mapped[str | None] = mapped_column(
         ForeignKey("prospect_assignments.id", ondelete="SET NULL"))
     status: Mapped[str] = mapped_column(String(12), default="assigned")
-    due_on: Mapped[date | None] = mapped_column(Date)  # the business day it should be finished
-    assigned_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)  # when it became visible
+    due_on: Mapped[date | None] = mapped_column(Date)
+    assigned_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
-    closed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)  # completed, cancelled, or reassigned
+    closed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     closed_by_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     close_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
@@ -119,8 +99,6 @@ class ProspectAssignment(Base):
 
 
 class OutreachEvent(Base):
-    """Something a team member did or observed on LinkedIn, as they recorded it. Append-only."""
-
     __tablename__ = "outreach_events"
     __table_args__ = (
         CheckConstraint(check_in("event_type", OUTREACH_EVENTS), name="event_type"),
@@ -138,15 +116,12 @@ class OutreachEvent(Base):
     occurred_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     recorded_by_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
-    # Set by the client for each save; a retried save with the same ID is not recorded twice.
     request_id: Mapped[str | None] = mapped_column(String(64), unique=True)
 
     recorded_by: Mapped[User | None] = relationship(foreign_keys=[recorded_by_id])
 
 
 class Notification(Base):
-    """A message for one user about work given to them. Read state is per notification."""
-
     __tablename__ = "notifications"
     __table_args__ = (
         UniqueConstraint("recipient_id", "dedupe_key", name="uq_notifications_dedupe"),
@@ -160,7 +135,7 @@ class Notification(Base):
     body: Mapped[str | None] = mapped_column(Text)
     entity_type: Mapped[str | None] = mapped_column(String(32))
     entity_id: Mapped[str | None] = mapped_column(String(120))
-    # The same event never notifies the same person twice (e.g. a retried batch activation).
     dedupe_key: Mapped[str | None] = mapped_column(String(160))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     read_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+

@@ -1,5 +1,3 @@
-"""Focused headless tests for the native Leads and Clients pages."""
-
 from __future__ import annotations
 
 import os
@@ -107,7 +105,6 @@ def test_leads_page_filters_and_exports_current_snapshot(qapp, tmp_path: Path):
     assert page.leads_table.rowCount() == 2
 
     page.search_edit.setText("Acme")
-    # Search is debounced; the result arrives after a short typing pause.
     assert wait_until(lambda: len(page.active_leads) == 1)
     assert [lead["id"] for lead in page.active_leads] == ["L2"]
 
@@ -187,3 +184,4 @@ def test_clients_page_search_masks_and_exports(qapp, tmp_path: Path):
     assert page.export_client_report("C1", target) == str(target)
     assert captured["client_info"]["name"] == "Acme"
     page.deleteLater()
+

@@ -1,17 +1,3 @@
-"""Branded message and confirmation dialogs.
-
-``QMessageBox`` always fixes its window size. Under Qt's Wayland client-side
-decorations a fixed-size window is shown 20 px narrower and 20 px shorter than
-requested (a 387 × 122 box appeared as 367 × 102), which cut off the message
-and sliced the buttons in half. ``MessageDialog`` is sized by its layout
-instead: it wraps long text, reflows when the user resizes it, follows the
-light/dark theme, and names the confirming action ("Delete sales", not "Yes").
-
-The layout follows the redesign's confirmation modal: a tinted icon square,
-a bold heading and the explanation, then a footer with the safe choice first
-and the action on the right (the modal shell adds the header and backdrop).
-"""
-
 from __future__ import annotations
 
 import re
@@ -39,10 +25,9 @@ Level = Literal["info", "question", "warning", "error", "danger"]
 
 _BADGE_SIZE = 44
 _MIN_WIDTH = 440
-_MAX_TEXT_WIDTH = 400  # wrap long lines at a comfortable reading width
+_MAX_TEXT_WIDTH = 400
 _BODY_MARGINS = (24, 24, 24, 22)
 
-# icon, chip tone
 _BADGES: dict[str, tuple[str, str]] = {
     "info": ("info", "info"),
     "question": ("info", "info"),
@@ -60,13 +45,6 @@ _LEVEL_NAMES = {
 
 
 class MessageDialog(ModalDialog):
-    """Resizable, layout-sized replacement for ``QMessageBox``.
-
-    With ``confirm_text`` it asks a question; ``exec()`` returns ``Accepted``
-    only when the user chooses the named action. Destructive confirmations
-    make Cancel the default, so Enter or Escape never deletes anything.
-    """
-
     def __init__(
         self,
         parent: QWidget | None,
@@ -90,9 +68,6 @@ class MessageDialog(ModalDialog):
         self._message = message
 
         root = QVBoxLayout(self)
-        # The dialog manages its own minimum size from height-for-width (see
-        # resizeEvent); the default constraint would impose a taller, non-wrapping
-        # minimum and leave a gap under the heading.
         root.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
@@ -112,7 +87,7 @@ class MessageDialog(ModalDialog):
         self.message_label = self._text_label(message, "dialogSubtitle")
         text_column.addWidget(self.heading_label)
         text_column.addWidget(self.message_label)
-        text_column.addStretch(1)  # extra height goes below the text, not between lines
+        text_column.addStretch(1)
         if not message:
             self.message_label.hide()
 
@@ -136,8 +111,6 @@ class MessageDialog(ModalDialog):
         else:
             self.confirm_button = self._add_button(buttons, "OK", "primaryButton")
             default = self.confirm_button
-        # Bound methods only: a lambda capturing the dialog would keep it alive
-        # after exec() hands its ownership to Python (see DEF-026).
         self.confirm_button.clicked.connect(self.accept)
         default.setDefault(True)
         default.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -148,7 +121,7 @@ class MessageDialog(ModalDialog):
     def _add_button(row: QHBoxLayout, text: str, object_name: str) -> QPushButton:
         button = QPushButton(text)
         button.setObjectName(object_name)
-        button.setAutoDefault(False)  # only the safe default answers Enter
+        button.setAutoDefault(False)
         row.addWidget(button)
         return button
 
@@ -156,18 +129,15 @@ class MessageDialog(ModalDialog):
     def _text_label(text: str, object_name: str) -> QLabel:
         label = QLabel(text)
         label.setObjectName(object_name)
-        label.setTextFormat(Qt.TextFormat.PlainText)  # may contain client names
+        label.setTextFormat(Qt.TextFormat.PlainText)
         label.setWordWrap(True)
         label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         policy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
-        # A new policy drops the height-for-width flag that setWordWrap() set; without
-        # it the dialog measured -1 px tall unless a stylesheet re-polished the label.
         policy.setHeightForWidth(True)
         label.setSizePolicy(policy)
         return label
 
     def _fit_to_content(self) -> None:
-        """Open at a readable width and exactly the height the wrapped text needs."""
         self.ensurePolished()
         layout = self.layout()
         assert layout is not None
@@ -179,8 +149,6 @@ class MessageDialog(ModalDialog):
             for label in labels
             for line in (label.text().splitlines() or [""])
         )
-        # Lines wrap at spaces and "/"; a longer unbreakable token (for example
-        # a Windows path) widens the minimum instead of being clipped.
         longest_token = max(
             (label.fontMetrics().horizontalAdvance(token) for label in labels for token in re.split(r"[\s/]+", label.text())),
             default=0,
@@ -196,20 +164,18 @@ class MessageDialog(ModalDialog):
         self.setMinimumHeight(height)
         self.resize(width, height)
 
-    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - Qt API
+    def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
-        # Narrower windows wrap more lines; never let the window clip them.
         layout = self.layout()
         if layout is not None and layout.hasHeightForWidth():
             needed = layout.totalHeightForWidth(self.width())
             if needed != self.minimumHeight():
                 self.setMinimumHeight(needed)
 
-    # QMessageBox-compatible accessors, used by tests and assistive tooling.
     def text(self) -> str:
         return self._heading
 
-    def informativeText(self) -> str:  # noqa: N802 - mirrors QMessageBox
+    def informativeText(self) -> str:
         return self._message
 
 
@@ -225,7 +191,6 @@ def ask_confirmation(
     cancel_text: str = "Cancel",
     icon: str | None = None,
 ) -> bool:
-    """Ask before acting; return True only when the user chose ``confirm_text``."""
     dialog = MessageDialog(
         parent,
         title=title,
@@ -252,3 +217,4 @@ def show_message(
 
 
 __all__ = ["MessageDialog", "ask_confirmation", "show_message"]
+

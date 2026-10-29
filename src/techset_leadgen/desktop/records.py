@@ -1,11 +1,3 @@
-"""Paged record lists with a detail panel, used by the Tasks, Users, and Audit log screens.
-
-Lists are paged and sorted by the database (the services whitelist sort keys),
-so a screen stays fast with tens of thousands of records. A ``RecordPage``
-supplies the columns, filters, and what to show for one record; this module
-supplies search-as-you-type, paging, sorting, selection, and the detail panel.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
@@ -52,17 +44,17 @@ PAGE_SIZES = (10, 25, 50, 100)
 class Column:
     key: str
     label: str
-    sort: str | None = None  # the service's sort key; None means not sortable
-    badge: bool = False  # shown as a coloured label (stage, status, priority)
-    numeric: bool = False  # right-aligned
-    alert: bool = False  # coloured as a warning on "alert" rows (e.g. the due date of an overdue task)
-    keep: bool = False  # never shortened when space is short (dates, short labels)
-    tip: str = ""  # header tooltip
-    avatar: bool = False  # a person: initials before the name
-    mono: bool = False  # IDs and timestamps in the monospace font
-    tone: str = ""  # badge tone for values the shared tone table does not know
-    strong: bool = False  # semibold text (record titles, due dates)
-    muted: bool = False  # secondary text colour (emails, "about")
+    sort: str | None = None
+    badge: bool = False
+    numeric: bool = False
+    alert: bool = False
+    keep: bool = False
+    tip: str = ""
+    avatar: bool = False
+    mono: bool = False
+    tone: str = ""
+    strong: bool = False
+    muted: bool = False
 
 
 @dataclass(frozen=True)
@@ -70,8 +62,8 @@ class Row:
     id: str
     cells: Sequence[str]
     tooltip: str = ""
-    emphasis: str = ""  # "", "muted" (archived, closed), "alert" (overdue), or "failed" (tinted row)
-    colors: Mapping[int, str] = field(default_factory=dict)  # column -> colour token ("danger", "goldInk")
+    emphasis: str = ""
+    colors: Mapping[int, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -95,7 +87,7 @@ class DetailTab:
     columns: Sequence[str]
     rows: Sequence[Sequence[str]]
     empty: str = "Nothing recorded yet."
-    badges: Sequence[int] = ()  # columns shown as coloured labels
+    badges: Sequence[int] = ()
 
 
 @dataclass
@@ -105,20 +97,18 @@ class DetailView:
     subtitle: str = ""
     fields: Sequence[tuple[str, str]] = ()
     tabs: Sequence[DetailTab] = ()
-    allowed: set[str] = field(default_factory=set)  # actions the user may take on this record
-    data: dict[str, Any] = field(default_factory=dict)  # values the page's actions need (version, ...)
-    badges: Sequence[tuple[str, str]] = ()  # (text, tone) shown above the title; the last sits on the right
-    avatar: str = ""  # a person's name: their initials are shown beside the title
-    badge_fields: Mapping[str, str] = field(default_factory=dict)  # field name -> tone: shown as a badge
-    links: Mapping[str, str] = field(default_factory=dict)  # field name -> action key for ``link_activated``
-    notes: str = ""  # a "Notes" block under the facts
-    notice: str = ""  # an information alert under the facts
-    closable: bool = False  # a close button clears the selection
+    allowed: set[str] = field(default_factory=set)
+    data: dict[str, Any] = field(default_factory=dict)
+    badges: Sequence[tuple[str, str]] = ()
+    avatar: str = ""
+    badge_fields: Mapping[str, str] = field(default_factory=dict)
+    links: Mapping[str, str] = field(default_factory=dict)
+    notes: str = ""
+    notice: str = ""
+    closable: bool = False
 
 
 class RecordList(QWidget):
-    """A server-paged, server-sorted table with a pager footer."""
-
     activated = Signal(str)
     selection_changed = Signal()
 
@@ -135,7 +125,7 @@ class RecordList(QWidget):
         self._sort = (default_sort or "").lstrip("-") or None
         self._descending = bool(default_sort and default_sort.startswith("-"))
         self.last_page: RowPage | None = None
-        self.fixed_widths: dict[int, int] = {}  # column -> width, e.g. painted row-action buttons
+        self.fixed_widths: dict[int, int] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -200,7 +190,6 @@ class RecordList(QWidget):
         card_layout.addWidget(footer)
         self._show_sort_indicator()
 
-    # ------------------------------------------------------------ loading
 
     def _page_size_changed(self, _index: int) -> None:
         self._page_size = int(self.size_combo.currentData() or 50)
@@ -225,7 +214,7 @@ class RecordList(QWidget):
                 column = self.columns[column_index] if column_index < len(self.columns) else Column("", "")
                 item = QTableWidgetItem(value)
                 item.setToolTip(row.tooltip or value)
-                if column.mono:  # measured in the font it is painted in, so it is not cut short
+                if column.mono:
                     item.setFont(mono_font(12))
                 if column.strong:
                     strong = QFont(item.font())
@@ -247,12 +236,12 @@ class RecordList(QWidget):
                         item.setBackground(failed_row)
                 elif row.emphasis == "muted" and not column.badge:
                     item.setForeground(self.palette().placeholderText())
-                item.setData(ID_ROLE, row.id)  # every cell, so a row-action column knows its record
+                item.setData(ID_ROLE, row.id)
                 self.table.setItem(row_index, column_index, item)
         for row_index, row in enumerate(result.rows):
             if row.id in selected:
                 self.table.selectRow(row_index)
-        fit_columns(self.table, max_width=320, min_widths={0: 180},  # the first column names the record
+        fit_columns(self.table, max_width=320, min_widths={0: 180},
                     keep_columns=[index for index, column in enumerate(self.columns) if column.keep],
                     fixed_columns=self.fixed_widths)
         self.table.setUpdatesEnabled(True)
@@ -271,7 +260,6 @@ class RecordList(QWidget):
 
     def set_empty_state(self, title: str, message: str, action: tuple[str, Callable[[], object]] | None = None,
                         icon: str = "tasks") -> EmptyState:
-        """Show an empty state (with an optional action) instead of an empty table."""
         state = EmptyState(title, message, icon=icon)
         if action is not None:
             state.add_action(action[0], action[1], primary=True, icon="plus")
@@ -304,7 +292,6 @@ class RecordList(QWidget):
                 return
         header.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
 
-    # ------------------------------------------------------------ selection
 
     def _id_at(self, row: int) -> str:
         item = self.table.item(row, 0)
@@ -333,8 +320,6 @@ class RecordList(QWidget):
 
 
 class DetailPanel(QFrame):
-    """Shows one record: badges, title, key facts, related records in tabs, and the allowed actions."""
-
     closed = Signal()
     link_activated = Signal(str)
 
@@ -435,7 +420,6 @@ class DetailPanel(QFrame):
             button.setObjectName("ghostButton")
         if icon:
             set_button_icon(button, icon, "onPrimary" if primary else "danger" if destructive else "text")
-        # Connect the callable itself: a lambda capturing a dialog's method kept the dialog alive (DEF-026).
         button.clicked.connect(handler)
         self.actions_layout.add(button)
         return button
@@ -531,8 +515,6 @@ class DetailPanel(QFrame):
 
 
 class _FlowRow:
-    """Buttons in rows that wrap when the panel is narrow (QHBoxLayout would clip them)."""
-
     def __init__(self, host: QWidget, per_row: int = 3) -> None:
         self._layout = QVBoxLayout(host)
         self._layout.setContentsMargins(0, 6, 0, 0)
@@ -552,8 +534,6 @@ class _FlowRow:
 
 
 class RecordPage(QWidget):
-    """Base for Tasks, Users, and the Audit log: filter card, paged list, and detail panel."""
-
     title = ""
     subtitle = ""
     noun = "record"
@@ -566,7 +546,7 @@ class RecordPage(QWidget):
     archivable = False
 
     status_requested = Signal(str)
-    records: RecordList  # created after the filter bar, whose widgets reload it
+    records: RecordList
 
     def __init__(self, context: AppContext, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -630,13 +610,11 @@ class RecordPage(QWidget):
         self._shortcuts = [QShortcut(QKeySequence.StandardKey.Find, self, self.search.setFocus)]
         self._loaded = False
 
-    # ------------------------------------------------------------ hooks
 
     def build_filters(self, bar: QHBoxLayout) -> None:
-        """Add filter widgets to ``bar`` (call ``filter_combo``)."""
+        pass
 
     def list_filters(self) -> dict[str, Any]:
-        """Keyword arguments for the service's list function (also used by CSV export)."""
         filters: dict[str, Any] = {}
         if self.search.text().strip():
             filters["q"] = self.search.text().strip()
@@ -651,10 +629,10 @@ class RecordPage(QWidget):
         raise NotImplementedError
 
     def build_actions(self, panel: DetailPanel) -> None:
-        """Create the record's action buttons on ``panel``."""
+        pass
 
     def update_actions(self, view: DetailView | None) -> None:
-        """Enable the action buttons ``view.allowed`` permits."""
+        pass
 
     def update_permissions(self) -> None:
         self.new_button.setVisible(bool(self.create_permission) and self.context.can(self.create_permission))
@@ -663,17 +641,16 @@ class RecordPage(QWidget):
         raise NotImplementedError
 
     def edit_current(self) -> None:
-        """Default action for a double-click or Enter on a row."""
+        pass
 
     def open_link(self, key: str) -> None:
-        """A link in the details (for example a task's lead) was clicked."""
+        pass
 
     def close_details(self) -> None:
         self.records.table.clearSelection()
         self.detail.clear(f"Select {_article(self.noun)} {self.noun} to see its details.")
         self.update_actions(None)
 
-    # ------------------------------------------------------------ helpers
 
     def filter_combo(self, bar: QHBoxLayout, name: str, options: Sequence[tuple[str, str]], *,
                      everything: str) -> QComboBox:
@@ -716,7 +693,6 @@ class RecordPage(QWidget):
             self.refresh()
 
     def apply_filters(self, values: dict[str, str]) -> None:
-        """Show the list filtered as requested (used by the overview and search)."""
         self.search.blockSignals(True)
         self.search.setText(values.get("q", ""))
         self.search.blockSignals(False)
@@ -724,7 +700,7 @@ class RecordPage(QWidget):
         self.refresh()
 
     def set_filter_values(self, values: dict[str, str]) -> None:
-        """Subclasses set their filter widgets from ``values`` without reloading."""
+        pass
 
     def _selection_changed(self) -> None:
         record_id = self.records.current_id()
@@ -757,9 +733,8 @@ class RecordPage(QWidget):
             self.show_record(record_id, select=False)
         self.status_requested.emit(message)
 
-    def resizeEvent(self, event: Any) -> None:  # noqa: N802 - Qt API
+    def resizeEvent(self, event: Any) -> None:
         super().resizeEvent(event)
-        # Narrow windows stack the detail panel under the list instead of squeezing both.
         vertical = event.size().width() < 900
         orientation = Qt.Orientation.Vertical if vertical else Qt.Orientation.Horizontal
         if self.splitter.orientation() != orientation:
@@ -772,9 +747,10 @@ def _escape(text: str) -> str:
 
 
 def _article(noun: str) -> str:
-    if noun[:3].lower() in ("use", "uni", "eur"):  # "a user", not "an user"
+    if noun[:3].lower() in ("use", "uni", "eur"):
         return "a"
     return "an" if noun[:1].lower() in "aeiou" else "a"
 
 
 __all__ = ["Column", "DetailPanel", "DetailTab", "DetailView", "RecordList", "RecordPage", "Row", "RowPage"]
+

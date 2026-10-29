@@ -1,12 +1,3 @@
-"""Marketing spend editor for the Leads workspace.
-
-Restores the add/edit/delete spend editor of the retired Flet UI
-(``components/marketing_spend_editor.py``). Spend imports are additive and the
-Dashboard cannot clear spend, so without this editor a wrong amount could not
-be corrected anywhere in the application. Persistence and validation stay in
-``LeadsController``/``models.marketing_spend_manager``.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -50,8 +41,6 @@ def _source_label(value: Any) -> str:
 
 
 class MarketingSpendDialog(ModalDialog):
-    """List, add, edit, and delete marketing spend records."""
-
     def __init__(
         self,
         controller: type[LeadsController] | Any = LeadsController,
@@ -61,7 +50,7 @@ class MarketingSpendDialog(ModalDialog):
     ) -> None:
         super().__init__(parent)
         self._controller = controller
-        self._context = context  # AppContext: checks marketing.manage and audits each change
+        self._context = context
         self._records: list[dict[str, Any]] = []
         self._editing_id: int | None = None
         self.changed = False
@@ -131,7 +120,7 @@ class MarketingSpendDialog(ModalDialog):
         prepare_table(self.table, numeric_columns=(2,),
                       empty_text="No spend recorded yet. Add a record above or import a spend CSV.")
         header = self.table.horizontalHeader()
-        header.setSortIndicator(0, Qt.SortOrder.DescendingOrder)  # newest first
+        header.setSortIndicator(0, Qt.SortOrder.DescendingOrder)
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self._row_actions = (
@@ -158,7 +147,6 @@ class MarketingSpendDialog(ModalDialog):
 
         self.reload()
 
-    # ------------------------------------------------------------- data
 
     def reload(self) -> None:
         self._records = list(self._controller.get_marketing_spend_entries() or [])
@@ -205,7 +193,6 @@ class MarketingSpendDialog(ModalDialog):
     def _record(self, record_id: Any) -> dict[str, Any] | None:
         return next((r for r in self._records if str(r.get("id")) == str(record_id)), None)
 
-    # ------------------------------------------------------------- actions
 
     def _selected_source(self) -> str:
         text = self.source_combo.currentText().strip()
@@ -232,7 +219,7 @@ class MarketingSpendDialog(ModalDialog):
             return
         date_text = self.date_edit.date().toString(Qt.DateFormat.ISODate)
 
-        self.save_button.setEnabled(False)  # no duplicate records from a double click
+        self.save_button.setEnabled(False)
         details = {"source": source, "amount": amount, "date": date_text}
         try:
             if self._editing_id is None:
@@ -250,7 +237,7 @@ class MarketingSpendDialog(ModalDialog):
             return
         success, message = outcome[0], outcome[1]
         if not success:
-            self._show_error(message)  # keep the user's input for correction
+            self._show_error(message)
             return
         self.changed = True
         self._reset_form()
@@ -258,7 +245,6 @@ class MarketingSpendDialog(ModalDialog):
         self.summary_label.setText(f"{message} {self.summary_label.text()}")
 
     def _guarded(self, action: str, operation: Any, details: dict[str, Any]) -> Any:
-        """Run a spend change; with a signed-in session, check the role and audit it."""
         if self._context is None:
             return operation()
         try:
@@ -332,3 +318,4 @@ class MarketingSpendDialog(ModalDialog):
 
 
 __all__ = ["MarketingSpendDialog"]
+

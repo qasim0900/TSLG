@@ -1,5 +1,3 @@
-"""Focused real-widget checks for the native LinkedIn prospect workflow."""
-
 from __future__ import annotations
 
 import os
@@ -140,7 +138,7 @@ def test_detail_is_authoritative_bounded_role_aware_and_opens_canonical_link(
     view = page.current_view()
     assert view is not None
     fields = dict(view.fields)
-    assert fields["LinkedIn"] == "https://www.linkedin.com/in/ayesha-malik/"  # the canonical form
+    assert fields["LinkedIn"] == "https://www.linkedin.com/in/ayesha-malik/"
     assert fields["Status"] == "Replied"
     assert fields["Assigned to"] == "Test Admin"
     assert fields["Last activity"] != "No activity recorded"
@@ -154,7 +152,7 @@ def test_detail_is_authoritative_bounded_role_aware_and_opens_canonical_link(
 
     class _DesktopServices:
         @staticmethod
-        def openUrl(url):  # noqa: N802 - Qt API compatibility
+        def openUrl(url):
             opened.append(url.toString())
             return True
 

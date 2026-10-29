@@ -1,11 +1,3 @@
-"""N+1 regression tests for the outreach screens: SQL statements per page must not grow with the rows shown.
-
-Each list is loaded with a small and a large dataset (and page size) and the
-number of statements is compared. The screens' own ``fetch`` row conversion is
-included, because relationship access while building rows is where an
-accidental lazy load per row would hide.
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -30,9 +22,9 @@ from techset_leadgen.services import assignments, notifications, prospects, task
 from techset_leadgen.services.pagination import PageRequest
 
 pytest.importorskip("PySide6.QtWidgets")
-from techset_leadgen.desktop.pages.assignment_pages import AssignmentsPage  # noqa: E402
-from techset_leadgen.desktop.pages.outreach_pages import FollowUpsPage, MyWorkPage  # noqa: E402
-from techset_leadgen.desktop.pages.prospects_page import ProspectsPage  # noqa: E402
+from techset_leadgen.desktop.pages.assignment_pages import AssignmentsPage
+from techset_leadgen.desktop.pages.outreach_pages import FollowUpsPage, MyWorkPage
+from techset_leadgen.desktop.pages.prospects_page import ProspectsPage
 
 NOW = datetime(2026, 10, 27, 9, tzinfo=UTC)
 
@@ -53,7 +45,6 @@ def counting(db) -> Iterator[list[str]]:
 
 
 def _seed(db, acme, rows: int) -> tuple[Any, Any]:
-    """``rows`` prospects, each assigned (to two members in turn), with events and a follow-up."""
     manager, member = acme.users["sales_manager"], acme.users["bdr"]
     other = acme.users["account_executive"]
     batch = AssignmentBatch(name="Batch", work_date=date(2026, 10, 27), status="active", created_by_id=manager.id)
@@ -91,13 +82,13 @@ def _statements(db, work: Callable[[], Any]) -> int:
 
 SCREENS: dict[str, Callable[[Any, Any, Any, int], Any]] = {
     "prospects page": lambda db, manager, _member, size: ProspectsPage.fetch(
-        None, db, manager, PageRequest(page_size=size), {}),  # type: ignore[arg-type]
+        None, db, manager, PageRequest(page_size=size), {}),
     "assignments page": lambda db, manager, _member, size: AssignmentsPage.fetch(
-        None, db, manager, PageRequest(page_size=size), {"status": "all"}),  # type: ignore[arg-type]
+        None, db, manager, PageRequest(page_size=size), {"status": "all"}),
     "my work page": lambda db, _manager, member, size: MyWorkPage.fetch(
-        None, db, member, PageRequest(page_size=size), {}),  # type: ignore[arg-type]
+        None, db, member, PageRequest(page_size=size), {}),
     "follow-ups page (team)": lambda db, manager, _member, size: FollowUpsPage.fetch(
-        None, db, manager, PageRequest(page_size=size), {"due": "open", "view": "team"}),  # type: ignore[arg-type]
+        None, db, manager, PageRequest(page_size=size), {"due": "open", "view": "team"}),
     "notifications": lambda db, _manager, member, size: notifications.list_notifications(
         db, member, page=PageRequest(page_size=size)).items,
     "team workload": lambda db, manager, _member, _size: team.summary(db, manager, now=NOW),
@@ -157,3 +148,4 @@ def test_an_import_does_not_query_or_insert_per_profile(world):
         counts.append(_statements(world.db, lambda: prospects.import_rows(world.db, manager, rows, source="x")))
         world.db.commit()
     assert counts[0] == counts[1], counts
+

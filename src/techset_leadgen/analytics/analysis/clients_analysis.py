@@ -3,35 +3,11 @@ import polars as pl
 from techset_leadgen.analytics.analysis.db_utils import get_db_connection
 from techset_leadgen.analytics.analysis.sales_analysis import get_sales_with_client_info
 
-# ------------------------------
-# :: Logger Configuration
-# ------------------------------
-
-"""
-This module provides functions for analyzing client data, including retrieving clients with sales data, 
-counting unique clients, and calculating sales statistics for clients. It also includes error handling and logging for debugging
-"""
 
 logger = logging.getLogger(__name__)
 
 
-# ------------------------------
-# :: get Rod Width Function
-# ------------------------------
-
-"""
-This module provides utility functions for determining chart dimensions based on the number of bars in a chart. It includes functions 
-to calculate the width of the rods (bars) and the interval for labels on the x-axis, as well as a function to round values to "nice" 
-numbers for better readability in charts.
-"""
-
-
 def get_all_clients_with_sales_data():
-    """Return every known client and its lifetime sales aggregates in one query.
-
-    The union keeps legacy sales-only identities visible while avoiding the old
-    four-query/full-sales-table Python enrichment path.
-    """
     conn = None
     try:
         conn = get_db_connection()
@@ -197,3 +173,4 @@ def count_unique_clients(
     finally:
         if conn:
             conn.close()
+

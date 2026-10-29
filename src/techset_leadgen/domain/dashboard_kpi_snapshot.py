@@ -1,24 +1,14 @@
-"""Modelo inmutable de KPIs del Dashboard (Home).
-
-Define DashboardKPISnapshot como dataclass frozen con métricas operativas:
-ventas, clientes, última importación y estadísticas de leads.
-"""
-
 from dataclasses import dataclass
 from typing import Optional
 
 
 @dataclass(frozen=True)
 class DashboardKPISnapshot:
-    """
-    Estado operativo del sistema para el Home.
-    """
     has_data: bool
     sales_rows: int
     clients_rows: int
     last_import: Optional[str]
 
-    # Campos de leads (para info_box y lógica de vista)
     total_leads: int
     leads_with_meeting: int
     leads_conversion_rate: float
@@ -36,3 +26,4 @@ class DashboardKPISnapshot:
             leads_conversion_rate=0.0,
             leads_this_month=0,
         )
+

@@ -1,11 +1,3 @@
-"""Record workflows shared by the Leads, Clients, Tasks, and Dashboard screens.
-
-Each function opens the dialog for one job (edit a lead, move it to another
-stage, assign it, log an activity, manage a contact) and saves through the
-business services, which validate, check permissions, and audit the change.
-They return whether something was saved so the calling screen can refresh.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -47,8 +39,6 @@ REASON_LABELS = {"qualified": "Why is this lead qualified?", "lost": "Why was th
 
 def user_options(context: AppContext, parent: QWidget | None, *, permission: str | None = None
                  ) -> list[tuple[str, str]] | None:
-    """Active users as ``[(id, name)]``. Without ``permission`` (assigning to others),
-    only the signed-in user is offered; the services enforce the same rule."""
     ok, people = attempt(parent, context, lambda db, actor: [
         (user.id, f"{user.full_name}{' (you)' if user.id == actor.user_id else ''}")
         for user in users.assignable_users(db, actor)
@@ -77,7 +67,6 @@ def activity_rows(db: Session, actor: Actor, *, timezone: str, **subject: Any) -
 
 def log_activity(parent: QWidget, context: AppContext, *, heading: str, client_id: str | None = None,
                  lead_id: str | None = None) -> bool:
-    """Record a call, email, meeting, or note that already happened."""
     zone = context.actor.timezone if context.actor else "UTC"
 
     def submit(dialog: FormDialog) -> None:
@@ -97,9 +86,6 @@ def log_activity(parent: QWidget, context: AppContext, *, heading: str, client_i
         values={"activity_type": "call"}, submit=submit, submit_text="Log activity", timezone=zone,
     )
     return bool(dialog.exec())
-
-
-# --- leads ----------------------------------------------------------------------
 
 
 @dataclass
@@ -152,7 +138,7 @@ def load_lead(db: Session, actor: Actor, lead_id: str) -> LeadSnapshot:
     if transitions:
         allowed.add("stage")
     if actor.can_on("leads.assign", lead) or (lead.owner_id is None and actor.can("leads.edit")):
-        allowed.add("assign")  # anyone who works leads may take an unassigned one
+        allowed.add("assign")
     if actor.can("activities.create"):
         allowed.add("activity")
     if actor.can("tasks.create"):
@@ -184,7 +170,6 @@ def _lead_fields(people: list[tuple[str, str]], client_choices: list[tuple[str, 
 
 def lead_form(parent: QWidget, context: AppContext, *, lead: LeadSnapshot | None = None,
               client_id: str | None = None) -> str | None:
-    """Create a lead (``lead`` is None) or edit one. Returns the lead ID when saved."""
     people = user_options(context, parent, permission="leads.assign")
     client_choices = client_options(context, parent)
     if people is None or client_choices is None or context.actor is None:
@@ -263,7 +248,6 @@ def _adapt_stage_form(dialog: FormDialog, status: Any) -> None:
 
 def assign_leads(parent: QWidget, context: AppContext, lead_ids: Sequence[str], *, current_owner: str | None = None,
                  version: int | None = None) -> int:
-    """Assign one lead (``version`` given) or several at once. Returns how many were saved."""
     people = user_options(context, parent, permission="leads.assign")
     if people is None or not lead_ids:
         return 0
@@ -291,8 +275,6 @@ def assign_leads(parent: QWidget, context: AppContext, lead_ids: Sequence[str], 
 
 
 class LeadDialog(ModalDialog):
-    """One lead: details, timeline, and tasks, with the actions the user's role allows."""
-
     def __init__(self, parent: QWidget | None, context: AppContext, lead_id: str) -> None:
         super().__init__(parent)
         self.context = context
@@ -369,18 +351,13 @@ class LeadDialog(ModalDialog):
 
 
 def open_lead(parent: QWidget, context: AppContext, lead_id: str) -> bool:
-    """Show a lead; returns True if anything was changed while it was open."""
     dialog = LeadDialog(parent, context, lead_id)
     dialog.exec()
     return dialog.changed
 
 
-# --- contacts -------------------------------------------------------------------
-
-
 def contact_form(parent: QWidget, context: AppContext, *, client_id: str,
                  contact: dict[str, Any] | None = None) -> bool:
-    """Add a person to a client, or edit one (``contact`` holds its current values and version)."""
     sensitive = context.can("clients.view_sensitive")
     fields = [
         FieldSpec("first_name", "First name", required=True),
@@ -433,3 +410,4 @@ __all__ = [
     "client_options", "contact_form", "delete_contact", "lead_form", "load_lead", "log_activity", "open_lead",
     "source_options", "user_options",
 ]
+

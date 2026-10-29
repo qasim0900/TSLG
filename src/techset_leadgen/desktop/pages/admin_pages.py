@@ -1,5 +1,3 @@
-"""User and role management, and the audit log (administrators)."""
-
 from __future__ import annotations
 
 import json
@@ -58,8 +56,6 @@ def role_summary(role: str) -> str:
 
 
 class CodeDialog(ModalDialog):
-    """Shows a one-time activation or reset code once, with a copy button (the design's invite result)."""
-
     def __init__(self, parent: QWidget | None, *, name: str, code: str, purpose: str, hours: int,
                  email: str = "", role: str = "", allow_another: bool = False) -> None:
         super().__init__(parent)
@@ -233,7 +229,6 @@ class UsersPage(RecordPage):
             self.deactivate_button.setText("Reactivate" if "reactivate" in allowed else "Deactivate")
 
     def toggle_active(self) -> None:
-        """Deactivate (after confirming) or reactivate the selected account."""
         view = self.current_view()
         if view is None or not ({"deactivate", "reactivate"} & view.allowed):
             return
@@ -337,7 +332,6 @@ _ENTITY_TYPES = {"prospect": "Prospects", "prospect_assignment": "Assignments", 
                  "data": "Imports, exports, and clearing", "marketing_spend": "Marketing spend"}
 
 
-# Plain-language names for audit actions; the code stays visible in the entry's details.
 ACTION_LABELS = {
     "auth.login": "Signed in",
     "auth.login_failed": "Sign-in failed",
@@ -384,7 +378,6 @@ _RECORD_KINDS = {"client": "Client", "contact": "Contact", "lead": "Lead", "task
                  "user": "User", "organization": "Organization", "data": "Data", "marketing_spend": "Marketing spend",
                  "prospect": "Prospect", "prospect_assignment": "Assignment", "assignment_batch": "Daily batch",
                  "meeting": "Meeting", "report": "Report"}
-# Change keys that hold another record's ID: (record kind, what to call it).
 _REFERENCES = {"owner_id": ("user", "owner"), "assigned_to_id": ("user", "assigned to"),
                "admin_user_id": ("user", "administrator"), "client_id": ("client", "client"),
                "lead_id": ("lead", "lead"), "contact_id": ("contact", "contact"),
@@ -408,7 +401,6 @@ _NAMERS: dict[str, tuple[Any, Callable[[Any], str]]] = {
     "assignment_batch": (AssignmentBatch, lambda batch: batch.name),
     "meeting": (Meeting, lambda meeting: f"{meeting.title} ({meeting.client_name})"),
 }
-# Related records a namer reads, loaded with the page's records (one query, not one per entry).
 _NAMER_LOADS: dict[str, tuple[Any, ...]] = {
     "prospect_assignment": (selectinload(ProspectAssignment.prospect), selectinload(ProspectAssignment.assignee)),
 }
@@ -425,13 +417,11 @@ def action_label(action: str) -> str:
 
 
 def actions_matching(text: str) -> list[str]:
-    """Action codes whose name or code contains ``text`` (so "stage" finds "Lead stage changed")."""
     wanted = text.strip().casefold()
     return [code for code, name in ACTION_LABELS.items() if wanted in name.casefold() or wanted in code]
 
 
 def record_names(db: Session, entries: Sequence[Any]) -> dict[tuple[str, str], str]:
-    """Names of the records and people the given entries mention, looked up together."""
     wanted: dict[str, set[str]] = {}
     for entry in entries:
         if entry.entity_type in _NAMERS and entry.entity_id:
@@ -575,3 +565,4 @@ class AuditPage(RecordPage):
 
 
 __all__ = ["AuditPage", "CodeDialog", "UsersPage"]
+

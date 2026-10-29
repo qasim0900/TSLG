@@ -1,5 +1,3 @@
-"""Programmatic Alembic helpers used by the desktop app (on start-up) and the tests."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,21 +14,16 @@ ALEMBIC_INI = Path(__file__).with_name("alembic.ini")
 
 
 def alembic_config(database_url: str | None = None) -> Config:
-    """Without a URL, migrations use the configured application database (``crm.config``)."""
     config = Config(str(ALEMBIC_INI))
     if database_url:
         config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
     return config
 
 
-# Any constant: every computer upgrading the shared database takes the same lock.
 _UPGRADE_LOCK = 72_710_027
 
 
 def upgrade(database_url: str | None = None, revision: str = "head") -> None:
-    """Migrate the database. A PostgreSQL upgrade holds an advisory lock, so two
-    administrators (or two computers) can never run the migrations at the same time;
-    its DDL is transactional, so a failed upgrade leaves the previous schema intact."""
     config = alembic_config(database_url)
     url = config.get_main_option("sqlalchemy.url") or ""
     if not url.startswith("postgresql"):
@@ -40,7 +33,7 @@ def upgrade(database_url: str | None = None, revision: str = "head") -> None:
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": _UPGRADE_LOCK})
-            connection.commit()  # the lock belongs to the session, not to this transaction
+            connection.commit()
             try:
                 config.attributes["connection"] = connection
                 command.upgrade(config, revision)
@@ -67,7 +60,6 @@ def current_and_head(connection: Connection) -> tuple[str | None, str | None]:
 
 
 def is_known(revision: str) -> bool:
-    """False when the database was migrated by a newer version of the application."""
     try:
         return ScriptDirectory.from_config(alembic_config()).get_revision(revision) is not None
     except CommandError:
@@ -96,9 +88,6 @@ def schema_state(connection: Connection) -> SchemaState:
     return SchemaState(*current_and_head(connection))
 
 
-# What each revision created. The standalone CRM database of an earlier build
-# was also stamped "0001" but has a different layout, so the label alone is not
-# proof that it is safe to run a later migration against the file.
 _REVISION_TABLES = {
     "0001": frozenset({
         "organization", "users", "user_sessions", "user_tokens", "auth_attempts", "audit_logs",
@@ -182,13 +171,6 @@ def _layout_problems(connection: Connection, revision: str) -> list[str]:
 
 
 def pre_upgrade_layout_problems(connection: Connection, revision: str | None) -> list[str]:
-    """Refuse a falsely stamped or damaged schema *before* changing it.
-
-    An unversioned database is allowed because revision 0001 intentionally
-    adopts the original core tables. Known versioned databases, however, must
-    match the minimum layout their revision promises before a later migration
-    can safely assume those tables and columns exist.
-    """
     tables = set(inspect(connection).get_table_names())
     if "companies" in tables and "organization" not in tables:
         return ["this is the standalone CRM database of an earlier build"]
@@ -199,5 +181,5 @@ def pre_upgrade_layout_problems(connection: Connection, revision: str | None) ->
 
 
 def layout_problems(connection: Connection) -> list[str]:
-    """Differences between the database and the unified layout (empty when it matches)."""
     return _layout_problems(connection, max(_REVISION_TABLES))
+

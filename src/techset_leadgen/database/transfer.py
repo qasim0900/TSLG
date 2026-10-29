@@ -1,12 +1,3 @@
-"""One-time move of a single-computer SQLite database into the empty PostgreSQL team database.
-
-Used when an office that started on one computer moves to the shared server
-(``TechsetLeadGen --copy-local-to-server [FILE]``). Every table is copied in
-foreign-key order inside one PostgreSQL transaction, the row count of every
-table is compared, and only then is anything committed: a failure leaves the
-team database empty. The source file is opened read-only and never changed.
-"""
-
 from __future__ import annotations
 
 import sqlite3
@@ -23,7 +14,7 @@ _SKIP = frozenset({"alembic_version", "sqlite_sequence"})
 
 
 class TransferRefused(RuntimeError):
-    """The copy cannot start safely; the message says why and what to do."""
+    pass
 
 
 def _count(connection: Connection, table: Table) -> int:
@@ -31,13 +22,11 @@ def _count(connection: Connection, table: Table) -> int:
 
 
 def _self_references(table: Table) -> list[str]:
-    """Columns that point at another row of the same table (copied in a second pass)."""
     return [element.parent.name for constraint in table.foreign_key_constraints
             for element in constraint.elements if element.column.table.name == table.name]
 
 
 def copy_local_to_server(source: Path, target_url: str, say: Callable[[str], None] = print) -> dict[str, int]:
-    """Copy every row of ``source`` into the team database at ``target_url``; returns rows per table."""
     if not source.is_file() or source.stat().st_size == 0:
         raise TransferRefused(f"{source} does not exist or is empty.")
     address = f"file:{pathname2url(str(source.resolve()))}?mode=ro"
@@ -73,7 +62,7 @@ def copy_local_to_server(source: Path, target_url: str, say: Callable[[str], Non
                 copied[table.name] = _copy_table(reader, writer, source_meta.tables[table.name], table)
                 if copied[table.name]:
                     say(f"{table.name}: {copied[table.name]} rows")
-            for table in tables:  # verify before committing anything
+            for table in tables:
                 if _count(writer, table) != copied[table.name]:
                     raise TransferRefused(f"Row counts differ for {table.name}; nothing was saved.")
             _reset_sequences(writer, tables)
@@ -107,17 +96,16 @@ def _copy_table(reader: Connection, writer: Connection, source: Table, target: T
 
 
 def _reset_sequences(writer: Connection, tables: list[Table]) -> None:
-    """Point each serial id's sequence past the copied rows, so new rows get fresh ids."""
     for table in tables:
         for column in table.primary_key.columns:
             if isinstance(column.type, Integer) and column.autoincrement in (True, "auto"):
                 sequence = writer.scalar(text("SELECT pg_get_serial_sequence(:table, :column)"),
                                          {"table": table.name, "column": column.name})
                 if sequence:
-                    # No SQL text is built from names: the maximum comes from a Core query, values are bound.
                     highest = writer.scalar(select(func.max(column)))
                     writer.execute(text("SELECT setval(:sequence, :value, :used)"),
                                    {"sequence": sequence, "value": highest or 1, "used": highest is not None})
 
 
 __all__ = ["TransferRefused", "copy_local_to_server"]
+

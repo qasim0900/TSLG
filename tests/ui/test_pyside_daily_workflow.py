@@ -1,5 +1,3 @@
-"""The daily outreach screens driven through real widgets: a manager assigns, a member records and follows up."""
-
 from __future__ import annotations
 
 import os
@@ -37,7 +35,6 @@ def qapp():
 
 @pytest.fixture()
 def office(tmp_path: Path, qapp):
-    """The admin's context, two members' e-mail addresses, and three unassigned prospects."""
     database = tmp_path / "outreach.db"
     admin = signed_in_context(database)
     password_hash = hash_password(TEST_PASSWORD)
@@ -75,7 +72,6 @@ def _check(table, row: int) -> None:
 def test_a_manager_assigns_a_balanced_batch_and_a_member_works_it(qapp, office, monkeypatch, tmp_path):
     admin, database = office
 
-    # --- the manager: choose three profiles and two people, review, assign ---------------------
     page = AssignmentsPage(admin)
     page.show()
     page.ensure_loaded()
@@ -88,7 +84,7 @@ def test_a_manager_assigns_a_balanced_batch_and_a_member_works_it(qapp, office, 
         _check(dialog.member_table, members["Ali Raza"])
         _check(dialog.member_table, members["Sara Khan"])
         new = sorted(int(dialog.member_table.item(members[name], 2).text()) for name in ("Ali Raza", "Sara Khan"))
-        assert new == [1, 2]  # evened out
+        assert new == [1, 2]
         assert dialog.save_button.text() == "Assign 3"
         dialog.save()
 
@@ -96,9 +92,8 @@ def test_a_manager_assigns_a_balanced_batch_and_a_member_works_it(qapp, office, 
         page.create_record()
     assert _count(admin, ProspectAssignment, ProspectAssignment.status == "assigned") == 3
     assert page.records.table.rowCount() == 3
-    assert page.batch_filter.currentData() is not None  # the new batch is selected
+    assert page.batch_filter.currentData() is not None
 
-    # --- the member: their work, an outcome with a follow-up, completion ------------------------
     ali = _member(database, "ali@techset.example")
     my_work = MyWorkPage(ali)
     my_work.show()
@@ -138,7 +133,6 @@ def test_a_manager_assigns_a_balanced_batch_and_a_member_works_it(qapp, office, 
     assert _count(ali, Notification, Notification.recipient_id == ali.actor.user_id,
                   Notification.read_at.is_(None)) == 0
 
-    # --- the manager's end-of-day summary and its export ----------------------------------------
     team = TeamPage(admin)
     team.show()
     team.ensure_loaded()
@@ -158,7 +152,7 @@ def test_a_member_cannot_open_the_manager_screens_actions(qapp, office):
     sara = _member(database, "sara@techset.example")
     page = AssignmentsPage(sara)
     page.show()
-    with ModalPilot() as pilot:  # opened anyway, the services refuse the team's assignments
+    with ModalPilot() as pilot:
         page.ensure_loaded()
     assert pilot.message_boxes and all("permission" in item.text.lower() or "role" in item.text.lower()
                                        for item in pilot.message_boxes)
@@ -177,7 +171,7 @@ def test_a_prospect_file_is_read_in_the_background_then_previewed(qapp, office, 
                     "not a profile,Bad Row,\nhttps://www.linkedin.com/in/first-person,Again,Acme\n", encoding="utf-8")
     dialog = ProspectImportDialog(None, admin)
     dialog.load_file(str(good))
-    assert dialog.is_reading and not dialog.import_button.isEnabled()  # the window stays usable meanwhile
+    assert dialog.is_reading and not dialog.import_button.isEnabled()
     assert wait_until(lambda: not dialog.is_reading and dialog.table.rowCount() == 3, 5000)
     results = sorted(dialog.table.item(row, 3).text() for row in range(3))
     assert results == ["Existing", "New", "Rejected"]
@@ -190,3 +184,4 @@ def test_a_prospect_file_is_read_in_the_background_then_previewed(qapp, office, 
         assert wait_until(lambda: not dialog.is_reading, 5000)
     assert [item.text for item in pilot.message_boxes] == ["This file cannot be imported."]
     dialog.reject()
+

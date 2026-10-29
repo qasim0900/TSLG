@@ -1,5 +1,3 @@
-"""Headless integration checks for the native PySide6 application shell."""
-
 from __future__ import annotations
 
 import os
@@ -68,7 +66,7 @@ def test_shell_uses_brand_assets_and_all_native_pages(window, qt_app) -> None:
         "followups": FollowUpsPage,
         "team": TeamPage,
         "notifications": NotificationsPage,
-        "sales_overview": DashboardPage,  # the archive: the original analytics, unchanged
+        "sales_overview": DashboardPage,
         "sales": SalesPage,
         "leads": LeadsPage,
         "clients": ClientsPage,
@@ -102,3 +100,4 @@ def test_packaged_brand_files_exist() -> None:
         path = asset_path(name)
         assert isinstance(path, Path)
         assert path.is_file()
+

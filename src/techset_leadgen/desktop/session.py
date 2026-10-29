@@ -1,16 +1,3 @@
-"""The signed-in session and units of work for every screen that changes data.
-
-Every user action that changes data runs as one short unit of work: open a
-database session, re-check the sign-in session (so a sign-out, deactivation, or
-role change takes effect immediately), run the business service with the
-signed-in ``Actor``, then commit or roll back. Screens copy what they show into
-plain values inside the unit of work. The session token lives only in memory.
-
-Operations that predate the account system (client merging, marketing spend,
-imports, clearing tables) keep their original implementation; ``guarded``
-checks the permission first and records the audit entry once they succeed.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -45,8 +32,6 @@ T = TypeVar("T")
 
 
 class ConnectionProblem(Exception):
-    """The database cannot be used; ``message`` is for users, ``details`` for administrators."""
-
     def __init__(self, message: str, details: str = "", *, retry: bool = True) -> None:
         super().__init__(message)
         self.message = message
@@ -58,21 +43,18 @@ class ConnectionProblem(Exception):
 class CodeInfo:
     email: str
     full_name: str
-    purpose: str  # "invite" or "password_reset"
+    purpose: str
 
 
 def system_timezone() -> str:
-    """The computer's IANA time zone (Qt reports IANA names on Windows too), or UTC."""
     name = bytes(QTimeZone.systemTimeZoneId().data()).decode("ascii", "ignore")
     return name if is_valid_timezone(name) else "UTC"
 
 
 class AppContext(QObject):
-    """Owns the database connection and the signed-in session."""
-
     signed_in = Signal()
-    signed_out = Signal(str)  # reason shown on the sign-in screen
-    data_changed = Signal(str)  # entity kind ("client", "lead", ...) after a successful change
+    signed_out = Signal(str)
+    data_changed = Signal(str)
 
     def __init__(self, settings: Settings | None = None, parent: QObject | None = None, *,
                  previous_accounts: Path | None = None) -> None:
@@ -90,7 +72,6 @@ class AppContext(QObject):
         self._input_seen = False
         self.last_backup: Path | None = None
 
-    # ------------------------------------------------------------ connection
 
     @property
     def settings(self) -> Settings:
@@ -104,15 +85,9 @@ class AppContext(QObject):
 
     @property
     def is_server(self) -> bool:
-        """Connected to the shared team database (PostgreSQL) rather than a local file.
-
-        The archive analytics, file backups, and data clearing work on the local
-        SQLite file only, so the screens hide them on a team database.
-        """
         return self._settings is not None and self._settings.is_server
 
     def open(self) -> None:
-        """Open the application database, upgrading its schema (after a backup) when needed."""
         self.close()
         try:
             settings = self._configured or load_settings()
@@ -141,8 +116,6 @@ class AppContext(QObject):
                         retry=False,
                     )
                 if server and not state.ready:
-                    # Twenty-five computers must not race to upgrade the shared database: the
-                    # administrator backs it up and runs the upgrade once (docs/DEPLOYMENT.md).
                     raise ConnectionProblem(
                         "The team database needs an upgrade before this version can use it.",
                         f"{settings.display_database}: schema {state.current or 'empty'}, this app needs "
@@ -153,7 +126,7 @@ class AppContext(QObject):
                     self.last_backup = maintenance.backup_before_migration(settings.database_path, state.current,
                                                                            state.head)
                 if self._configured is None and not server:
-                    init_db()  # original tables/migrations, now protected by the backup above
+                    init_db()
                 if not state.ready:
                     migrations_util.upgrade(settings.database_url)
                 with engine.connect() as connection:
@@ -188,7 +161,7 @@ class AppContext(QObject):
     def _carry_over_accounts(self, settings: Settings) -> None:
         legacy = self._previous_accounts
         if legacy is None and self._configured is None:
-            legacy = settings.database_path.with_name("crm.db")  # separate database of an earlier build
+            legacy = settings.database_path.with_name("crm.db")
         if legacy is None:
             return
         with self._sessions()() as db:
@@ -207,12 +180,11 @@ class AppContext(QObject):
         self._factory = None
 
     def shutdown(self) -> None:
-        """End the session (best effort) and release the connection pool."""
         if self.is_signed_in:
             try:
                 session_id = self.session_id
                 self.run(lambda db, actor: auth.sign_out(db, actor, session_id), busy=False)
-            except Exception:  # closing must never fail; the session also expires on its own
+            except Exception:
                 logger.warning("Could not end the session while closing", exc_info=True)
             self._forget()
         self.close()
@@ -222,7 +194,6 @@ class AppContext(QObject):
             raise ConnectionProblem("The database is not open.")
         return self._factory
 
-    # ------------------------------------------------------------ sign-in
 
     @property
     def is_signed_in(self) -> bool:
@@ -230,7 +201,6 @@ class AppContext(QObject):
 
     @property
     def session_id(self) -> str:
-        """The signed-in session (raises ``SessionEnded`` when signed out)."""
         if self._session_id is None:
             raise SessionEnded("Please sign in.")
         return self._session_id
@@ -253,7 +223,6 @@ class AppContext(QObject):
         self._adopt(signed)
 
     def create_organization(self, *, organization_name: str, admin_name: str, email: str, password: str) -> None:
-        """First run: name the organization and create the first Super Admin, then sign in."""
         with self._busy(), self._sessions()() as db:
             if auth.has_users(db):
                 raise Conflict("Accounts already exist. Sign in instead.")
@@ -280,7 +249,6 @@ class AppContext(QObject):
         self._adopt(signed)
         zone = system_timezone()
         if self.actor is not None and self.actor.timezone == "UTC" and zone != "UTC":
-            # A new account starts in UTC; adopt this computer's zone for due dates.
             self.run(lambda db, actor: users.update_profile(db, actor, ProfileUpdate(timezone=zone)))
 
     def sign_out(self, reason: str = "You signed out.") -> None:
@@ -289,7 +257,7 @@ class AppContext(QObject):
             try:
                 self.run(lambda db, actor: auth.sign_out(db, actor, session_id))
             except SessionEnded:
-                return  # already signed out and announced
+                return
             except Exception:
                 logger.warning("Could not record the sign-out", exc_info=True)
         self._forget()
@@ -307,21 +275,13 @@ class AppContext(QObject):
         self._token = None
         self.actor = None
 
-    # ------------------------------------------------------------ permissions shown in the UI
 
     def can(self, permission: str) -> bool:
-        """For showing or hiding controls only; the services enforce the same rule."""
         return self.actor is not None and self.actor.can(permission)
 
-    # ------------------------------------------------------------ units of work
 
     def run(self, work: Callable[[Session, Actor], T], *, commit: bool = True, busy: bool = True,
             touch: bool = True) -> T:
-        """Run ``work`` as the signed-in user in one transaction.
-
-        ``commit=False`` rolls everything back. Service errors (``DomainError``)
-        propagate unchanged; ``SessionEnded`` also signs this window out.
-        """
         session_id = self.session_id
         assert self._token is not None
         with self._busy(busy), self._sessions()() as db:
@@ -346,7 +306,6 @@ class AppContext(QObject):
                 raise
 
     def write(self, kind: str, work: Callable[[Session, Actor], T]) -> T:
-        """``run`` a change and announce it so other screens refresh."""
         result = self.run(work)
         self._after_change(kind)
         return result
@@ -354,14 +313,10 @@ class AppContext(QObject):
     def guarded(self, permission: str, action: str, operation: Callable[[], T], *, kind: str,
                 entity_type: str | None = None, entity_id: Any = None,
                 changes: Callable[[T], dict[str, Any] | None] | None = None) -> T:
-        """Run an original (pre-accounts) operation with the permission checked first and the
-        audit entry recorded once it succeeds (``changes`` returns None when it did not). The
-        operation uses its own connection, so it runs between the two units of work, never
-        inside one: a crash in between would leave the change without its audit entry."""
         self.run(lambda db, actor: actor.require(permission))
         result = operation()
         described = changes(result) if changes else {}
-        if described is None:  # the operation reported that nothing changed
+        if described is None:
             return result
         self.run(lambda db, actor: audit.record(db, actor, action, entity_type=entity_type, entity_id=entity_id,
                                                 changes=described or None))
@@ -370,7 +325,6 @@ class AppContext(QObject):
 
     def record(self, action: str, *, entity_type: str | None = None, entity_id: Any = None,
                changes: dict[str, Any] | None = None) -> None:
-        """Audit an event that already happened elsewhere (for example a finished import)."""
         self.run(lambda db, actor: audit.record(db, actor, action, entity_type=entity_type, entity_id=entity_id,
                                                 changes=changes))
 
@@ -378,11 +332,10 @@ class AppContext(QObject):
         if kind in ("client", "data"):
             from techset_leadgen.analytics.models.client_manager import invalidate_clients_cache
 
-            invalidate_clients_cache()  # the analytics keep a client-name cache
+            invalidate_clients_cache()
         self.data_changed.emit(kind)
 
     def verify(self) -> bool:
-        """Periodic check: is the session still valid? Touches it only after real user input."""
         if not self.is_signed_in:
             return False
         touch, self._input_seen = self._input_seen, False
@@ -411,9 +364,6 @@ class AppContext(QObject):
 
 
 class InputMonitor(QObject):
-    """Application-wide event filter, installed only while signed in: notes keyboard, mouse,
-    and wheel input so reading or typing (not just saving) keeps the session alive."""
-
     _EVENTS = frozenset({QEvent.Type.KeyPress, QEvent.Type.MouseButtonPress, QEvent.Type.Wheel})
 
     def __init__(self) -> None:
@@ -437,10 +387,10 @@ class InputMonitor(QObject):
         seen, self.seen = self.seen, False
         return seen
 
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         try:
             kind = event.type()
-        except RuntimeError:  # PySide can hand over a wrapper whose C++ event is already gone
+        except RuntimeError:
             return False
         if kind in self._EVENTS:
             self.seen = True
@@ -453,3 +403,4 @@ def _short(exc: BaseException) -> str:
 
 
 __all__ = ["AppContext", "CodeInfo", "ConnectionProblem", "InputMonitor", "system_timezone"]
+

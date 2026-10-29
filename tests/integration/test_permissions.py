@@ -1,5 +1,3 @@
-"""The role matrix for the whole application (see docs/USER_GUIDE.md, "Roles")."""
-
 from __future__ import annotations
 
 import pytest
@@ -9,7 +7,6 @@ from techset_leadgen.domain.vocabulary import ROLES
 
 A, O = Scope.ALL, Scope.OWN
 
-# role -> {permission: expected scope or None}
 EXPECTED: dict[str, dict[str, Scope | None]] = {
     "read_only": {
         "sales.view": A, "clients.view": A, "leads.view": A, "clients.view_sensitive": None,
@@ -75,3 +72,4 @@ def test_every_signed_in_role_sees_the_analytics():
 def test_unknown_permission_is_a_programming_error():
     with pytest.raises(KeyError):
         scope_for("super_admin", "leads.delete_everything")
+

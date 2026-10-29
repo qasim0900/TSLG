@@ -1,10 +1,3 @@
-"""Scheduled client meetings.
-
-Revision ID: 0003
-Revises: 0002
-Create Date: 2026-10-27
-"""
-
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -58,3 +51,4 @@ def downgrade() -> None:
     op.drop_index("ix_meetings_status_start", table_name="meetings")
     op.drop_index("ix_meetings_attendee_start", table_name="meetings")
     op.drop_table("meetings")
+

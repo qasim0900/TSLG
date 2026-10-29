@@ -1,5 +1,3 @@
-"""Configuration loading, input normalization, and schema validation."""
-
 from __future__ import annotations
 
 
@@ -9,8 +7,6 @@ from techset_leadgen.config import ConfigurationError, load_settings
 from techset_leadgen.errors import ValidationFailed
 from techset_leadgen.services.schemas import ClientCreate, ContactCreate, LeadCreate, LeadTransition, parse
 from techset_leadgen.services import normalize as norm
-
-# --- configuration -------------------------------------------------------------
 
 
 def test_the_application_database_is_the_analytics_file(monkeypatch, tmp_path):
@@ -33,16 +29,13 @@ def test_session_limits_can_be_tuned_and_are_validated(tmp_path):
         load_settings({"TSLG_LOGIN_MAX_FAILURES": "five"}, database_path=tmp_path / "x.db")
 
 
-# --- normalization -------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
         ("https://www.Example.com/about?x=1", "example.com"),
         ("EXAMPLE.com.", "example.com"),
         ("http://shop.example.co.uk:8080", "shop.example.co.uk"),
-        ("www.io", "www.io"),  # a bare www.<tld> is a real two-label domain
+        ("www.io", "www.io"),
         ("münchen.de", "xn--mnchen-3ya.de"),
         ("", None),
     ],
@@ -76,7 +69,7 @@ def test_emails_are_lower_cased_but_not_rewritten():
 def test_company_name_key_ignores_case_accents_punctuation_and_legal_suffixes():
     assert norm.normalize_company_name("Café Müller S.L.") == norm.normalize_company_name("cafe muller sl")
     assert norm.normalize_company_name("Acme, Inc.") == "acme"
-    assert norm.normalize_company_name("Inc") == "inc"  # never empties the key
+    assert norm.normalize_company_name("Inc") == "inc"
 
 
 def test_tags_phone_and_timezone():
@@ -87,9 +80,6 @@ def test_tags_phone_and_timezone():
     assert norm.normalize_timezone("Asia/Karachi") == "Asia/Karachi"
     with pytest.raises(norm.InvalidValue):
         norm.normalize_timezone("Mars/Olympus")
-
-
-# --- schemas -------------------------------------------------------------------
 
 
 def test_schemas_reject_server_owned_fields_mass_assignment():
@@ -132,3 +122,4 @@ def test_lead_stage_names_from_imports_map_to_codes_or_are_refused():
         "converted", "contacted", "new", "qualified", "lost"]
     with pytest.raises(ValueError, match="Unknown lead stage"):
         normalize_lead_status("maybe later")
+

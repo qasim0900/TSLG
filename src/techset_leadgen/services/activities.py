@@ -1,5 +1,3 @@
-"""Calls, emails, meetings, and notes logged against clients and leads."""
-
 from __future__ import annotations
 
 from datetime import timedelta
@@ -48,7 +46,6 @@ def create_activity(db: Session, actor: Actor, data: ActivityCreate) -> Activity
 
 def for_subject(db: Session, actor: Actor, *, lead_id: Any = None, client_id: Any = None,
                 limit: int = 200) -> list[Activity]:
-    """Activities of one lead, or of one client (including its leads), newest first."""
     statement = select(Activity).options(joinedload(Activity.created_by), joinedload(Activity.contact))
     if lead_id is not None:
         actor.require("leads.view")
@@ -59,3 +56,4 @@ def for_subject(db: Session, actor: Actor, *, lead_id: Any = None, client_id: An
     else:
         raise ValidationFailed("Choose a client or a lead.")
     return list(db.scalars(statement.order_by(Activity.occurred_at.desc()).limit(limit)))
+

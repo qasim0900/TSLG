@@ -1,11 +1,3 @@
-"""Central Techset design tokens and Qt palette/style management.
-
-``tokens()`` holds the redesign's colour system for the light and dark themes
-(the same names as the design's CSS variables). The global stylesheet, the
-palette, painted widgets (badges, charts, icons) and the navigation all read
-these values, so a colour is defined once and both themes stay in step.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,7 +8,6 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from techset_leadgen.branding import FONT_ASSETS, FONT_FAMILY, MONO_FONT_ASSETS, MONO_FONT_FAMILY
 
-# Brand values kept for modules that import them directly.
 PRIMARY = "#39B54A"
 PRIMARY_DARK = "#287D35"
 PRIMARY_HOVER = "#1F642A"
@@ -29,15 +20,12 @@ MUTED = "#62637A"
 BORDER = "#C3C6CE"
 ERROR = "#BA1A1A"
 SUCCESS = "#287D35"
-BRAND_GREEN = "#5DB84A"  # the redesign's brand green (logo artwork, accents, chart bars in dark mode)
+BRAND_GREEN = "#5DB84A"
 
 TEXT_ON_DARK = "#F2F5F2"
-# Error tone readable on the dark surfaces (#BA1A1A is about 2.5:1 there).
 ERROR_ON_DARK = "#FFB4AB"
-# Every bordered button, text or icon-only, on every screen: one height (borders included),
-# the same as the inputs. Borderless glyphs, such as a dialog's close cross, keep 32 px.
 BUTTON_HEIGHT = 40
-_BUTTON_BOX = BUTTON_HEIGHT - 2  # a stylesheet's min-height excludes the 1 px borders
+_BUTTON_BOX = BUTTON_HEIGHT - 2
 
 _LIGHT: dict[str, str] = {
     "brand": BRAND_GREEN, "primary": PRIMARY_DARK, "primaryHover": PRIMARY_HOVER, "onPrimary": "#FFFFFF",
@@ -68,7 +56,6 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def tokens(dark: bool | None = None) -> dict[str, str]:
-    """Colour tokens of the active theme (or of the theme ``dark`` names)."""
     return dict(_DARK if (_state["dark"] if dark is None else dark) else _LIGHT)
 
 
@@ -77,13 +64,11 @@ def is_dark() -> bool:
 
 
 def navigation_icon_colors(dark: bool) -> tuple[str, str]:
-    """Return (normal, checked) icon colours matching the navigation button text."""
     values = tokens(dark)
     return values["text2"], values["primaryInk"]
 
 
 def asset_path(name: str) -> Path:
-    """Return an absolute path for a bundled application asset."""
     return (_PROJECT_ROOT / "assets" / name).resolve()
 
 
@@ -91,7 +76,6 @@ _registered: dict[str, str] = {}
 
 
 def _register(assets: tuple[str, ...], fallback: str) -> str:
-    """Register each weight file once; return the family name Qt reports."""
     family = fallback
     for asset in assets:
         if asset not in _registered:
@@ -103,13 +87,11 @@ def _register(assets: tuple[str, ...], fallback: str) -> str:
 
 
 def load_application_font() -> str:
-    """Register the bundled UI and monospace fonts and return the UI family name."""
     _register(MONO_FONT_ASSETS, MONO_FONT_FAMILY)
     return _register(FONT_ASSETS, FONT_FAMILY)
 
 
 def mono_font(pixel_size: int = 12) -> QFont:
-    """The monospace font used for record IDs, timestamps and file paths."""
     font = QFont(MONO_FONT_FAMILY)
     font.setStyleHint(QFont.StyleHint.Monospace)
     font.setPixelSize(pixel_size)
@@ -117,11 +99,6 @@ def mono_font(pixel_size: int = 12) -> QFont:
 
 
 def apply_mono(widget: QWidget, pixel_size: int = 12) -> None:
-    """Show ``widget`` in the monospace font.
-
-    ``setFont`` is not enough: the global stylesheet's font family wins over a
-    widget's own font, so the family is set in the widget's stylesheet instead.
-    """
     widget.setFont(mono_font(pixel_size))
     widget.setStyleSheet(f"font-family: '{MONO_FONT_FAMILY}', 'Consolas', monospace; font-size: {pixel_size}px;")
 
@@ -158,16 +135,14 @@ def _palette(dark: bool) -> QPalette:
 
 
 def build_stylesheet(dark: bool = False) -> str:
-    """Build one global stylesheet from the centralized design tokens."""
     t = tokens(dark)
     suffix = "dark" if dark else "light"
     chevron = asset_path(f"icons/chevron_down_{suffix}.svg").as_posix()
     chevron_disabled = asset_path("icons/chevron_down_disabled.svg").as_posix()
     check = asset_path(f"icons/check_{suffix}.svg").as_posix()
     calendar = asset_path(f"icons/calendar_{suffix}.svg").as_posix()
-    # Focus rings need >= 3:1 against the pixels they replace (WCAG 2.2).
     focus = t["focus"]
-    focus_on_fill = INK if dark else SECONDARY  # on green fills: 7.0:1 / 3.4:1
+    focus_on_fill = INK if dark else SECONDARY
     focus_on_danger = TEXT_ON_DARK if dark else SECONDARY
 
     return f"""
@@ -571,11 +546,6 @@ def build_stylesheet(dark: bool = False) -> str:
 
 
 def calendar_stylesheet(dark: bool | None = None) -> str:
-    """Date-picker styling, applied to each pop-up calendar itself (see ``desktop_ui.popups``).
-
-    Kept out of the application stylesheet: rules scoped under ``QCalendarWidget``
-    would be checked against every widget on every theme change.
-    """
     t = tokens(dark)
     return f"""
     QCalendarWidget {{ background: {t['surface']}; }}
@@ -604,16 +574,11 @@ def calendar_stylesheet(dark: bool | None = None) -> str:
 
 
 class ThemeManager(QObject):
-    """Apply and persist the application's light/dark theme."""
-
     theme_changed = Signal(bool)
 
     def __init__(self, app: QApplication, *, settings: QSettings | None = None) -> None:
         super().__init__()
         self.app = app
-        # Explicit defaultFormat(): native in production, but honours a test's
-        # QSettings.setDefaultFormat()/setPath() redirect, which the plain
-        # (organization, application) constructor ignores.
         self.settings = settings or QSettings(
             QSettings.defaultFormat(),
             QSettings.Scope.UserScope,
@@ -626,9 +591,6 @@ class ThemeManager(QObject):
         if dark is not None:
             self.dark = bool(dark)
         _state["dark"] = self.dark
-        # Fusion draws every control from the stylesheet the same way on Windows,
-        # macOS and Linux; native styles ignore parts of it (e.g. combo pop-ups).
-        # Set once: with a stylesheet active, style().name() no longer reads "fusion".
         if not self.app.property("fusionStyle"):
             self.app.setStyle("Fusion")
             self.app.setProperty("fusionStyle", True)
@@ -642,10 +604,11 @@ class ThemeManager(QObject):
         from techset_leadgen.desktop.icons import refresh_themed_icons
         from techset_leadgen.desktop.motion import install
 
-        install(self.app)  # hover/press motion, the modal shell, and animated tab indicators
+        install(self.app)
         refresh_themed_icons()
         self.theme_changed.emit(self.dark)
 
     def toggle(self) -> bool:
         self.apply(not self.dark)
         return self.dark
+

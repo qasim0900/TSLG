@@ -1,21 +1,8 @@
-"""Backups of the shared PostgreSQL team database with PostgreSQL's own tools.
-
-``pg_dump --format=custom`` takes a consistent snapshot while people keep
-working; every backup is checked by listing its contents with ``pg_restore``
-before it is reported as made. A restore goes only into a new, empty database,
-so it can never overwrite live data: the administrator then points
-``database.ini`` (or ``TSLG_DATABASE_URL``) at the restored database.
-
-The password is handed to the tools in the environment (``PGPASSWORD``), never
-on the command line, where other users of the server could read it. The tools
-come from ``PATH`` or from the folder named by ``TSLG_PG_BIN``.
-"""
-
 from __future__ import annotations
 
 import os
 import shutil
-import subprocess  # noqa: S404 - runs PostgreSQL's own backup tools with fixed arguments
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -24,7 +11,7 @@ from sqlalchemy.engine import URL, make_url
 
 
 class BackupFailed(RuntimeError):
-    """A backup or restore did not complete; the message says why (never the password)."""
+    pass
 
 
 def _tool(name: str) -> str:
@@ -36,7 +23,6 @@ def _tool(name: str) -> str:
 
 
 def _connection(database_url: str) -> tuple[str, dict[str, str]]:
-    """A libpq address without the password, and an environment that carries it."""
     url: URL = make_url(database_url)
     environment = {**os.environ}
     if url.password:
@@ -46,14 +32,13 @@ def _connection(database_url: str) -> tuple[str, dict[str, str]]:
 
 
 def _run(arguments: list[str], environment: dict[str, str]) -> str:
-    result = subprocess.run(arguments, env=environment, capture_output=True, text=True, check=False)  # noqa: S603
+    result = subprocess.run(arguments, env=environment, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise BackupFailed((result.stderr or result.stdout).strip()[:2000] or f"{Path(arguments[0]).name} failed")
     return result.stdout
 
 
 def backup(database_url: str, folder: Path) -> Path:
-    """Write a verified ``.dump`` of the team database into ``folder`` and return its path."""
     folder.mkdir(parents=True, exist_ok=True)
     address, environment = _connection(database_url)
     name = make_url(database_url).database or "team"
@@ -68,7 +53,6 @@ def backup(database_url: str, folder: Path) -> Path:
 
 
 def restore(dump: Path, empty_database_url: str) -> None:
-    """Restore ``dump`` into a new, empty database (refuses one that already has tables)."""
     if not dump.is_file():
         raise BackupFailed(f"{dump} does not exist.")
     engine = create_engine(empty_database_url, poolclass=pool.NullPool)
@@ -86,3 +70,4 @@ def restore(dump: Path, empty_database_url: str) -> None:
 
 
 __all__ = ["BackupFailed", "backup", "restore"]
+

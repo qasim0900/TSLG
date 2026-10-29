@@ -1,5 +1,3 @@
-"""Generate import templates without depending on a UI framework."""
-
 from __future__ import annotations
 
 import csv
@@ -54,3 +52,4 @@ def generate_template(template_type: str) -> str:
 
 
 __all__ = ["generate_template", "write_template"]
+

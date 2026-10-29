@@ -1,11 +1,3 @@
-"""PySide6 leads workspace: funnel analytics and lead management on the same lead records.
-
-Analytics come from the existing controller and report layers. Changes to a
-lead (new leads, edits, stage moves with reasons, assignment, follow-ups) go
-through the business services via the signed-in session, which enforce roles
-and record the audit trail. Imports keep creating leads in the same table.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -106,23 +98,20 @@ def _source_label(value: Any) -> str:
 
 
 def _lead_title(lead: dict[str, Any]) -> str:
-    """Manual leads have a title; imported ones are named after their client or source."""
     client = str(lead.get("client_name") or "").strip()
     if lead.get("title"):
         return str(lead["title"])
-    if client and client not in ("—", "-"):  # the analytics fill missing clients with "—"
+    if client and client not in ("—", "-"):
         return client
     return f"{_source_label(lead.get('source'))} lead"
 
 
 def _tone_item(item: QTableWidgetItem, tone: str) -> QTableWidgetItem:
-    """Show the cell as a badge in ``tone`` (for values like "22.2%" the tone table cannot know)."""
     item.setData(TONE_ROLE, tone)
     return item
 
 
 def _readonly_item(value: Any, *, numeric: float | int | None = None, sort_key: Any = None) -> QTableWidgetItem:
-    """A read-only cell; ``numeric`` right-aligns and sorts by number, ``sort_key`` only sorts."""
     item = sortable_item(str(value if value not in (None, "") else "—"), numeric if numeric is not None else sort_key)
     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
     if numeric is not None:
@@ -131,8 +120,6 @@ def _readonly_item(value: Any, *, numeric: float | int | None = None, sort_key: 
 
 
 class _OptionalDate(QWidget):
-    """A checkable ISO date field which also supports open-ended ranges."""
-
     changed = Signal()
 
     def __init__(self, label: str, parent: QWidget | None = None):
@@ -169,8 +156,6 @@ def _set_bar(bar: QProgressBar, level: float) -> None:
 
 
 class _MeetingList(QWidget):
-    """Upcoming meetings: a date block, the lead, its source and owner, the stage, and "Open lead"."""
-
     open_requested = Signal(str)
     _MONTHS = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
 
@@ -239,13 +224,6 @@ class _MeetingList(QWidget):
 
 
 class LeadsPage(QWidget):
-    """Responsive lead analytics and management page.
-
-    Parameters are injectable to keep the widget straightforward to test.  The
-    default controller is the existing pure/application controller; ``refresh``
-    is the only method that queries it for a new snapshot.
-    """
-
     notification_requested = Signal(str, str)
     data_changed = Signal()
 
@@ -281,7 +259,6 @@ class LeadsPage(QWidget):
 
     @property
     def active_leads(self) -> list[dict[str, Any]]:
-        """Return a copy of the current filtered snapshot."""
         return list(self._filtered_leads)
 
     @property
@@ -374,7 +351,6 @@ class LeadsPage(QWidget):
             self.clear_filters_button,
         ]
         self._layout.addWidget(filters_box)
-        # The card's subtitle line reports the active filters and the result count.
         self.filter_summary = filters_box.subtitle_label
         self.filter_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.filter_summary.setAccessibleName("Active lead filters")
@@ -456,15 +432,12 @@ class LeadsPage(QWidget):
         set_empty_state(self.source_table, EmptyState(
             "No leads in this selection", "Change the filters, or add leads to see source performance.",
             icon="leads"), "No leads in this selection.")
-        # Explicit defaults: enabling sorting otherwise re-sorts by column 0, descending.
         self.source_table.sortItems(1, Qt.SortOrder.DescendingOrder)
         analytics_tabs.addTab(self.source_table, "Source performance")
         marketing_tab = QWidget()
         marketing_layout = QVBoxLayout(marketing_tab)
         marketing_layout.setContentsMargins(0, 16, 0, 0)
         marketing_layout.setSpacing(12)
-        # Overall efficiency for the active snapshot (restored from the Flet
-        # UI's marketing summary); reflowed between 5 and 3 columns.
         self._marketing_summary_grid = QGridLayout()
         self._marketing_summary_grid.setContentsMargins(20, 0, 20, 0)
         marketing_layout.addLayout(self._marketing_summary_grid)
@@ -537,8 +510,8 @@ class LeadsPage(QWidget):
             "Filtered leads",
             badges=(3, 5),
             empty="No leads match these filters. Clear the filters, or add a lead with New lead.",
-            multi=True,  # several rows can be selected for "Assign selected…"
-            check_column=0,  # the checkboxes before the date pick rows for "Assign selected"
+            multi=True,
+            check_column=0,
         )
         self.leads_table.setItemDelegate(TableDelegate(self.leads_table, (3, 5), avatar_columns=(4,),
                                                        strong_columns=(1,), check_column=0))
@@ -553,9 +526,7 @@ class LeadsPage(QWidget):
         table_box.add_action(self.selected_badge)
         self.leads_table.itemSelectionChanged.connect(self._selection_changed)
         enable_column_choice(self.leads_table, "leads", locked=(1, _ACTIONS_COLUMN))
-        self.leads_table.sortItems(0, Qt.SortOrder.DescendingOrder)  # newest first
-        # Enter or double-click opens the lead; the painted buttons and the
-        # context menu offer the same actions without a widget per row.
+        self.leads_table.sortItems(0, Qt.SortOrder.DescendingOrder)
         self.leads_table.activated.connect(self._on_lead_activated)
         self._lead_row_actions = (
             RowAction("open", "Edit", "Open the lead: details, timeline, tasks, and all actions", icon="edit"),
@@ -587,8 +558,6 @@ class LeadsPage(QWidget):
         self._layout.addWidget(self.status_label)
         self._layout.addStretch(1)
 
-        # Re-filtering 5,000 leads costs up to ~0.3 s; wait for a typing pause
-        # (or Enter) instead of re-rendering on every keystroke.
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(SEARCH_DEBOUNCE_MS)
@@ -632,7 +601,7 @@ class LeadsPage(QWidget):
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         return table
 
-    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._reflow()
 
@@ -648,14 +617,11 @@ class LeadsPage(QWidget):
         self._layout_mode = mode
 
         for widget in self._filter_widgets:
-            self._filter_grid.removeWidget(widget)  # takeAt() leaked the item
+            self._filter_grid.removeWidget(widget)
         for index, widget in enumerate(self._filter_widgets):
             row, column = divmod(index, filter_columns)
-            # Bottom-align so the button lines up with the editors, not their labels.
             alignment = Qt.AlignmentFlag.AlignBottom if widget is self.clear_filters_button else Qt.AlignmentFlag(0)
             self._filter_grid.addWidget(widget, row, column, alignment)
-        # Reset every column: stretch left on columns from a wider layout would
-        # otherwise reserve empty space after switching to fewer columns.
         for column in range(4):
             self._filter_grid.setColumnStretch(column, 1 if column < filter_columns else 0)
 
@@ -682,7 +648,6 @@ class LeadsPage(QWidget):
             self._marketing_summary_grid.setColumnStretch(column, 1 if column < summary_columns else 0)
 
     def _load_extras(self) -> None:
-        """Owner, title, priority, and follow-up for each lead (kept with the lead rows)."""
         self._extras = {}
         if self.context is None or not self.context.is_signed_in:
             return
@@ -708,7 +673,6 @@ class LeadsPage(QWidget):
         self._selection_changed()
 
     def refresh(self, preserve_filters: bool = True) -> None:
-        """Reload database-backed reference data and reapply active filters."""
         previous_source = self.source_combo.currentData() if preserve_filters else ALL_SOURCES
         self.update_permissions()
         try:
@@ -730,7 +694,7 @@ class LeadsPage(QWidget):
             self.source_combo.blockSignals(False)
             self.apply_filters()
             self._notify(f"Loaded {len(self._all_leads)} leads.", "info")
-        except Exception as exc:  # controllers normally contain their own failures
+        except Exception as exc:
             logger.exception("Could not refresh PySide6 leads page")
             self._all_leads = []
             self.apply_filters()
@@ -769,7 +733,7 @@ class LeadsPage(QWidget):
         self.apply_filters()
 
     def apply_filters(self) -> None:
-        self._search_timer.stop()  # this run already includes the latest search text
+        self._search_timer.stop()
         start = self.start_date.value()
         end = self.end_date.value()
         if start and end and start > end:
@@ -859,7 +823,6 @@ class LeadsPage(QWidget):
         for position, (key, bar) in enumerate(self._funnel_bars.items()):
             value = int(self._funnel_stats.get(key, 0))
             bar.setRange(0, max(total, 1) * 100)
-            # The fill sweeps in from the left (1 s, each stage 0.1 s after the previous one).
             animate(0.0, float(value * 100), 1000, partial(_set_bar, bar), curve=EASE_OUT, delay=100 * position,
                     owner=bar)
             percent = (value / total * 100) if total else 0.0
@@ -916,7 +879,6 @@ class LeadsPage(QWidget):
                 _readonly_item(int(values.get("customers", 0)), numeric=int(values.get("customers", 0))),
                 _readonly_item(f"€{float(values.get('revenue', 0)):,.2f}", numeric=float(values.get("revenue", 0))),
                 _readonly_item(f"€{float(values.get('spend', 0)):,.2f}", numeric=float(values.get("spend", 0))),
-                # Without spend these ratios are undefined (OPEN-01), not "free".
                 _readonly_item(f"€{float(values.get('cpl', 0)):,.2f}" if has_spend else "—",
                                numeric=float(values.get("cpl", 0)) if has_spend else -1),
                 _readonly_item(f"€{float(values.get('cac', 0)):,.2f}" if has_spend else "—",
@@ -976,7 +938,6 @@ class LeadsPage(QWidget):
                     date_text(meeting) or "—",
                     lead.get("client_name") or "—",
                 )
-                # Dates are shown as "09 Oct 2026" but sort chronologically.
                 sort_keys = {0: created, 6: follow_up.timestamp() if follow_up else -1.0, 7: meeting}
                 for column, value in enumerate(values):
                     item = _readonly_item(value, sort_key=sort_keys.get(column))
@@ -1006,7 +967,7 @@ class LeadsPage(QWidget):
     def _run_lead_action(self, key: str, lead_id: str) -> None:
         if not lead_id:
             return
-        if key == "more":  # the ⋯ button: the same actions as the context menu
+        if key == "more":
             menu = QMenu(self.leads_table)
             for action in self._lead_menu_actions:
                 menu.addAction(action.label, partial(self._run_lead_action, action.key, lead_id))
@@ -1016,7 +977,6 @@ class LeadsPage(QWidget):
         {"open": self.open_lead, "stage": self.change_stage, "edit": self.edit_lead}[key](lead_id)
 
     def _selection_changed(self) -> None:
-        """ "Assign 2 selected" (disabled with nothing picked) and the "2 selected" badge, as in the design."""
         count = len(self.leads_table.selectionModel().selectedRows())
         self.assign_button.setEnabled(count > 0)
         self.assign_button.setText(f"Assign {count} selected" if count else "Assign selected")
@@ -1035,7 +995,6 @@ class LeadsPage(QWidget):
         self.data_changed.emit()
 
     def open_lead(self, lead_id: str) -> bool:
-        """Show one lead with its timeline, tasks, and the actions the user's role allows."""
         context = self._require_session()
         if context is None:
             return False
@@ -1055,7 +1014,6 @@ class LeadsPage(QWidget):
             return None
 
     def edit_lead(self, lead_id: str) -> bool:
-        """Edit the lead's details (title, client, source, meeting date, owner, priority, notes)."""
         snapshot = self._snapshot(lead_id)
         if snapshot is None or self.context is None:
             return False
@@ -1111,7 +1069,6 @@ class LeadsPage(QWidget):
         values = {
             "total_spend": format_eur(spend),
             "total_revenue": format_eur(summary.get("total_revenue", 0)),
-            # Without spend these ratios are undefined rather than zero.
             "avg_cpl": format_eur(summary.get("avg_cpl", 0)) if has_spend else "—",
             "avg_cac": format_eur(summary.get("avg_cac", 0)) if has_spend else "—",
             "overall_roi": f"{float(summary.get('overall_roi', 0) or 0) * 100:+.1f}%" if has_spend else "—",
@@ -1125,7 +1082,6 @@ class LeadsPage(QWidget):
         )
 
     def manage_spend(self) -> bool:
-        """Open the spend editor; refresh efficiency metrics if records changed."""
         dialog = MarketingSpendDialog(self._controller, self, context=self.context)
         dialog.exec()
         if not dialog.changed:
@@ -1136,8 +1092,7 @@ class LeadsPage(QWidget):
         return True
 
     def export_report(self, filename: str | os.PathLike[str] | bool | None = None) -> str | None:
-        """Export the active snapshot; passing a path avoids the file dialog."""
-        if isinstance(filename, bool):  # Qt's clicked(bool) signal
+        if isinstance(filename, bool):
             filename = None
         if filename is None:
             selected, _filter = QFileDialog.getSaveFileName(
@@ -1175,7 +1130,6 @@ class LeadsPage(QWidget):
         return str(generated_path) if success and generated_path else None
 
     def _notify(self, message: str, level: str) -> None:
-        """Show inline feedback; the hosting shell decides whether to pop up errors."""
         self.status_label.setText(message)
         self.status_label.setProperty("level", level)
         self.status_label.style().unpolish(self.status_label)
@@ -1184,3 +1138,4 @@ class LeadsPage(QWidget):
 
 
 __all__ = ["LeadsPage"]
+

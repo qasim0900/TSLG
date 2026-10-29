@@ -1,5 +1,3 @@
-"""Native results dialog for global prospect and legacy-record search."""
-
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
@@ -22,11 +20,6 @@ _KINDS = {"prospects": "Prospect", "clients": "Client", "contacts": "Contact", "
 
 
 class SearchDialog(ModalDialog):
-    """``results`` are ``(kind, record_id, name, details)``; Enter or Open picks one.
-
-    A contact result opens its client's profile, so ``record_id`` is the client's ID.
-    """
-
     def __init__(self, parent: QWidget | None, results: list[tuple[str, str, str, str]], query: str) -> None:
         super().__init__(parent)
         self.setWindowTitle("Search")
@@ -55,7 +48,6 @@ class SearchDialog(ModalDialog):
             details_item.setToolTip(details)
             self.table.setItem(row, 2, details_item)
         fit_columns(self.table)
-        # Bound methods, not lambdas capturing the dialog (DEF-026).
         self.table.itemActivated.connect(self._item_activated)
         layout.addWidget(self.table, 1)
         buttons = QDialogButtonBox()
@@ -87,3 +79,4 @@ class SearchDialog(ModalDialog):
 
 
 __all__ = ["SearchDialog"]
+

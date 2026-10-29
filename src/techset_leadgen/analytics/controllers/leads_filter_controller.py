@@ -1,19 +1,8 @@
-"""
-Controlador de filtros client-side para la vista de Leads.
-
-Extraído de views/leads_view.py._on_filter_changed() — lógica pura.
-No toca UI. Recibe parámetros de filtro y retorna lista filtrada.
-
-Capa: controllers/
-Consumidores: views/leads_view.py
-"""
-
 from datetime import date, timedelta
 
 from techset_leadgen.domain.lead_stages import LEAD_STATUSES
 from techset_leadgen.domain.source_labels import SOURCE_LABELS as _SOURCE_LABELS
 
-# ── Constantes de filtro (movidas desde leads_view.py) ─────────
 
 ALL_SOURCES = "All"
 ALL_STAGES = "All"
@@ -41,25 +30,6 @@ def filter_leads(
     owner: str | None = None,
     current_user_id: str | None = None,
 ) -> list:
-    """
-    Aplica hasta 4 filtros client-side sobre la lista completa de leads.
-
-    Args:
-        all_leads: Lista original completa de leads enriched.
-        source: Valor del dropdown de fuente (None o "Todas" = sin filtro).
-        stage: Valor del dropdown de stage (None o "Todos" = sin filtro).
-        date_label: Label del dropdown de período ("7 días", "30 días", etc.).
-        start_date: Fecha inicial ISO YYYY-MM-DD para rango específico.
-        end_date: Fecha final ISO YYYY-MM-DD para rango específico.
-        search_term: Texto libre de búsqueda (case-insensitive).
-        owner: "me", "none", or a user ID; matches the ``owner_id`` key leads carry
-            once the Leads page has merged in their owner (None = no filter).
-        current_user_id: The signed-in user, for ``owner="me"``.
-
-    Returns:
-        Lista filtrada de leads (subconjunto de all_leads).
-    """
-    # Fecha específica tiene prioridad sobre presets rápidos.
     cutoff_date = None
     if not start_date and not end_date and date_label and date_label != ALL_TIME:
         for label, days in _DATE_RANGE_OPTIONS:
@@ -67,7 +37,6 @@ def filter_leads(
                 cutoff_date = (date.today() - timedelta(days=days)).isoformat()
                 break
 
-    # Start from the full dataset; apply each filter only when non-default
     filtered = all_leads
 
     if source and source != ALL_SOURCES:
@@ -112,3 +81,4 @@ def filter_leads(
             ]
 
     return filtered
+

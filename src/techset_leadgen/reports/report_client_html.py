@@ -1,9 +1,3 @@
-"""
-Generación de informe HTML para un cliente individual.
-
-Consume datos ya cargados desde ClientesView (client_info + stats).
-NO realiza queries adicionales.
-"""
 import html
 import os
 from datetime import datetime
@@ -12,18 +6,6 @@ from techset_leadgen.utils.formatting import format_datetime_us, format_eur_no_s
 
 
 def generate_client_html_report(client_info: dict, stats: dict, filename: str | None = None):
-    """
-    Genera un informe HTML para un cliente individual.
-
-    Args:
-        client_info: dict con keys: client_id, name, cif, address, contact_person, email
-        stats: dict de ClientsController.get_client_sales_stats() con keys:
-               total_sales (count), total_amount, avg_amount, sales (list of dicts)
-        filename: Ruta del archivo (si es None, genera uno automático)
-
-    Returns:
-        tuple (success: bool, message: str, filepath: str)
-    """
     try:
         name = html.escape(client_info.get('name', 'Client'))
 
@@ -35,7 +17,6 @@ def generate_client_html_report(client_info: dict, stats: dict, filename: str | 
         if os.path.dirname(filename):
             os.makedirs(os.path.dirname(filename), exist_ok=True)
 
-        # ── Client info section ──────────────────────────────────
         cif = html.escape(client_info.get('cif') or '—')
         email = html.escape(client_info.get('email') or '—')
         address = html.escape(client_info.get('address') or '—')
@@ -66,7 +47,6 @@ def generate_client_html_report(client_info: dict, stats: dict, filename: str | 
         </div>
         '''
 
-        # ── Metrics section ──────────────────────────────────────
         total_sales_count = stats.get('total_sales', 0)
         total_amount = stats.get('total_amount', 0)
         avg_amount = stats.get('avg_amount', 0)
@@ -88,7 +68,6 @@ def generate_client_html_report(client_info: dict, stats: dict, filename: str | 
         </div>
         '''
 
-        # ── Sales history table ──────────────────────────────────
         sales_list = stats.get('sales', [])
         table_html = ""
         if sales_list:
@@ -120,7 +99,6 @@ def generate_client_html_report(client_info: dict, stats: dict, filename: str | 
             </table>
             '''
 
-        # ── Assemble content ─────────────────────────────────────
         content_block = f'''
         <div class="header">
             <div class="brand">Techset LeadGen</div>
@@ -155,3 +133,4 @@ def generate_client_html_report(client_info: dict, stats: dict, filename: str | 
         import traceback
         traceback.print_exc()
         return (False, f"Could not generate the client report: {str(e)}", None)
+

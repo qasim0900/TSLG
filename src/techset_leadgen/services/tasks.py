@@ -1,9 +1,3 @@
-"""Tasks and follow-ups.
-
-A lead's ``next_follow_up_at`` is derived from its open tasks (earliest due
-date), so scheduling a follow-up always means creating a task someone owns.
-"""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime, time, timedelta
@@ -40,14 +34,12 @@ AUDITED_FIELDS = ("title", "description", "client_id", "lead_id", "prospect_id",
 _ASSIGNEE = aliased(User)
 _PROSPECT = aliased(Prospect)
 SORTS = {"due": Task.due_at,
-         # Business order (urgent first when descending), not the alphabetical order of the codes.
          "priority": case({"low": 0, "medium": 1, "high": 2, "urgent": 3}, value=Task.priority, else_=1),
          "title": Task.title, "created": Task.created_at, "status": Task.status,
          "assignee": func.lower(_ASSIGNEE.full_name), "activity": _PROSPECT.last_activity_at}
 
 
 def local_day_bounds(timezone: str, now: datetime | None = None) -> tuple[datetime, datetime]:
-    """UTC start/end of the current calendar day in ``timezone`` (DST-safe)."""
     zone = ZoneInfo(timezone)
     today = (now or utcnow()).astimezone(zone).date()
     start = datetime.combine(today, time.min, tzinfo=zone)
@@ -59,8 +51,6 @@ def _visibility(actor: Actor) -> Any:
     scope = actor.require("tasks.view")
     if scope is Scope.ALL:
         return Task.id.is_not(None)
-    # A follow-up follows its current assignee. Its original creator does not
-    # retain access after a manager reassigns the prospect.
     return or_(Task.assigned_to_id == actor.user_id,
                (Task.kind != "follow_up") & (Task.created_by_id == actor.user_id))
 
@@ -80,7 +70,7 @@ def list_tasks(
     now: datetime | None = None,
 ) -> Page[Task]:
     statement = (select(Task).where(_visibility(actor))
-                 .outerjoin(_ASSIGNEE, _ASSIGNEE.id == Task.assigned_to_id)  # for the assignee and activity sorts
+                 .outerjoin(_ASSIGNEE, _ASSIGNEE.id == Task.assigned_to_id)
                  .outerjoin(_PROSPECT, _PROSPECT.id == Task.prospect_id)
                  .options(joinedload(Task.assigned_to), joinedload(Task.lead), joinedload(Task.client),
                           joinedload(Task.prospect)))
@@ -130,7 +120,6 @@ def get_task(db: Session, actor: Actor, task_id: Any) -> Task:
 
 
 def refresh_follow_up(db: Session, lead_id: str | None) -> None:
-    """Recompute a lead's next follow-up from its open tasks."""
     if lead_id is None:
         return
     db.flush()
@@ -141,7 +130,6 @@ def refresh_follow_up(db: Session, lead_id: str | None) -> None:
 
 
 def refresh_prospect_follow_up(db: Session, prospect_id: str | None) -> None:
-    """Recompute a prospect's deadline from its single open follow-up."""
     if prospect_id is None:
         return
     db.flush()
@@ -269,14 +257,11 @@ def _prospect_title(prospect: Prospect) -> str:
 
 
 def _require_follow_up_owner(db: Session, actor: Actor, task: Task) -> None:
-    """Authorize a follow-up mutation by its current responsible user."""
     scope = actor.require("outreach.record")
     if task.kind != "follow_up" or task.prospect_id is None:
         raise NotFound()
     if scope is Scope.OWN and task.assigned_to_id != actor.user_id:
         raise PermissionDenied("This follow-up is no longer assigned to you.")
-    # Managers still need prospect visibility; contributors get it from their
-    # assignment history/current task, and a forged identifier stays hidden.
     prospects.get_prospect(db, actor, task.prospect_id)
 
 
@@ -320,7 +305,6 @@ def schedule_follow_up(
     assignment: ProspectAssignment | None = None,
     version: int | None = None,
 ) -> Task:
-    """Create or reschedule the prospect's one open follow-up."""
     prospect, assignment, existing = _schedule_context(db, actor, data.prospect_id, assignment)
     if data.request_id:
         prior = db.scalar(select(Task).where(Task.request_id == data.request_id))
@@ -329,7 +313,6 @@ def schedule_follow_up(
                 raise Conflict("This save request was already used for a different follow-up.")
             return prior
 
-    # An old follow-up whose assignee was removed falls back to the person scheduling it.
     responsible_id = assignment.assignee_id if assignment is not None else (
         (existing.assigned_to_id if existing is not None else None) or actor.user_id)
     if existing is None:
@@ -490,7 +473,6 @@ def set_status(db: Session, actor: Actor, task_id: Any, status: str, version: in
 
 
 def counts(db: Session, actor: Actor, *, now: datetime | None = None, kind: str | None = None) -> dict[str, int]:
-    """Open, overdue, and due-today counts of the user's own tasks (of one ``kind``, or all)."""
     if not actor.can("tasks.view"):
         return {"open": 0, "overdue": 0, "today": 0}
     current = now or utcnow()
@@ -503,3 +485,4 @@ def counts(db: Session, actor: Actor, *, now: datetime | None = None, kind: str 
         "overdue": db.scalar(base.where(Task.due_at < current)) or 0,
         "today": db.scalar(base.where(Task.due_at >= start, Task.due_at < end)) or 0,
     }
+

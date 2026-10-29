@@ -145,7 +145,6 @@ def test_sales_page_renders_snapshot_and_filters(qt_app):
         "Consulting",
     }
     assert page.trend_chart.accessibleName() == "Sales trend chart"
-    # Period B is drawn beside Period A in the trend; there is no separate comparison tab.
     assert [page.chart_tabs.tabText(index) for index in range(page.chart_tabs.count())] == [
         "Trend", "Products", "Top clients"]
 
@@ -175,3 +174,4 @@ def test_sales_page_exports_the_visible_snapshot(qt_app, tmp_path):
     assert "Techset LeadGen" in html
     assert "Automation" in html
     page.close()
+

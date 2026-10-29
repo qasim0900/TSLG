@@ -1,9 +1,3 @@
-"""Screens shown before the CRM opens: connection problems, first-run setup, sign-in, codes.
-
-Every screen uses the same split layout: the dark brand panel on the left
-(hidden when the window is narrow) and the form, centred, on the right.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -42,8 +36,6 @@ _FEATURES = (
 
 
 class BrandPanel(QFrame):
-    """The dark panel beside every sign-in form (the same colours in both themes)."""
-
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("authBrand")
@@ -128,11 +120,6 @@ class BrandPanel(QFrame):
 
 
 class _CenteredCard(QWidget):
-    """The form column of an auth screen: heading, text, an alert line, form rows, and buttons.
-
-    (The name is historical; the form now sits beside the brand panel instead of in a card.)
-    """
-
     def __init__(self, heading: str, intro: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         outer = QHBoxLayout(self)
@@ -188,7 +175,7 @@ class _CenteredCard(QWidget):
         self.body.addWidget(self.notice)
         self.body.addWidget(self.error)
         self._inputs: dict[str, QLineEdit] = {}
-        self._blocks: dict[str, QWidget] = {}  # each field's caption, marker, input and checklist
+        self._blocks: dict[str, QWidget] = {}
         self._rule_updaters: list[Callable[[], None]] = []
 
     def refresh_rules(self, *, tried: bool = False) -> None:
@@ -198,7 +185,7 @@ class _CenteredCard(QWidget):
         for update in self._rule_updaters:
             update()
 
-    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - Qt API
+    def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         self.brand_panel.setVisible(event.size().width() >= 900)
         self.brand_panel.features.setVisible(event.size().height() >= 640)
@@ -206,12 +193,6 @@ class _CenteredCard(QWidget):
     def field(self, name: str, label: str, *, password: bool = False, placeholder: str = "",
               required: bool = True, rules: QLineEdit | None = None, rules_name: QLineEdit | None = None,
               rules_always: bool = True) -> QLineEdit:
-        """A labelled input. ``rules`` (the email field) adds the live password checklist under it;
-        ``rules_name`` (the name field) lets it check the password is not like the name too.
-
-        The caption, the required marker, the input and the checklist share one container,
-        so :meth:`field_block` hides or shows the whole field.
-        """
         container = QWidget()
         block = QVBoxLayout(container)
         block.setContentsMargins(0, 0, 0, 0)
@@ -260,12 +241,10 @@ class _CenteredCard(QWidget):
         return editor
 
     def field_block(self, name: str) -> QWidget:
-        """The whole field ``name``: caption, required marker, input, and checklist."""
         return self._blocks[name]
 
     @staticmethod
     def _add_reveal(editor: QLineEdit) -> None:
-        """An eye button inside a password field that shows or hides what was typed."""
         RevealButton(editor)
 
     def button(self, text: str, handler: Callable[[], object], *, primary: bool = False) -> QPushButton:
@@ -284,7 +263,6 @@ class _CenteredCard(QWidget):
         return button
 
     def location_row(self) -> QLabel:
-        """The "Local database · path" (or "Team database · server") line under the form."""
         holder = QFrame()
         holder.setObjectName("cardFooter")
         row = QHBoxLayout(holder)
@@ -412,8 +390,6 @@ class SignInPage(_CenteredCard):
         super().__init__("Sign in", "Use the account your administrator created for you.", parent)
         self.context = context
         self.email = self.field("email", "Email", placeholder="name@company.com")
-        # No password checklist here: it describes a new password, and after a failed sign-in (the field
-        # is cleared) it showed every rule in red, as if the person's existing password were too weak.
         self.password = self.field("password", "Password", password=True, placeholder="Enter your password")
         self.password.returnPressed.connect(self.submit)
         self.email.returnPressed.connect(self.password.setFocus)
@@ -469,7 +445,6 @@ class CodePage(_CenteredCard):
         self.who.setWordWrap(True)
         self.who.setTextFormat(Qt.TextFormat.PlainText)
         self.body.addWidget(self.who)
-        # The account's email and name, for the "not like your name or email" rule.
         self._account_email = QLineEdit(self)
         self._account_email.hide()
         self._account_name = QLineEdit(self)
@@ -480,7 +455,6 @@ class CodePage(_CenteredCard):
         self.confirm.returnPressed.connect(self.submit)
         self.save_button = self.button("Set password and sign in", self.submit, primary=True)
         self.link("Back to sign-in", self.back_requested.emit)
-        # Shown once the code is accepted. Whole fields, so no caption or "*" stays behind.
         self._password_rows = [self.field_block("password"), self.field_block("confirm"),
                                self.save_button, self.who]
 
@@ -527,3 +501,4 @@ class CodePage(_CenteredCard):
 
 
 __all__ = ["BrandPanel", "CodePage", "ConnectionPage", "SetupPage", "SignInPage"]
+

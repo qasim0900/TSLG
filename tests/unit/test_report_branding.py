@@ -1,5 +1,3 @@
-"""Generated-report brand regression tests."""
-
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -147,8 +145,7 @@ def test_leads_report_does_not_present_undefined_zero_spend_ratios_as_zero(tmp_p
 
     assert success, message
     rendered = output.read_text(encoding="utf-8")
-    # CPL, CAC and ROI are mathematically undefined without spend. Showing zero
-    # would incorrectly imply free acquisition and a measured 0% return.
     assert rendered.count('<div class="value">—</div>') >= 2
     assert rendered.count("<td>—</td>") >= 2
     assert '<td style="color:#62637A;font-weight:600">—</td>' in rendered
+

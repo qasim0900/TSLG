@@ -1,13 +1,3 @@
-"""Measure the outreach screens' queries on a realistic team-sized dataset (p50/p95, milliseconds).
-
-Builds a throw-away database (a temporary SQLite file, or a new database on the
-PostgreSQL server given with --postgres ADMIN_URL), seeds it through the same
-models the application uses, and times each screen's service call. Nothing
-touches the application's own data.
-
-    poetry run python scripts/benchmark_outreach.py [--prospects 5000] [--members 25] [--postgres URL]
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -23,18 +13,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from sqlalchemy import create_engine, pool, text  # noqa: E402
-from sqlalchemy.engine import make_url  # noqa: E402
+from sqlalchemy import create_engine, pool, text
+from sqlalchemy.engine import make_url
 
-from techset_leadgen.config import settings_for_url  # noqa: E402
-from techset_leadgen.database import migrations_util  # noqa: E402
-from techset_leadgen.database.engine import create_db_engine, create_session_factory  # noqa: E402
-from techset_leadgen.database.models import (  # noqa: E402
+from techset_leadgen.config import settings_for_url
+from techset_leadgen.database import migrations_util
+from techset_leadgen.database.engine import create_db_engine, create_session_factory
+from techset_leadgen.database.models import (
     AssignmentBatch, Organization, OutreachEvent, Prospect, ProspectAssignment, Task, User,
 )
-from techset_leadgen.services import assignments, prospects, tasks, team  # noqa: E402
-from techset_leadgen.services.access import Actor  # noqa: E402
-from techset_leadgen.services.pagination import PageRequest  # noqa: E402
+from techset_leadgen.services import assignments, prospects, tasks, team
+from techset_leadgen.services.access import Actor
+from techset_leadgen.services.pagination import PageRequest
 
 NOW = datetime(2026, 10, 27, 9, tzinfo=UTC)
 EVENTS = ("connection_sent", "connection_accepted", "message_sent", "reply_received")
@@ -53,7 +43,6 @@ def seed(factory, prospect_count: int, member_count: int) -> tuple[Actor, Actor]
             db.add(AssignmentBatch(id=f"batch-{day}", name=f"Day {day}", work_date=date(2026, 10, 7) + timedelta(day),
                                    status="active", created_by_id=manager.id))
         db.flush()
-        # One list per table, flushed in foreign-key order (events and tasks name their prospect by id only).
         layers: dict[str, list[object]] = {"prospects": [], "assignments": [], "children": []}
         for number in range(prospect_count):
             prospect_id = str(uuid.uuid4())
@@ -102,14 +91,14 @@ def measure(factory, name: str, work: Callable, repeat: int) -> tuple[str, float
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description="Measure the outreach screens' queries on a realistic team-sized dataset (p50/p95, milliseconds).")
     parser.add_argument("--prospects", type=int, default=5000)
     parser.add_argument("--members", type=int, default=25)
     parser.add_argument("--repeat", type=int, default=40)
     parser.add_argument("--postgres", help="admin URL of a PostgreSQL server that may create databases")
     options = parser.parse_args()
 
-    cleanup: Callable[[], None] = lambda: None  # noqa: E731
+    cleanup: Callable[[], None] = lambda: None
     if options.postgres:
         admin = create_engine(make_url(options.postgres).set(drivername="postgresql+psycopg"),
                               poolclass=pool.NullPool, isolation_level="AUTOCOMMIT")
@@ -168,3 +157,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

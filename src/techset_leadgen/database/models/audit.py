@@ -1,5 +1,3 @@
-"""Business audit trail (separate from the operational application log)."""
-
 from __future__ import annotations
 
 from datetime import datetime
@@ -25,7 +23,8 @@ class AuditLog(Base):
     entity_type: Mapped[str | None] = mapped_column(String(32))
     entity_id: Mapped[str | None] = mapped_column(String(120))
     changes: Mapped[dict[str, Any] | None] = mapped_column(JSON)
-    client_host: Mapped[str | None] = mapped_column(String(128))  # computer the change came from
+    client_host: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     actor: Mapped[User | None] = relationship()
+

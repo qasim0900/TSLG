@@ -1,24 +1,3 @@
-"""Administrator commands (``TechsetLeadGen --COMMAND [ARGUMENT]``).
-
-``--issue-reset-code EMAIL``: for when nobody who can manage users is able to
-sign in (for example the only Super Admin forgot their password). It prints a
-one-time password-reset code for that account; the person enters it on the
-sign-in screen under "I have an activation or password-reset code". Anyone who
-can run this already has database access, so it grants nothing beyond that; it
-is still audited.
-
-``--upgrade-database``: brings the database schema up to this version. The
-desktop does this by itself for a local file (after a backup); for the shared
-team database the administrator runs it once per release, after backing up.
-
-``--copy-local-to-server [FILE]``: moves a single-computer database (default:
-``data/sales.db``) into the new, empty team database (see ``database.transfer``).
-
-``--backup-team-database [FOLDER]`` and ``--restore-team-database FILE``: verified
-``pg_dump`` backups of the team database, and restoring one into the configured
-database when it is new and empty (see ``database.server_backup``).
-"""
-
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -44,7 +23,6 @@ ARGUMENT_REQUIRED = frozenset({"--issue-reset-code", "--restore-team-database"})
 
 
 def run(command: str, argument: str | None, say: Callable[[str], None]) -> int:
-    """Run one administrator command; returns the process exit code."""
     if command == "--issue-reset-code":
         return issue_reset_code(argument or "", say)
     if command == "--upgrade-database":
@@ -133,3 +111,4 @@ def issue_reset_code(email: str, say: Callable[[str], None]) -> int:
     say(code)
     say("Enter it on the sign-in screen under “I have an activation or password-reset code”.")
     return 0
+

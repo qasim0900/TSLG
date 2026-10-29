@@ -1,10 +1,10 @@
-"""Profile, password, organization, local-data and data-clearing settings for the signed-in user."""
-
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from PySide6.QtCore import QUrl, Qt, Signal
 from PySide6.QtGui import QDesktopServices
@@ -88,9 +88,7 @@ _CLEAR_DETAILS = {
 
 
 class ClearDataDialog(ModalDialog):
-    """The Danger zone confirmation: how much goes, a backup shortcut, and a typed confirmation."""
-
-    def __init__(self, parent: QWidget, table: str, count: int, *, backup: object | None = None) -> None:
+    def __init__(self, parent: QWidget, table: str, count: int, *, backup: Callable[[], object] | None = None) -> None:
         super().__init__(parent)
         title, body, word, cta = _CLEAR_DETAILS[table]
         self.word = word
@@ -135,8 +133,8 @@ class ClearDataDialog(ModalDialog):
         if backup is not None:
             backup_button = QPushButton("Back up now")
             backup_button.setObjectName("compactButton")
-            backup_button.clicked.connect(lambda _checked=False: backup())  # type: ignore[operator]
-            warning.layout().addWidget(backup_button)  # type: ignore[union-attr]
+            backup_button.clicked.connect(lambda _checked=False: backup())
+            cast(QHBoxLayout, warning.layout()).addWidget(backup_button)
         main.addWidget(warning)
         label_row = QHBoxLayout()
         label_row.setSpacing(4)
@@ -177,7 +175,7 @@ class ClearDataDialog(ModalDialog):
         self.confirm_edit.textChanged.connect(
             lambda value: self.confirm_button.setEnabled(value.strip().lower() == self.word))
         cancel.setDefault(True)
-        self.confirm_edit.setFocus()  # ready to type the phrase; Enter still means Cancel
+        self.confirm_edit.setFocus()
 
 
 class SettingsPage(QWidget):
@@ -220,7 +218,6 @@ class SettingsPage(QWidget):
         root.addWidget(card)
         root.addStretch(1)
 
-        # Your account
         account, account_layout = self._panel()
         identity = QHBoxLayout()
         identity.setSpacing(16)
@@ -274,7 +271,6 @@ class SettingsPage(QWidget):
         ])
         self.tabs.addTab(account, "Your account")
 
-        # Organization
         organization, organization_layout = self._panel()
         org_identity = QHBoxLayout()
         org_identity.setSpacing(14)
@@ -303,7 +299,6 @@ class SettingsPage(QWidget):
         ])
         self.tabs.addTab(organization, "Organization")
 
-        # Data & backups
         storage, storage_layout = self._panel()
         self.storage_list = DefinitionList()
         storage_layout.addWidget(self.storage_list)
@@ -313,7 +308,6 @@ class SettingsPage(QWidget):
         ])
         self.tabs.addTab(storage, "Data && backups")
 
-        # Danger zone
         danger = QWidget()
         danger_layout = QVBoxLayout(danger)
         danger_layout.setContentsMargins(0, 20, 0, 4)
@@ -349,9 +343,8 @@ class SettingsPage(QWidget):
             self.clear_buttons[key] = button
         danger_layout.addStretch(1)
         self.danger_index = self.tabs.addTab(danger, "Danger zone")
-        self.tabs.tabBar().setObjectName("settingsTabs")  # its last tab is red while that is the Danger zone
+        self.tabs.tabBar().setObjectName("settingsTabs")
 
-        # Kept for code that addressed the former sections by name.
         self.profile = {"card": account, "buttons": self.profile_buttons}
         self.organization = {"card": organization, "buttons": self.organization_buttons}
         self.storage = {"card": storage, "buttons": self.storage_buttons}
@@ -468,18 +461,16 @@ class SettingsPage(QWidget):
         can_manage = actor is not None and actor.can("org.manage")
         self.organization_buttons["Edit organization…"].setVisible(can_manage)
         self.organization_buttons["Meeting scheduling…"].setVisible(can_manage)
-        # A file backup and the clearing of the retired analytics tables work on the local file only.
         self.storage_buttons["Back up now…"].setVisible(can_manage and not server)
         self.storage_buttons["Open folder"].setVisible(not server)
         can_clear = actor is not None and actor.can("data.clear") and not server
         self.tabs.setTabVisible(self.danger_index, can_clear)
         bar = self.tabs.tabBar()
-        if bar.property("danger") != can_clear:  # the red last tab is the Danger zone only, never the one before it
+        if bar.property("danger") != can_clear:
             bar.setProperty("danger", can_clear)
             repolish(bar)
         self.loaded = True
 
-    # ------------------------------------------------------------ actions
 
     def edit_profile(self) -> None:
         actor = self.context.actor
@@ -602,7 +593,6 @@ class SettingsPage(QWidget):
             self.status_requested.emit(f"Backup saved to {written}")
 
     def open_folder(self) -> None:
-        """Show the folder holding the database in the system file manager."""
         folder = Path(self.context.settings.database_path).parent
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
@@ -633,3 +623,4 @@ class SettingsPage(QWidget):
 
 
 __all__ = ["SettingsPage"]
+

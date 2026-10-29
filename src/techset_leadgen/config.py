@@ -1,23 +1,3 @@
-"""Settings for the application database and sign-in policy.
-
-Two deployments use the same code:
-
-* **Team server** (several computers): every desktop connects to one shared
-  PostgreSQL database. Its address comes from ``TSLG_DATABASE_URL`` or, when
-  that is not set, from ``database.ini`` in the data folder::
-
-      [database]
-      url = postgresql://tslg_app:PASSWORD@office-server:5432/techset_leadgen?sslmode=require
-
-* **Single computer**: one local SQLite file, the same one the analytics use
-  (``local_db.DB_PATH``: ``data/sales.db``, or ``FDT_DATA_DIR``).
-
-Session and sign-in limits have safe defaults and can be tuned with environment
-variables (``TSLG_SESSION_IDLE_MINUTES`` and friends). User passwords are stored
-only as Argon2 hashes; the server address may contain the database password, so
-it is never shown or logged (``display_database`` omits it).
-"""
-
 from __future__ import annotations
 
 import configparser
@@ -34,7 +14,7 @@ SERVER_FILE = "database.ini"
 
 
 class ConfigurationError(RuntimeError):
-    """A setting is invalid; the message is shown to the user."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -45,7 +25,7 @@ class Settings:
     login_max_failures: int = 5
     login_window_minutes: int = 15
     token_ttl_hours: int = 72
-    server_url: str | None = None  # postgresql+psycopg://…: the shared team database
+    server_url: str | None = None
 
     @property
     def is_server(self) -> bool:
@@ -64,7 +44,7 @@ class Settings:
 
 
 def default_database_path() -> Path:
-    from techset_leadgen.database.local_db import DB_PATH  # the analytics database: one file for everything
+    from techset_leadgen.database.local_db import DB_PATH
 
     return Path(DB_PATH)
 
@@ -83,17 +63,12 @@ def _int(values: Mapping[str, str], name: str, default: int, minimum: int = 1) -
 
 
 def server_url(raw: str | None, source: str = _PREFIX + "DATABASE_URL") -> str | None:
-    """The validated PostgreSQL address in ``raw`` (driver set to psycopg), or None when empty.
-
-    Error messages name ``source`` but never repeat the value: it may hold a password.
-    """
     text = (raw or "").strip()
     if not text:
         return None
     try:
         url = make_url(text)
     except (ArgumentError, ValueError):
-        # ``from None``: the original error quotes the address, password included.
         raise ConfigurationError(f"{source} is not a valid database address.") from None
     if url.get_backend_name() != "postgresql":
         raise ConfigurationError(f"{source} must be a PostgreSQL address (postgresql://user:password@server/db).")
@@ -114,7 +89,6 @@ def _server_file_url(path: Path) -> str | None:
 
 
 def load_settings(env: Mapping[str, str] | None = None, *, database_path: Path | str | None = None) -> Settings:
-    """Settings from the environment; an explicit ``database_path`` always means that local file."""
     values = dict(os.environ if env is None else env)
     path = Path(database_path) if database_path is not None else default_database_path()
     if path.suffix == "" or str(path) == ":memory:":
@@ -134,7 +108,6 @@ def load_settings(env: Mapping[str, str] | None = None, *, database_path: Path |
 
 
 def settings_for_url(url: str) -> Settings:
-    """Settings for an explicit ``sqlite:///path`` or ``postgresql://…`` URL (migrations, tools, tests)."""
     parsed = make_url(url)
     if parsed.get_backend_name() == "postgresql":
         base = load_settings({}, database_path=default_database_path())
@@ -143,3 +116,4 @@ def settings_for_url(url: str) -> Settings:
     if not database:
         raise ConfigurationError("The database URL must name a file")
     return load_settings({}, database_path=database)
+

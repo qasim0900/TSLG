@@ -1,5 +1,3 @@
-"""Sign-in, rate limiting, desktop sessions, activation codes, and password changes."""
-
 from __future__ import annotations
 
 from datetime import timedelta
@@ -25,7 +23,7 @@ def test_sign_in_normalizes_email_and_records_attempt_and_audit(db, settings, ac
     signed_in = auth.authenticate(db, settings, email=f"  {user.email.upper()} ", password=PASSWORD)
     assert signed_in.user.id == user.id
     assert db.scalar(select(UserSession.id).where(UserSession.user_id == user.id)) == signed_in.session.id
-    assert signed_in.session.token_hash != signed_in.raw_token  # only the digest is stored
+    assert signed_in.session.token_hash != signed_in.raw_token
     assert db.scalar(select(AuthAttempt.succeeded).where(AuthAttempt.email == user.email)) is True
     assert db.scalar(select(AuditLog.action).where(AuditLog.entity_id == str(user.id))) == "auth.login"
 
@@ -53,10 +51,9 @@ def test_repeated_failures_lock_the_account_for_the_window(db, settings, acme):
     for _ in range(settings.login_max_failures):
         with pytest.raises(auth.InvalidCredentials):
             auth.authenticate(db, settings, email=user.email, password="wrong password!!")
-    with pytest.raises(DomainError) as error:  # even the right password is refused now
+    with pytest.raises(DomainError) as error:
         auth.authenticate(db, settings, email=user.email, password=PASSWORD)
     assert error.value.code == "rate_limited"
-    # Attempts older than the window no longer count.
     for attempt in db.scalars(select(AuthAttempt)):
         attempt.created_at -= timedelta(minutes=settings.login_window_minutes + 1)
     db.commit()
@@ -72,7 +69,7 @@ def test_session_check_detects_revocation_deactivation_idle_and_expiry(db, setti
     user = acme.users["bdr"]
     first = _sign_in(db, settings, user)
     assert auth.check_session(db, settings, session_id=first.session.id, raw_token=first.raw_token)
-    with pytest.raises(auth.SessionEnded):  # a stolen session id alone is useless
+    with pytest.raises(auth.SessionEnded):
         auth.check_session(db, settings, session_id=first.session.id, raw_token="x" * 43)
 
     first.session.last_seen_at -= timedelta(minutes=settings.session_idle_minutes + 1)
@@ -105,7 +102,6 @@ def test_check_without_touch_lets_server_side_idle_limit_apply(db, settings, acm
 
 
 def test_role_change_ends_sessions_even_within_the_same_unit_of_work(db, settings, acme):
-    """Regression: a cached session row hid the revocation (found by smoke test, 2026-10-21)."""
     user = acme.users["bdr"]
     signed_in = _sign_in(db, settings, user)
     users.update_user(db, acme.actor(), user.id, parse(UserAdminUpdate, {"role": "account_executive"}))
@@ -155,7 +151,7 @@ def test_invitation_code_is_single_use_hashed_and_signs_in(db, settings, acme):
     assert invited.email == "new.person@example.com" and invited.password_hash is None
     assert code not in {token.token_hash for token in db.scalars(select(UserToken))}
     assert auth.code_owner(db, code) == (invited, "invite")
-    with pytest.raises(ValidationFailed):  # the policy still applies
+    with pytest.raises(ValidationFailed):
         auth.redeem_code(db, settings, raw_code=code, password="weak")
     db.rollback()
     signed_in = auth.redeem_code(db, settings, raw_code=f"  {code} ", password="a perfectly fine passphrase")
@@ -170,7 +166,7 @@ def test_codes_expire_are_replaced_and_reject_garbage(db, settings, acme):
     new_code, _ = users.issue_access_code(db, admin, settings, user.id)
     db.commit()
     assert purpose == "password_reset"
-    with pytest.raises(auth.InvalidCode):  # issuing a new code invalidates the old one
+    with pytest.raises(auth.InvalidCode):
         auth.code_owner(db, old_code)
     token = db.scalar(select(UserToken).where(UserToken.used_at.is_(None)))
     token.expires_at -= timedelta(hours=settings.token_ttl_hours + 1)
@@ -208,7 +204,7 @@ def test_admins_cannot_lock_themselves_out_or_remove_the_last_admin(db, settings
     with pytest.raises(PermissionDenied):
         users.update_user(db, admin, admin.user_id, parse(UserAdminUpdate, {"is_active": False}))
     manager = acme.users["sales_manager"]
-    with pytest.raises(PermissionDenied):  # privilege escalation through the service is refused
+    with pytest.raises(PermissionDenied):
         users.update_user(db, Actor.for_user(manager), manager.id, parse(UserAdminUpdate, {"role": "super_admin"}))
 
 
@@ -222,3 +218,4 @@ def test_first_run_bootstrap_validates_and_creates_one_admin(db):
     db.commit()
     assert (admin.role, admin.email) == ("super_admin", "owner@example.com")
     assert auth.has_users(db)
+

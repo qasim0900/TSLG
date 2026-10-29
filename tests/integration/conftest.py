@@ -1,11 +1,3 @@
-"""Fixtures for the business-rule tests.
-
-Every test gets its own SQLite file copied from a template built by running the
-real migrations, which first create the original analytics tables from their
-single definition in ``core.db``. So the schema under test is the one the
-application runs on. Nothing here touches the user's databases.
-"""
-
 from __future__ import annotations
 
 import shutil
@@ -34,7 +26,7 @@ ROLES = ("super_admin", "sales_manager", "lead_researcher", "bdr", "account_exec
 
 @pytest.fixture(scope="session")
 def password_hash() -> str:
-    return hash_password(PASSWORD)  # Argon2 is deliberately slow; hash once per run
+    return hash_password(PASSWORD)
 
 
 @pytest.fixture(scope="session")
@@ -74,8 +66,6 @@ class Team:
 
 
 class World:
-    """Builds accounts and records through the services (imports through raw SQL, as the importer does)."""
-
     def __init__(self, db: Session, password_hash: str) -> None:
         self.db = db
         self.password_hash = password_hash
@@ -122,7 +112,6 @@ class World:
     def imported_lead(self, lead_id: str, *, source: str = "meta_ads", status: str = "new",
                       created_at: str = "2026-09-01", client_id: str | None = None,
                       meeting_date: str | None = None) -> str:
-        """A lead row as ``core.importer`` writes it (no CRM columns set)."""
         self.db.execute(text(
             "INSERT INTO leads (id, external_id, created_at, source, status, meeting_date, client_id) "
             "VALUES (:id, :id, :created_at, :source, :status, :meeting_date, :client_id)"
@@ -132,7 +121,6 @@ class World:
         return lead_id
 
     def imported_client(self, client_id: str, name: str, *, sales: int = 0) -> str:
-        """A client and its sales as the sales import writes them."""
         self.db.execute(text("INSERT INTO clients (id, name, cif, address, contact_person, email) "
                              "VALUES (:id, :name, '-', NULL, NULL, NULL)"), {"id": client_id, "name": name})
         for number in range(sales):
@@ -161,5 +149,5 @@ def world(db: Session, password_hash: str) -> World:
 
 @pytest.fixture()
 def acme(world: World) -> Team:
-    """One account of every role."""
     return world.team()
+

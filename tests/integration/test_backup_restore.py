@@ -1,5 +1,3 @@
-"""A single-computer backup is consistent while people work, and a restored copy opens and holds every row."""
-
 from __future__ import annotations
 
 import shutil
@@ -21,7 +19,6 @@ def test_a_backup_taken_during_work_restores_into_a_working_database(db, acme, s
     prospects.import_rows(db, manager, prospects.rows_from_text(
         "\n".join(f"linkedin.com/in/backup-{n}" for n in range(40))), source="Pasted")
     db.commit()
-    # Someone is in the middle of an unsaved change while the backup runs.
     prospects.import_rows(db, manager, prospects.rows_from_text("linkedin.com/in/not-yet-saved"), source="x")
     db.flush()
     backup = maintenance.copy_database(settings.database_path, tmp_path / "backups" / "copy.db")
@@ -29,9 +26,8 @@ def test_a_backup_taken_during_work_restores_into_a_working_database(db, acme, s
 
     with closing(sqlite3.connect(backup)) as copy:
         assert copy.execute("PRAGMA integrity_check").fetchone() == ("ok",)
-        assert copy.execute("SELECT COUNT(*) FROM prospects").fetchone() == (40,)  # saved work only
+        assert copy.execute("SELECT COUNT(*) FROM prospects").fetchone() == (40,)
 
-    # Restoring: the backup replaces the database file, and the application opens it as before.
     restored = tmp_path / "restored" / "sales.db"
     restored.parent.mkdir()
     shutil.copy(backup, restored)
@@ -50,3 +46,4 @@ def test_a_backup_taken_during_work_restores_into_a_working_database(db, acme, s
     context.open()
     assert context.has_users()
     context.close()
+

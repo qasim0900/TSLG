@@ -1,5 +1,3 @@
-"""Bounded global search across prospects and retained legacy records."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -51,7 +49,7 @@ def search(db: Session, actor: Actor, query: str) -> SearchResults:
         conditions = [func.lower(Client.name).like(pattern, escape="\\"),
                       func.lower(Client.id).like(pattern, escape="\\"),
                       Client.primary_domain.like(pattern, escape="\\")]
-        if sensitive:  # do not let searches probe hidden details
+        if sensitive:
             conditions.append(func.lower(Client.email).like(pattern, escape="\\"))
         clients = list(db.scalars(select(Client).where(or_(*conditions)).order_by(Client.name).limit(PER_TYPE)))
         contact_conditions = [func.lower(Contact.full_name).like(pattern, escape="\\")]
@@ -67,3 +65,4 @@ def search(db: Session, actor: Actor, query: str) -> SearchResults:
             func.lower(Client.name).like(pattern, escape="\\"),
         )).options(joinedload(Lead.client)).order_by(Lead.created_on.desc()).limit(PER_TYPE)))
     return SearchResults(term, prospects, clients, contacts, leads)
+

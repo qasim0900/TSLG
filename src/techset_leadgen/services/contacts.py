@@ -1,10 +1,3 @@
-"""Contacts: the people at a client besides the main contact kept on the client itself.
-
-Contacts follow their client's permissions: whoever may edit the client may
-manage its people. Email addresses and phone numbers are returned only to roles
-that may view sensitive details, and audit entries never record their values.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -123,3 +116,4 @@ def delete_contact(db: Session, actor: Actor, contact_id: Any) -> str:
 
 def can_view_sensitive(actor: Actor) -> bool:
     return actor.can("clients.view_sensitive")
+

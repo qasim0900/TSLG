@@ -1,9 +1,7 @@
-"""Regressions for the defects found in the QA audit of 28 October 2026 (qa_artifacts/reports/BUGS.md)."""
-
 from __future__ import annotations
 
 import os
-import subprocess  # noqa: S404 - runs this interpreter on a fixed script
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -15,7 +13,6 @@ pytest.importorskip("PySide6.QtWidgets")
 
 ROOT = Path(__file__).resolve().parents[2]
 
-# In a child process: a crash must fail this test, not end the whole test run.
 _HOVERED_CARD_SCRIPT = textwrap.dedent("""
     import sys
     from PySide6.QtCore import Qt
@@ -57,21 +54,17 @@ _HOVERED_CARD_SCRIPT = textwrap.dedent("""
 
 
 def test_bug101_opening_an_area_from_a_hovered_kpi_card_with_reduced_motion(tmp_path):
-    """BUG-101: with reduced motion, hiding a page while the mouse rests on a KPI card deleted the
-    card's shadow effect inside Qt's walk over the card's children: a segmentation fault."""
     environment = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "TSLG_REDUCED_MOTION": "1",
                    "FDT_DATA_DIR": str(tmp_path / "data"), "FDT_LOG_DIR": str(tmp_path / "logs"),
                    "XDG_CONFIG_HOME": str(tmp_path / "config"),
                    "PYTHONPATH": os.pathsep.join([str(ROOT / "src"), str(ROOT)])}
-    result = subprocess.run([sys.executable, "-X", "faulthandler", "-c", _HOVERED_CARD_SCRIPT,  # noqa: S603
+    result = subprocess.run([sys.executable, "-X", "faulthandler", "-c", _HOVERED_CARD_SCRIPT,
                              str(tmp_path / "shell.db")], env=environment, cwd=ROOT,
                             capture_output=True, text=True, timeout=120, check=False)
     assert result.returncode == 0 and "survived" in result.stdout, result.stdout + result.stderr[-3000:]
 
 
 def test_bug107_archive_month_labels_are_english_under_another_system_locale():
-    """BUG-107: Qt applies the system LC_TIME at start-up, so strftime("%b") gave e.g. Urdu month names
-    in the Archive's monthly chart labels."""
     import locale
 
     from techset_leadgen.analytics.snapshot_builder import _parse_key_and_generate_interval
@@ -124,8 +117,6 @@ def _member(context, role: str = "bdr") -> tuple[str, str]:
 
 
 def test_bug102_audit_log_names_outreach_records_and_offers_their_types(qapp, context):
-    """BUG-102: prospect, assignment, batch, and meeting entries read "<id> (deleted)" although the records
-    exist, their IDs and status codes showed raw, and the record-type filter did not offer them."""
     from sqlalchemy import select
 
     from techset_leadgen.database.models import AuditLog, Prospect, User
@@ -157,8 +148,6 @@ def test_bug102_audit_log_names_outreach_records_and_offers_their_types(qapp, co
 
 
 def test_bug103_only_the_danger_zone_tab_is_marked_red(qapp, context):
-    """BUG-103: the stylesheet coloured the last tab red; with the Danger zone hidden (team database, or no
-    permission to clear data) that was "Data & backups"."""
     from techset_leadgen.desktop.pages.settings_page import SettingsPage
 
     page = SettingsPage(context)
@@ -174,7 +163,6 @@ def test_bug103_only_the_danger_zone_tab_is_marked_red(qapp, context):
 
 
 def test_bug104_a_failed_sign_in_shows_no_password_rules(qapp, context):
-    """BUG-104: after a wrong password the new-password checklist appeared under the cleared field, all red."""
     from techset_leadgen.desktop.auth_pages import PasswordRules, SignInPage
 
     context.sign_out()
@@ -187,8 +175,6 @@ def test_bug104_a_failed_sign_in_shows_no_password_rules(qapp, context):
 
 
 def test_bug105_ctrl_number_follows_the_sidebar_the_person_sees(qapp, context):
-    """BUG-105: Ctrl+1 … Ctrl+9 used the order of every area, hidden ones included: for a team member
-    Ctrl+4 said "Your role does not include that area" instead of opening Meetings, the 4th entry they see."""
     from techset_leadgen.desktop.main_window import MainWindow
     from techset_leadgen.desktop.theme import ThemeManager
 
@@ -211,8 +197,6 @@ def test_bug105_ctrl_number_follows_the_sidebar_the_person_sees(qapp, context):
 
 
 def test_bug109_clicking_the_number_of_a_kpi_card_opens_its_area(qapp, context):
-    """BUG-109: the value of a clickable KPI card was selectable text, which took the mouse click:
-    clicking the big number (the card's most prominent part) did nothing."""
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
 
@@ -220,7 +204,7 @@ def test_bug109_clicking_the_number_of_a_kpi_card_opens_its_area(qapp, context):
 
     page = OperationalDashboardPage(context)
     opened: list[str] = []
-    page._navigate = lambda destination: opened.append(destination)  # type: ignore[method-assign]
+    page._navigate = lambda destination: opened.append(destination)
     page.resize(1400, 900)
     page.show()
     qapp.processEvents()
@@ -229,7 +213,7 @@ def test_bug109_clicking_the_number_of_a_kpi_card_opens_its_area(qapp, context):
         card.clicked.connect(lambda: opened.append("card"))
         label = card.value_label
         point = label.mapTo(card, label.rect().center())
-        target = card.childAt(point) or card  # the widget a real mouse click reaches
+        target = card.childAt(point) or card
         QTest.mouseClick(target, Qt.MouseButton.LeftButton, pos=target.mapFrom(card, point))
         qapp.processEvents()
         assert opened == ["card"], (card.accessibleName(), type(target).__name__)
@@ -239,9 +223,6 @@ def test_bug109_clicking_the_number_of_a_kpi_card_opens_its_area(qapp, context):
 
 @pytest.mark.parametrize("pixels", [13, 15, 16])
 def test_bug110_the_stretched_name_column_is_not_cut_with_wider_fonts(qapp, pixels):
-    """BUG-110: when space was short, the stretched column (the rows' names) shrank with the others. With
-    Windows' wider fonts "Globex Corporation" needed 152 px and got 151, so names were cut ("Globex Corporati…");
-    the Windows CI run failed test_tables. A larger font reproduces it on any system."""
     from PySide6.QtGui import QFont
 
     from techset_leadgen.desktop.tables import fit_columns
@@ -258,7 +239,8 @@ def test_bug110_the_stretched_name_column_is_not_cut_with_wider_fonts(qapp, pixe
     fit_columns(table, stretch_column=0, fixed_columns={4: 120}, min_widths={0: 150})
     qapp.processEvents()
     header = table.horizontalHeader()
-    assert header.sectionSize(0) >= table.sizeHintForColumn(0)  # the name is not cut
+    assert header.sectionSize(0) >= table.sizeHintForColumn(0)
     assert sum(header.sectionSize(column) for column in range(5)) <= table.viewport().width() + 1
     table.close()
     table.deleteLater()
+

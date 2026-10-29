@@ -1,10 +1,3 @@
-"""Leads: the single lead record used by imports, funnel analytics, and the Leads screen.
-
-Imported leads arrive through ``core.importer``; this service adds manual
-leads, editing, the stage workflow (allowed moves, required reasons, history),
-ownership, and the timeline. Every change is permission-checked and audited.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -33,8 +26,6 @@ AUDITED_FIELDS = ("title", "client_id", "source", "meeting_date", "owner_id", "p
 
 @dataclass(frozen=True)
 class LeadExtras:
-    """CRM fields shown next to the analytics columns of the lead list."""
-
     title: str | None
     owner_id: str | None
     owner_name: str | None
@@ -53,7 +44,6 @@ def extras(db: Session, actor: Actor) -> dict[str, LeadExtras]:
 
 
 def display_title(lead: Lead) -> str:
-    """Imported leads have no title; describe them by client, or by source and date."""
     if lead.title:
         return lead.title
     if lead.client is not None:
@@ -132,7 +122,6 @@ def update_lead(db: Session, actor: Actor, lead_id: Any, data: LeadUpdate) -> Le
 
 
 def allowed_transitions(actor: Actor, lead: Lead) -> list[str]:
-    """Stages the actor may move this lead to (builds the menu; enforced in ``transition``)."""
     if not actor.can_on("leads.edit", lead):
         return []
     options = []
@@ -187,7 +176,7 @@ def transition(db: Session, actor: Actor, lead_id: Any, data: LeadTransition, *,
 
 
 def assign(db: Session, actor: Actor, lead_id: Any, owner_id: str | None, version: int | None = None) -> Lead:
-    actor.require("leads.edit")  # even taking an unassigned lead for oneself needs a role that works leads
+    actor.require("leads.edit")
     lead = get_lead(db, actor, lead_id)
     check_version(lead, version)
     previous = lead.owner_id
@@ -201,7 +190,6 @@ def assign(db: Session, actor: Actor, lead_id: Any, owner_id: str | None, versio
 
 
 def bulk_assign(db: Session, actor: Actor, data: BulkAssignment) -> int:
-    """Assign several leads at once. All-or-nothing."""
     actor.require("leads.assign")
     if data.owner_id is not None:
         get_user(db, data.owner_id, field="owner_id")
@@ -230,7 +218,7 @@ def status_history(db: Session, actor: Actor, lead: Lead) -> list[LeadStatusChan
 
 @dataclass(frozen=True)
 class TimelineEntry:
-    kind: str  # activity type, "stage", or "change"
+    kind: str
     occurred_at: datetime
     title: str
     body: str | None
@@ -238,7 +226,6 @@ class TimelineEntry:
 
 
 def timeline(db: Session, actor: Actor, lead: Lead, *, limit: int = 200) -> list[TimelineEntry]:
-    """Activities, stage changes, and audited edits, newest first."""
     actor.require("leads.view")
     names = user_names(db)
     entries: list[TimelineEntry] = []
@@ -270,7 +257,6 @@ def timeline(db: Session, actor: Actor, lead: Lead, *, limit: int = 200) -> list
 
 
 def open_choices(db: Session, actor: Actor, *, limit: int = 2000) -> list[tuple[str, str]]:
-    """``[(id, title)]`` of open leads, newest first, for task and activity pickers."""
     actor.require("leads.view")
     found = db.scalars(select(Lead).where(Lead.status.not_in(sorted(CLOSED_STATUSES)))
                        .options(joinedload(Lead.client)).order_by(Lead.created_on.desc()).limit(limit))
@@ -278,7 +264,7 @@ def open_choices(db: Session, actor: Actor, *, limit: int = 2000) -> list[tuple[
 
 
 def for_client(db: Session, actor: Actor, client_id: str) -> list[Lead]:
-    """A client's leads, newest first."""
     actor.require("leads.view")
     return list(db.scalars(select(Lead).where(Lead.client_id == client_id).options(joinedload(Lead.owner))
                            .order_by(Lead.created_on.desc())))
+

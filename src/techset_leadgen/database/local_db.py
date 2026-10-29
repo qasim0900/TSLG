@@ -1,9 +1,3 @@
-"""Conexión SQLite, inicialización de esquema y migraciones automáticas.
-
-Provee get_connection() como punto único de acceso a la base de datos,
-init_db() para crear tablas e índices, y migraciones idempotentes.
-"""
-
 import os
 import sqlite3
 import logging
@@ -14,16 +8,9 @@ _logger = logging.getLogger("fdt.db")
 
 
 def get_base_path():
-    """
-    Retorna la carpeta que contiene data/ y logs/.
-    - Si ejecuta desde .exe (PyInstaller): Path del ejecutable
-    - Si ejecuta desde el repositorio (src/techset_leadgen): Raíz del repositorio
-    - Si ejecuta como paquete instalado: carpeta de datos del usuario
-    """
     if getattr(sys, 'frozen', False):
-        # Ejecutando como .exe compilado con PyInstaller
         return Path(sys.executable).parent
-    checkout = Path(__file__).resolve().parents[3]  # <repo>/src/techset_leadgen/database/local_db.py
+    checkout = Path(__file__).resolve().parents[3]
     if (checkout / "pyproject.toml").is_file():
         return checkout
     if sys.platform == "win32" and os.environ.get("LOCALAPPDATA"):
@@ -65,11 +52,6 @@ def get_logs_dir() -> Path:
 
 
 def get_connection():
-    """
-    Devuelve una conexión SQLite configurada de forma coherente
-    para toda la aplicación.
-    Crea la carpeta data/ si no existe.
-    """
     get_data_dir()
 
     conn = sqlite3.connect(DB_NAME, timeout=5.0)
@@ -79,12 +61,6 @@ def get_connection():
 
 
 def base_schema_needs_migration() -> bool:
-    """Read-only preflight for the changes made by :func:`init_db`.
-
-    Startup uses this before touching an existing database so it can create a
-    consistent backup first.  A missing/empty file is a new installation, not
-    a migration.
-    """
     if not DB_PATH.is_file() or DB_PATH.stat().st_size == 0:
         return False
     connection = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
@@ -110,13 +86,6 @@ def base_schema_needs_migration() -> bool:
 
 
 def create_base_tables(cursor) -> None:
-    """Create the original analytics tables and indexes if missing (idempotent).
-
-    The single definition of the base schema: ``init_db()`` runs it on the
-    configured file, and the first CRM migration runs it so a brand-new database
-    created by migrations alone has the same tables.
-    """
-    # Tabla de clientes (tabla base, sin dependencias)
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS clients(
@@ -130,7 +99,6 @@ def create_base_tables(cursor) -> None:
         """
     )
 
-    # Tabla de ventas (depende de clients)
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS sales(
@@ -147,7 +115,6 @@ def create_base_tables(cursor) -> None:
         """
     )
 
-    # Tabla de leads (depende de clients, embudo comercial)
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS leads(
@@ -165,7 +132,6 @@ def create_base_tables(cursor) -> None:
         """
     )
 
-    # Tabla de gasto en marketing (sin dependencias)
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS marketing_spend(
@@ -177,7 +143,6 @@ def create_base_tables(cursor) -> None:
         """
     )
 
-    # Tabla de metadata de importación (sin dependencias)
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS import_metadata (
@@ -192,13 +157,11 @@ def create_base_tables(cursor) -> None:
         """
     )
 
-    # Índices
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(date)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_client_name ON sales(client_name)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_product_type ON sales(product_type)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_client_id ON sales(client_id)")
 
-    # Índices para leads
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_client_id ON leads(client_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_created_at ON leads(created_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_source ON leads(source)")
@@ -206,11 +169,9 @@ def create_base_tables(cursor) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_source_created ON leads(source, created_at)")
     cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_external_source ON leads(external_id, source)")
 
-    # Índices para marketing_spend
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_spend_source ON marketing_spend(source)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_spend_date ON marketing_spend(date)")
 
-    # Tabla de eventos del funnel comercial (sin dependencias de sales)
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS funnel_events(
@@ -231,7 +192,6 @@ def create_base_tables(cursor) -> None:
         """
     )
 
-    # Índices para funnel_events
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_funnel_events_client ON funnel_events(client_id)"
     )
@@ -244,9 +204,6 @@ def create_base_tables(cursor) -> None:
 
 
 def init_db():
-    """
-    Inicializa la base de datos y ejecuta migraciones necesarias.
-    """
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -258,16 +215,11 @@ def init_db():
     finally:
         conn.close()
 
-    # Migraciones puntuales
     _migrate_clients_table()
     _migrate_sales_foreign_keys()
 
 
 def _migrate_clients_table():
-    """
-    Migra la tabla clients de INTEGER id a TEXT id si es necesario.
-    Operación atómica y protegida por transacción.
-    """
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -335,13 +287,6 @@ def _migrate_clients_table():
 
 
 def ensure_leads_table():
-    """
-    Garantiza que la tabla leads existe con todos sus índices.
-    Idempotente — segura de llamar múltiples veces y en cualquier orden.
-
-    Útil para scripts externos, tests y setups programáticos.
-    En producción, init_db() ya incluye esta lógica vía CREATE TABLE IF NOT EXISTS.
-    """
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -381,14 +326,6 @@ def ensure_leads_table():
 
 
 def clear_table(table_name: str) -> bool:
-    """Vacía completamente una tabla por nombre.
-
-    Args:
-        table_name: Nombre de la tabla a vaciar (debe ser una tabla conocida).
-
-    Returns:
-        True si se vació correctamente, False en caso de error.
-    """
     _ALLOWED_TABLES = {"sales", "clients", "leads", "marketing_spend", "funnel_events"}
     if table_name not in _ALLOWED_TABLES:
         _logger.error("clear_table: table '%s' is not allowed", table_name)
@@ -407,64 +344,47 @@ def clear_table(table_name: str) -> bool:
         conn.close()
 
 
-# Aliases retrocompatibles
 def clear_sales_table() -> bool:
-    """Vacía completamente la tabla de ventas."""
     return clear_table("sales")
 
 
 def clear_clients_table() -> bool:
-    """Vacía completamente la tabla de clientes."""
     return clear_table("clients")
 
 
 def clear_leads_table() -> bool:
-    """Vacía completamente la tabla de leads."""
     return clear_table("leads")
 
-        
-def _migrate_sales_foreign_keys():
-    """
-    Verifica si la tabla sales tiene el FOREIGN KEY correcto con ON DELETE CASCADE.
-    Si no, recrea la tabla con la definición correcta.
 
-    PROBLEMA: CREATE TABLE IF NOT EXISTS no actualiza FOREIGN KEYs en tablas existentes.
-    SOLUCIÓN: Verificar vía PRAGMA foreign_key_list y recrear si es necesario.
-    """
+def _migrate_sales_foreign_keys():
     conn = get_connection()
     cursor = conn.cursor()
 
     try:
-        # Verificar FOREIGN KEYs actuales en la tabla sales
         cursor.execute("PRAGMA foreign_key_list(sales)")
         fk_list = cursor.fetchall()
 
-        # Buscar si existe FK con ON DELETE CASCADE hacia clients
         has_correct_fk = any(
             fk[2] == "clients" and fk[3] == "client_id" and fk[6] == "CASCADE"
             for fk in fk_list
         )
 
         if has_correct_fk:
-            return  # Nada que hacer
+            return
 
         _logger.info(
             "Migrating sales table: updating FOREIGN KEY to ON DELETE CASCADE"
         )
 
-        # Desactivar FK solo para esta migración
         cursor.execute("PRAGMA foreign_keys=OFF")
         cursor.execute("BEGIN")
 
         try:
-            # Backup de datos
             cursor.execute("SELECT * FROM sales")
             sales_data = cursor.fetchall()
 
-            # Eliminar tabla antigua
             cursor.execute("DROP TABLE IF EXISTS sales")
 
-            # Recrear tabla con FK correcta
             cursor.execute(
                 """
                 CREATE TABLE sales(
@@ -481,7 +401,6 @@ def _migrate_sales_foreign_keys():
                 """
             )
 
-            # Recrear índices
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(date)"
             )
@@ -495,7 +414,6 @@ def _migrate_sales_foreign_keys():
                 "CREATE INDEX IF NOT EXISTS idx_sales_client_id ON sales(client_id)"
             )
 
-            # Restaurar datos
             for row in sales_data:
                 cursor.execute(
                     """
@@ -517,7 +435,6 @@ def _migrate_sales_foreign_keys():
             raise
 
         finally:
-            # Reactivar FK siempre (PRAGMA es por conexión)
             cursor.execute("PRAGMA foreign_keys=ON")
 
     except Exception:
@@ -528,3 +445,4 @@ def _migrate_sales_foreign_keys():
 
     finally:
         conn.close()
+

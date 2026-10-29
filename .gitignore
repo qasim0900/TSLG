@@ -1,18 +1,14 @@
-
-# Environment variables and secrets — all directories
 .env
 .env.*
 !.env.example
 **/.env
 **/.env.*
 
-# Python cache — all directories
 __pycache__/
 **/__pycache__/
 *.py[cod]
 *$py.class
 
-# Virtual environments — all directories
 venv/
 .venv/
 env/
@@ -21,7 +17,6 @@ ENV/
 **/.venv/
 **/env/
 
-# Python testing and coverage
 .pytest_cache/
 **/.pytest_cache/
 .mypy_cache/
@@ -31,32 +26,25 @@ ENV/
 .coverage
 htmlcov/
 
-# Build artifacts
 build/
 dist/
 *.egg-info/
 
-# Logs and temporary files
 *.log
 *.tmp
 *.bak
 
-# IDE and editor files
 .vscode/
 .idea/
 
-# Operating system files
 .DS_Store
 Thumbs.db
 
-# Local application data (data/sales.db is still tracked in this checkout; untrack it separately)
 data/backups/
 data/crm.db*
 data/*.db-wal
 data/*.db-shm
 data/failed_*.csv
-# The team-database address (it contains the database password).
 data/database.ini
 
-# Keep the configuration template under version control (the **/.env.* rule above matches it).
 !.env.example

@@ -1,15 +1,3 @@
-"""LinkedIn prospects: one record per profile, imports with duplicate detection, lists, and history.
-
-A profile is identified by its canonical key (``normalize.linkedin_profile``);
-a unique constraint on that key means the same person cannot be added twice,
-by two imports, two computers, or a retried save.
-
-Visibility: roles with ``prospects.view`` for all records see every prospect;
-team members (own scope) see prospects that were ever given to them (draft
-batches excluded) or that they added. They change only those currently
-assigned to them.
-"""
-
 from __future__ import annotations
 
 import re
@@ -36,7 +24,7 @@ from techset_leadgen.services.normalize import InvalidValue, linkedin_profile
 from techset_leadgen.services.pagination import Page, PageRequest, like_pattern, paginate
 
 MAX_IMPORT_ROWS = 5000
-_LOOKUP_CHUNK = 500  # keys per IN (...) lookup, well under every database's parameter limit
+_LOOKUP_CHUNK = 500
 AUDITED_FIELDS = ("linkedin_url", "full_name", "company", "job_title", "notes")
 SORTS = {"name": func.lower(Prospect.full_name), "company": func.lower(Prospect.company),
          "status": Prospect.status, "added": Prospect.created_at, "activity": Prospect.last_activity_at,
@@ -45,10 +33,7 @@ FOLLOW_UP_FILTERS = {"due": "Follow-up due today or overdue", "scheduled": "Has 
                      "none": "No follow-up"}
 
 
-# --- visibility -------------------------------------------------------------------
-
 def _given_to(user_id: str) -> Any:
-    """The prospect was ever given to ``user_id`` (draft batches are not given yet)."""
     return exists(select(ProspectAssignment.id).where(ProspectAssignment.prospect_id == Prospect.id,
                                                       ProspectAssignment.assignee_id == user_id,
                                                       ProspectAssignment.status != "planned"))
@@ -62,7 +47,6 @@ def visibility(actor: Actor) -> Any:
 
 
 def get_prospect(db: Session, actor: Actor, prospect_id: Any) -> Prospect:
-    """A prospect the actor may see (others are reported as not found)."""
     condition = visibility(actor)
     key = str(prospect_id or "").strip()
     prospect = db.scalar(select(Prospect).where(Prospect.id == key, condition)) if key else None
@@ -72,14 +56,12 @@ def get_prospect(db: Session, actor: Actor, prospect_id: Any) -> Prospect:
 
 
 def open_assignment(db: Session, prospect_id: str) -> ProspectAssignment | None:
-    """The prospect's planned, assigned, or in-progress assignment (at most one exists)."""
     return db.scalar(select(ProspectAssignment).where(
         ProspectAssignment.prospect_id == prospect_id,
         ProspectAssignment.status.in_(sorted(OPEN_ASSIGNMENT_STATUSES))))
 
 
 def works_on(actor: Actor, assignment: ProspectAssignment | None) -> bool:
-    """Is this the actor's live (not draft, not closed) assignment?"""
     return (assignment is not None and assignment.assignee_id == actor.user_id
             and assignment.status in ACTIVE_ASSIGNMENT_STATUSES)
 
@@ -92,8 +74,6 @@ def can_edit(db: Session, actor: Actor, prospect: Prospect) -> bool:
         return prospect.created_by_id == actor.user_id or works_on(actor, open_assignment(db, prospect.id))
     return False
 
-
-# --- create and edit ----------------------------------------------------------------
 
 def _identity(value: str | None, *, field_name: str = "linkedin_url") -> tuple[str, str]:
     try:
@@ -158,8 +138,6 @@ def update_prospect(db: Session, actor: Actor, prospect_id: Any, data: ProspectU
     return prospect
 
 
-# --- import and paste ----------------------------------------------------------------
-
 @dataclass(frozen=True)
 class RowProblem:
     row: int
@@ -175,16 +153,16 @@ class CheckedRow:
     full_name: str | None
     company: str | None
     job_title: str | None
-    existing_id: str | None = None  # already a prospect
-    assigned_to: str | None = None  # name of who has its open assignment, if anyone
+    existing_id: str | None = None
+    assigned_to: str | None = None
 
 
 @dataclass(frozen=True)
 class ImportPreview:
     new: list[CheckedRow] = field(default_factory=list)
-    existing: list[CheckedRow] = field(default_factory=list)  # already prospects: nothing to add
-    repeated: list[RowProblem] = field(default_factory=list)  # same profile earlier in this input
-    rejected: list[RowProblem] = field(default_factory=list)  # not a usable profile address
+    existing: list[CheckedRow] = field(default_factory=list)
+    repeated: list[RowProblem] = field(default_factory=list)
+    rejected: list[RowProblem] = field(default_factory=list)
 
     @property
     def total(self) -> int:
@@ -195,12 +173,6 @@ _URL_TOKEN = re.compile(r"\S*(?:linkedin\.com|lnkd\.in)\S*", re.IGNORECASE)
 
 
 def rows_from_text(text: str) -> list[ProspectRow]:
-    """Pasted text: one profile address per line.
-
-    Cells copied from a spreadsheet arrive tab-separated; then the cell holding
-    the address is the URL and the other non-empty cells are name, company, and
-    job title, in that order.
-    """
     rows: list[ProspectRow] = []
     for number, line in enumerate(text.splitlines(), start=1):
         if not line.strip():
@@ -208,8 +180,9 @@ def rows_from_text(text: str) -> list[ProspectRow]:
         if "\t" in line:
             cells = [cell.strip() for cell in line.split("\t")]
             url_index = next((index for index, cell in enumerate(cells) if _URL_TOKEN.search(cell)), 0)
-            others = [cell for index, cell in enumerate(cells) if index != url_index and cell][:3]
-            others += [None] * (3 - len(others))  # type: ignore[list-item]
+            others: list[str | None] = []
+            others += [cell for index, cell in enumerate(cells) if index != url_index and cell][:3]
+            others += [None] * (3 - len(others))
             rows.append(_row(number, cells[url_index], *others))
             continue
         match = _URL_TOKEN.search(line)
@@ -227,10 +200,6 @@ _TITLE_HEADERS = ("job title", "title", "position", "role", "job_title", "headli
 
 
 def rows_from_table(headers: Sequence[str], records: Iterable[dict[str, Any]]) -> list[ProspectRow]:
-    """Spreadsheet rows (headers already normalized to lower case) as prospect rows.
-
-    Row numbers match the spreadsheet: the header is row 1.
-    """
     def pick(options: Sequence[str]) -> str | None:
         return next((header for header in options if header in headers), None)
 
@@ -249,7 +218,7 @@ def rows_from_table(headers: Sequence[str], records: Iterable[dict[str, Any]]) -
         url = cell(url_column)
         full_name = cell(name) or " ".join(part for part in (cell(first), cell(last)) if part) or None
         if url is None and full_name is None and cell(company) is None:
-            continue  # blank spreadsheet row
+            continue
         rows.append(_row(number, url, full_name, cell(company), cell(title)))
     return rows
 
@@ -257,17 +226,13 @@ def rows_from_table(headers: Sequence[str], records: Iterable[dict[str, Any]]) -
 def _row(number: int, url: str | None, full_name: str | None = None, company: str | None = None,
          job_title: str | None = None) -> ProspectRow:
     def clip(value: str | None) -> str | None:
-        return value[:200] if value else value  # over-long cells are shortened, not rejected
+        return value[:200] if value else value
 
     return ProspectRow(row=number, linkedin_url=url, full_name=clip(full_name), company=clip(company),
                        job_title=clip(job_title))
 
 
 def check_rows(db: Session, actor: Actor, rows: Sequence[ProspectRow]) -> ImportPreview:
-    """Validate, canonicalize, and de-duplicate rows against each other and the database.
-
-    Writes nothing. Database lookups are batched (one query per 500 profiles).
-    """
     actor.require("prospects.create")
     if len(rows) > MAX_IMPORT_ROWS:
         raise ValidationFailed(f"Add at most {MAX_IMPORT_ROWS} profiles at a time.")
@@ -302,7 +267,6 @@ def check_rows(db: Session, actor: Actor, rows: Sequence[ProspectRow]) -> Import
 
 
 def _lookup(db: Session, keys: Sequence[str]) -> dict[str, tuple[str, str | None]]:
-    """``{key: (prospect id, open assignee name)}`` for keys that already exist."""
     found: dict[str, tuple[str, str | None]] = {}
     for start in range(0, len(keys), _LOOKUP_CHUNK):
         chunk = list(keys[start:start + _LOOKUP_CHUNK])
@@ -319,13 +283,12 @@ def _lookup(db: Session, keys: Sequence[str]) -> dict[str, tuple[str, str | None
 
 @dataclass(frozen=True)
 class ImportResult:
-    created: list[str]  # IDs of the prospects added, in input order
-    existing: list[str]  # IDs of rows that were already prospects, in input order
+    created: list[str]
+    existing: list[str]
     preview: ImportPreview
 
     @property
     def prospect_ids(self) -> list[str]:
-        """Every usable row's prospect, in input order (for assigning what was just imported)."""
         order = {row.key: row.row for row in (*self.preview.new, *self.preview.existing)}
         by_key = dict(zip((row.key for row in self.preview.new), self.created, strict=True))
         by_key.update({row.key: row.existing_id or "" for row in self.preview.existing})
@@ -333,15 +296,8 @@ class ImportResult:
 
 
 def import_rows(db: Session, actor: Actor, rows: Sequence[ProspectRow], *, source: str) -> ImportResult:
-    """Add the new profiles among ``rows`` in one transaction; existing ones are left unchanged.
-
-    Re-checks inside the transaction, so a profile someone else added since the
-    preview counts as existing rather than failing. Retrying the same rows adds
-    nothing. Imported prospects are not assigned to anyone.
-    """
     preview = check_rows(db, actor, rows)
     now = utcnow()
-    # IDs are assigned here so every new row goes in one batched flush, not one round trip per profile.
     new_rows = [Prospect(id=new_id(), linkedin_key=row.key, linkedin_url=row.url, full_name=row.full_name,
                          company=row.company, job_title=row.job_title, source=source[:120], status="new",
                          created_by_id=actor.user_id, created_at=now, updated_at=now) for row in preview.new]
@@ -355,8 +311,6 @@ def import_rows(db: Session, actor: Actor, rows: Sequence[ProspectRow], *, sourc
     return ImportResult(created, [row.existing_id or "" for row in preview.existing], preview)
 
 
-# --- lists ------------------------------------------------------------------------
-
 @dataclass(frozen=True)
 class ProspectListRow:
     prospect: Prospect
@@ -368,7 +322,6 @@ class ProspectListRow:
 def list_prospects(db: Session, actor: Actor, *, page: PageRequest, q: str | None = None,
                    status: str | None = None, assignee: str | None = None, follow_up: str | None = None,
                    now: datetime | None = None) -> Page[ProspectListRow]:
-    """One query for the page: each prospect with its open assignment's status and assignee."""
     current = aliased(ProspectAssignment)
     statement = (select(Prospect, current.status, current.assignee_id, User.full_name)
                  .outerjoin(current, and_(current.prospect_id == Prospect.id,
@@ -408,11 +361,9 @@ def _end_of_day(timezone: str, now: datetime) -> datetime:
     return local_day_bounds(timezone, now)[1]
 
 
-# --- history ----------------------------------------------------------------------
-
 @dataclass(frozen=True)
 class HistoryEntry:
-    kind: str  # "event", "assignment", or "follow_up"
+    kind: str
     occurred_at: datetime
     title: str
     detail: str | None
@@ -420,7 +371,6 @@ class HistoryEntry:
 
 
 def assignments_for(db: Session, actor: Actor, prospect: Prospect) -> list[ProspectAssignment]:
-    """Every assignment of a visible prospect, newest first (assignee loaded with them)."""
     from sqlalchemy.orm import joinedload
 
     get_prospect(db, actor, prospect.id)
@@ -437,10 +387,6 @@ def events_for(db: Session, actor: Actor, prospect: Prospect, *, limit: int = 20
 
 
 def history(db: Session, actor: Actor, prospect: Prospect, *, limit: int = 200) -> list[HistoryEntry]:
-    """Outreach events, assignment changes, and follow-ups of one prospect, newest first.
-
-    A fixed number of queries whatever the length of the history; each kind is capped at ``limit``.
-    """
     names = user_names(db)
     entries = [HistoryEntry("event", event.occurred_at, OUTREACH_EVENTS.get(event.event_type, event.event_type),
                             event.note, names.get(event.recorded_by_id or ""))
@@ -477,3 +423,4 @@ __all__ = ["CheckedRow", "HistoryEntry", "ImportPreview", "ImportResult", "Prosp
            "can_edit", "check_rows", "create_prospect", "get_prospect", "get_record", "history", "import_rows",
            "list_prospects", "open_assignment", "rows_from_table", "rows_from_text", "update_prospect",
            "visibility", "works_on"]
+

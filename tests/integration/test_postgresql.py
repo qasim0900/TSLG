@@ -1,10 +1,3 @@
-"""The shared team database: the same migrations, workflow, and concurrency rules on a real PostgreSQL server.
-
-Runs only when ``TSLG_TEST_POSTGRES_URL`` names a server account that may create
-databases, e.g. ``postgresql://admin:secret@127.0.0.1:5432/postgres``. Each test
-gets a new, empty database that is dropped afterwards.
-"""
-
 from __future__ import annotations
 
 import os
@@ -70,7 +63,6 @@ def empty_server_url() -> Iterator[str]:
 
 @pytest.fixture()
 def spare_server_url() -> Iterator[str]:
-    """A second new, empty database (somewhere to restore a backup)."""
     yield from _new_database()
 
 
@@ -108,8 +100,6 @@ def _import_and_assign(db, manager, member_id: str, count: int = 2) -> list[str]
     return ids
 
 
-# --- schema ----------------------------------------------------------------------------------
-
 def test_migrations_build_the_unified_layout_and_are_idempotent(server_url):
     engine = create_db_engine(settings_for_url(server_url))
     with engine.connect() as connection:
@@ -120,10 +110,8 @@ def test_migrations_build_the_unified_layout_and_are_idempotent(server_url):
             "WHERE table_name = 'clients' AND column_name IN ('created_at', 'id')")).all())
     engine.dispose()
     assert kinds == {"created_at": "timestamp without time zone", "id": "text"}
-    migrations_util.upgrade(server_url)  # already at head: nothing to do, nothing breaks
+    migrations_util.upgrade(server_url)
 
-
-# --- the workflow on the server --------------------------------------------------------------
 
 def test_outreach_workflow_runs_unchanged_on_postgresql(pg, pg_team):
     manager, ali, sara = pg_team.actor("sales_manager"), pg_team.actor("bdr"), pg_team.actor("account_executive")
@@ -140,12 +128,10 @@ def test_outreach_workflow_runs_unchanged_on_postgresql(pg, pg_team):
     pg.commit()
     assert tasks.get_open_follow_up(pg, sara, ids[0]).assigned_to_id == sara.user_id
     page = assignments.list_assignments(pg, manager, page=PageRequest(page_size=10), view="team", status="all")
-    assert page.total == 3  # the reassigned row is kept as history
+    assert page.total == 3
     summary = team.daily_summary(pg, manager, NOW.date(), now=NOW + timedelta(hours=1))
     assert {row.user_id: row.replies for row in summary.rows}[ali.user_id] == 0
 
-
-# --- concurrency ------------------------------------------------------------------------------
 
 def test_two_managers_assigning_the_same_prospect_at_once_cannot_both_win(pg, pg_team, pg_factory):
     manager, ali, sara = pg_team.actor("sales_manager"), pg_team.actor("bdr"), pg_team.actor("account_executive")
@@ -168,9 +154,7 @@ def test_two_managers_assigning_the_same_prospect_at_once_cannot_both_win(pg, pg
     assert open_rows == 1
 
 
-# --- meetings ---------------------------------------------------------------------------------
-
-MEETING_DAY = datetime(2026, 11, 2, tzinfo=UTC)  # a Monday after NOW
+MEETING_DAY = datetime(2026, 11, 2, tzinfo=UTC)
 
 
 def _pg_client(db: Session, name: str, email: str) -> str:
@@ -231,7 +215,7 @@ def test_two_bookings_of_one_attendee_that_both_looked_free_cannot_both_win(pg, 
     previews = [meetings.check_availability(pg, manager, parse(AvailabilityQuery, {
         "client_id": client_id, "attendee_ids": [attendee_id], "starts_at": MEETING_DAY.replace(hour=10),
         "ends_at": MEETING_DAY.replace(hour=10, minute=30)}), now=NOW) for client_id in clients]
-    assert all(preview.available for preview in previews)  # both screens say "available"
+    assert all(preview.available for preview in previews)
 
     def book(client_id: str):
         return lambda session: meetings.create_meeting(session, manager, _meeting(client_id, [attendee_id], 10),
@@ -259,7 +243,6 @@ def test_two_bookings_of_one_client_with_different_attendees_cannot_both_win(pg,
 
 
 def test_a_booking_in_progress_holds_its_client_and_attendees_until_it_commits(pg, pg_team, pg_factory):
-    """Deterministic: the first transaction has locked and inserted but not committed."""
     manager = pg_team.actor("sales_manager")
     bdr, executive = pg_team.users["bdr"].id, pg_team.users["account_executive"].id
     researcher = pg_team.users["lead_researcher"].id
@@ -282,17 +265,17 @@ def test_a_booking_in_progress_holds_its_client_and_attendees_until_it_commits(p
         return thread
 
     first = pg_factory()
-    meetings.create_meeting(first, manager, _meeting(shared_client, [bdr], 10), now=NOW)  # locked, uncommitted
+    meetings.create_meeting(first, manager, _meeting(shared_client, [bdr], 10), now=NOW)
     unrelated = book("unrelated", other_client, researcher)
     unrelated.join(timeout=10)
-    assert outcomes.get("unrelated") == "created"  # shares nothing: does not wait
+    assert outcomes.get("unrelated") == "created"
     contested = book("contested", shared_client, executive)
     contested.join(timeout=1.5)
-    assert contested.is_alive() and "contested" not in outcomes  # waits for the client's row lock
+    assert contested.is_alive() and "contested" not in outcomes
     first.commit()
     first.close()
     contested.join(timeout=15)
-    assert outcomes["contested"] == "conflict"  # after the wait it sees the committed meeting
+    assert outcomes["contested"] == "conflict"
 
 
 def test_the_meeting_upgrade_keeps_existing_attendees_on_postgresql(empty_server_url):
@@ -317,7 +300,6 @@ def test_the_meeting_upgrade_keeps_existing_attendees_on_postgresql(empty_server
 
 
 def _race_pair(factory: sessionmaker[Session], left, right) -> list[BaseException | None]:
-    """Run ``left`` and ``right`` on two connections at the same moment; returns each one's exception."""
     barrier = threading.Barrier(2)
     outcomes: list[BaseException | None] = [None, None]
 
@@ -327,7 +309,7 @@ def _race_pair(factory: sessionmaker[Session], left, right) -> list[BaseExceptio
                 barrier.wait(timeout=10)
                 work(session)
                 session.commit()
-            except BaseException as exc:  # recorded for the assertions
+            except BaseException as exc:
                 session.rollback()
                 outcomes[index] = exc
 
@@ -361,7 +343,7 @@ def test_a_stale_follow_up_change_is_refused(pg, pg_team, pg_factory):
     pg.commit()
     loaded = tasks.get_open_follow_up(pg, ali, ids[0])
     seen_version = loaded.version
-    with pg_factory() as other:  # someone else reschedules first
+    with pg_factory() as other:
         outreach.record_event(other, ali, parse(OutreachRecord, {
             "prospect_id": ids[0], "event_type": "follow_up_requested",
             "follow_up_at": (NOW + timedelta(days=5)).isoformat()}), now=NOW)
@@ -370,8 +352,6 @@ def test_a_stale_follow_up_change_is_refused(pg, pg_team, pg_factory):
     with pytest.raises(Conflict):
         tasks.complete_follow_up(pg, ali, loaded.id, version=seen_version)
 
-
-# --- moving a single-computer database to the server -------------------------------------------
 
 def test_a_local_database_is_copied_completely_into_an_empty_team_database(
         tmp_path: Path, migrated_template: Path, password_hash: str, server_url: str):
@@ -401,12 +381,12 @@ def test_a_local_database_is_copied_completely_into_an_empty_team_database(
     with create_session_factory(server)() as db:
         chain = db.scalars(select(ProspectAssignment).where(ProspectAssignment.prospect_id == ids[0])
                            .order_by(ProspectAssignment.created_at)).all()
-        assert chain[1].previous_assignment_id == chain[0].id  # self-reference restored
+        assert chain[1].previous_assignment_id == chain[0].id
         assert all(user.is_active is True for user in db.scalars(select(User)))
         follow_up = db.scalar(select(Task).where(Task.kind == "follow_up"))
-        assert follow_up.due_at == NOW + timedelta(days=1)  # time zone intact
+        assert follow_up.due_at == NOW + timedelta(days=1)
         db.add(Notification(recipient_id=ali.user_id, kind="test", title="After the copy"))
-        db.commit()  # the id sequence continues after the copied rows
+        db.commit()
     server.dispose()
     with pytest.raises(transfer.TransferRefused, match="already has data"):
         transfer.copy_local_to_server(local, server_url, say=lambda _line: None)
@@ -419,8 +399,6 @@ def test_an_unmigrated_team_database_is_refused_for_copying(tmp_path, migrated_t
         transfer.copy_local_to_server(local, empty_server_url, say=lambda _line: None)
 
 
-# --- the desktop's connection handling ----------------------------------------------------------
-
 def test_the_desktop_does_not_upgrade_a_shared_database_itself(empty_server_url):
     pytest.importorskip("PySide6.QtCore")
     from techset_leadgen.desktop.session import AppContext, ConnectionProblem
@@ -430,11 +408,9 @@ def test_the_desktop_does_not_upgrade_a_shared_database_itself(empty_server_url)
         context.open()
     engine = create_db_engine(settings_for_url(empty_server_url))
     with engine.connect() as connection:
-        assert migrations_util.schema_state(connection).current is None  # untouched
+        assert migrations_util.schema_state(connection).current is None
     engine.dispose()
 
-
-# --- backups -------------------------------------------------------------------------------------
 
 def test_a_team_backup_restores_completely_into_a_new_database(pg, pg_team, server_url, spare_server_url,
                                                                  tmp_path):
@@ -455,7 +431,7 @@ def test_a_team_backup_restores_completely_into_a_new_database(pg, pg_team, serv
         try:
             with engine.connect() as connection:
                 names = [name for name in sqlalchemy_inspect(connection).get_table_names()]
-                return {name: connection.execute(text(f'SELECT COUNT(*) FROM "{name}"')).scalar_one()  # noqa: S608
+                return {name: connection.execute(text(f'SELECT COUNT(*) FROM "{name}"')).scalar_one()
                         for name in names}
         finally:
             engine.dispose()
@@ -463,8 +439,9 @@ def test_a_team_backup_restores_completely_into_a_new_database(pg, pg_team, serv
     original, restored = counts(server_url), counts(spare_server_url)
     assert restored == original and restored["prospect_assignments"] == 3
     with pytest.raises(server_backup.BackupFailed, match="new, empty database"):
-        server_backup.restore(dump, server_url)  # never over live data
+        server_backup.restore(dump, server_url)
     with pytest.raises(server_backup.BackupFailed) as caught:
         server_backup.backup(make_url(server_url).set(password="wrong-secret").render_as_string(
             hide_password=False), tmp_path / "other")
     assert "wrong-secret" not in str(caught.value)
+

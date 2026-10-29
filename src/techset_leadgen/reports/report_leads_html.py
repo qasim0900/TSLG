@@ -1,15 +1,3 @@
-"""
-Generación de informe HTML para pipeline de leads.
-
-Consume datos ya cargados en LeadsView:
-- leads (lista filtrada o completa)
-- funnel_stats (de get_funnel_stats)
-- sources_data (de group_leads_by_source)
-- marketing_summary (de get_marketing_efficiency_summary)
-- marketing_metrics (de get_marketing_metrics)
-
-NO realiza queries adicionales.
-"""
 import html
 import os
 from datetime import datetime
@@ -20,7 +8,6 @@ from techset_leadgen.domain.lead_stages import LEAD_STATUSES
 from techset_leadgen.domain.source_labels import SOURCE_LABELS
 
 
-# Source labels coherentes con tabla_leads.py
 _SOURCE_LABELS = SOURCE_LABELS
 
 _STATUS_LABELS = LEAD_STATUSES
@@ -57,21 +44,6 @@ def generate_leads_html_report(
     marketing_summary: dict | None = None,
     marketing_metrics: list | None = None,
 ):
-    """
-    Genera un informe HTML del pipeline de leads.
-
-    Args:
-        leads: Lista de leads enriched (filtrados o totales)
-        funnel_stats: dict de get_funnel_stats()
-        sources_data: dict de group_leads_by_source()
-        filters_desc: Descripción textual de los filtros activos
-        filename: Ruta del archivo (si es None, genera uno automático)
-        marketing_summary: dict de get_marketing_efficiency_summary() (opcional)
-        marketing_metrics: list de get_marketing_metrics() (opcional)
-
-    Returns:
-        tuple (success: bool, message: str, filepath: str)
-    """
     try:
         if filename is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -80,14 +52,12 @@ def generate_leads_html_report(
         if os.path.dirname(filename):
             os.makedirs(os.path.dirname(filename), exist_ok=True)
 
-        # ── Funnel section ───────────────────────────────────────
         total = funnel_stats.get("total", 0)
         meetings = funnel_stats.get("meetings", 0)
         converted = funnel_stats.get("converted", 0)
 
         funnel_html = _render_funnel(total, meetings, converted)
 
-        # ── KPI metrics ──────────────────────────────────────────
         lead_to_meeting_pct = funnel_stats.get("lead_to_meeting_pct", 0)
         meeting_to_client_pct = funnel_stats.get("meeting_to_client_pct", 0)
         avg_time = funnel_stats.get("avg_time_to_meeting", 0)
@@ -121,7 +91,6 @@ def generate_leads_html_report(
         </div>
         '''
 
-        # ── Source distribution chart ────────────────────────────
         source_chart_html = ""
         if sources_data:
             src_labels = [_SOURCE_LABELS.get(s, s) for s in sources_data]
@@ -139,7 +108,6 @@ def generate_leads_html_report(
             except Exception:
                 pass
 
-        # ── Source conversion table ───────────────────────────────
         source_table_html = ""
         if sources_data:
             rows_html = ""
@@ -181,11 +149,10 @@ def generate_leads_html_report(
             </table>
             '''
 
-        # ── Leads table ──────────────────────────────────────────
         leads_table_html = ""
         if leads:
             rows_html = ""
-            for ld in leads[:50]:  # Limitar a 50 leads en el export
+            for ld in leads[:50]:
                 created = (ld.get("created_at") or "")[:10]
                 source = html.escape(_SOURCE_LABELS.get(ld.get("source", ""), ld.get("source", "—")))
                 status_raw = (ld.get("status") or "").lower().strip()
@@ -222,7 +189,6 @@ def generate_leads_html_report(
             </table>
             '''
 
-        # ── Marketing Performance section ─────────────────────
         marketing_html = ""
         if marketing_summary:
             total_spend = float(marketing_summary.get("total_spend", 0) or 0)
@@ -296,7 +262,6 @@ def generate_leads_html_report(
             </table>
             '''
 
-        # ── Filters description ──────────────────────────────────
         filters_html = f'''
         <div class="period-filters">
             <div class="period-section">
@@ -306,7 +271,6 @@ def generate_leads_html_report(
         </div>
         '''
 
-        # ── Assemble content ─────────────────────────────────────
         content_block = f'''
         <div class="header">
             <div class="brand">Techset LeadGen</div>
@@ -347,7 +311,6 @@ def generate_leads_html_report(
 
 
 def _render_funnel(total: int, meetings: int, converted: int) -> str:
-    """Renderiza embudo visual en HTML usando las clases CSS del template."""
     stages = [
         ("Leads", total, _FUNNEL_COLORS["leads"], _FUNNEL_TEXT_COLORS["leads"], 100),
         ("Meetings", meetings, _FUNNEL_COLORS["meetings"], _FUNNEL_TEXT_COLORS["meetings"],
@@ -368,3 +331,4 @@ def _render_funnel(total: int, meetings: int, converted: int) -> str:
         </div>
         '''
     return html
+

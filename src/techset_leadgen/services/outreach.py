@@ -1,25 +1,3 @@
-"""Recording LinkedIn outreach outcomes, exactly as team members report them.
-
-Each outcome is one append-only ``outreach_events`` row. Recording it also, in
-the same transaction:
-
-* moves the prospect's stage forward (``domain.outreach.next_prospect_status``)
-  and sets its last activity;
-* starts the member's assignment (``assigned`` → ``in_progress``) on its first event;
-* with a follow-up date (required for "Follow-up requested"), schedules or moves
-  the prospect's single open follow-up;
-* for a closing outcome (not interested, wrong profile), cancels the open
-  follow-up, so nobody is reminded to contact someone who declined.
-
-Nothing is inferred: only the outcome the member chose is stored, and a manager
-reading the history sees who recorded what and when. The desktop sends a
-``request_id`` with each save; retrying the same save returns the first event
-instead of recording it twice.
-
-Who may record: the current assignee of the prospect (``outreach.record`` with
-own scope), or a manager with ``outreach.record`` for all records.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -43,7 +21,7 @@ from techset_leadgen.services import audit, prospects, tasks
 from techset_leadgen.services.access import Actor
 from techset_leadgen.services.schemas import FollowUpSchedule, OutreachRecord
 
-CLOCK_SKEW = timedelta(minutes=5)  # computers' clocks differ a little; more is a typing mistake
+CLOCK_SKEW = timedelta(minutes=5)
 
 
 def _same_event(event: OutreachEvent, data: OutreachRecord, actor: Actor) -> bool:
@@ -52,14 +30,12 @@ def _same_event(event: OutreachEvent, data: OutreachRecord, actor: Actor) -> boo
 
 
 def _follow_up_request(request_id: str | None) -> str | None:
-    """The follow-up saved with an outcome gets its own retry key, derived from the outcome's."""
     if not request_id:
         return None
     return "fu-" + hashlib.sha256(request_id.encode()).hexdigest()[:40]
 
 
 def record_event(db: Session, actor: Actor, data: OutreachRecord, *, now: datetime | None = None) -> OutreachEvent:
-    """Record one outcome for a prospect (see the module docstring for everything it updates)."""
     scope = actor.require("outreach.record")
     moment = now or utcnow()
     if data.request_id:
@@ -120,3 +96,4 @@ def record_event(db: Session, actor: Actor, data: OutreachRecord, *, now: dateti
 
 
 __all__ = ["CLOCK_SKEW", "record_event"]
+

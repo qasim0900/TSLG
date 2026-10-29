@@ -1,5 +1,3 @@
-"""The four-rule password policy (``crm.security.passwords``) and where it is enforced."""
-
 from __future__ import annotations
 
 import gzip
@@ -36,25 +34,22 @@ def broken(password: str, *, email: str | None = EMAIL, name: str | None = NAME)
     return [rule.key for rule in broken_rules(password, email=email, names=(name,))]
 
 
-# --- passwords that pass -------------------------------------------------------
-
-
 @pytest.mark.parametrize("password", [
     "correct horse battery staple",
-    "kx7#mqp2",  # exactly the minimum length
+    "kx7#mqp2",
     "blue-kettle-42",
-    "Password123!",  # a common password with a change is not an exact match
-    "9384726a",  # digits with one letter
-    "1234-5678",  # digits with a separator
-    "ayesha loves rainy mornings",  # contains the first name, but is mostly other words
+    "Password123!",
+    "9384726a",
+    "1234-5678",
+    "ayesha loves rainy mornings",
     "Malik is my favourite cat",
-    "ریاضی کی کتاب",  # Urdu letters and spaces
+    "ریاضی کی کتاب",
     "café-noir-7",
-    "x" * MAX_LENGTH,  # the four rules do not judge repetition
+    "x" * MAX_LENGTH,
 ])
 def test_passwords_that_follow_the_four_rules_pass(password):
     assert broken(password) == []
-    validate_password(password, email=EMAIL, full_name=NAME)  # does not raise
+    validate_password(password, email=EMAIL, full_name=NAME)
 
 
 def test_no_character_classes_are_required():
@@ -62,16 +57,13 @@ def test_no_character_classes_are_required():
         assert broken(password) == [], password
 
 
-# --- rule 1: not like the user's email or name ---------------------------------
-
-
 @pytest.mark.parametrize("password", [
-    "ayesha.malik",  # the email's local part
-    "AyeshaMalik",  # the name without the space, other case
+    "ayesha.malik",
+    "AyeshaMalik",
     "ayeshamalik1",
-    "Ayesha2024!",  # the first name plus a few characters
-    "techset.example",  # the email's domain
-    EMAIL.upper(),  # the email itself
+    "Ayesha2024!",
+    "techset.example",
+    EMAIL.upper(),
 ])
 def test_passwords_like_the_email_or_name_are_rejected(password):
     assert "similar" in broken(password)
@@ -81,17 +73,15 @@ def test_passwords_like_the_email_or_name_are_rejected(password):
 
 
 @pytest.mark.parametrize(("password", "email", "name"), [
-    # Found by the dummy-account run: the user's own words rearranged scored under the
-    # similarity threshold, and short names plus a year passed while longer ones did not.
-    ("AhmedBilal", "bilal.ahmed@techset.example", "Bilal Ahmed"),  # names swapped
-    ("AyeshaAyesha", EMAIL, NAME),  # repeated
-    ("kilaMahseyA", EMAIL, NAME),  # reversed
-    ("Seán2024", "sean.obrien@techset.example", "Seán O'Brien"),  # a 4-letter name plus a year
+    ("AhmedBilal", "bilal.ahmed@techset.example", "Bilal Ahmed"),
+    ("AyeshaAyesha", EMAIL, NAME),
+    ("kilaMahseyA", EMAIL, NAME),
+    ("Seán2024", "sean.obrien@techset.example", "Seán O'Brien"),
     ("José@123", "jose.garcia@techset.example", "José García-Márquez"),
     ("Christopher_Wellington", "chris.mw@example.io", "Christopher Alexander Montgomery-Wellington"),
-    ("سارہ2024", "sara.khan@techset.example", "سارہ خان"),  # Urdu name plus a year
-    ("مرتضیٰعمران", "imran.urdu@techset.example", "عمران مرتضیٰ"),  # Urdu names swapped
-    ("Techset2026!", EMAIL, NAME),  # the email's domain word
+    ("سارہ2024", "sara.khan@techset.example", "سارہ خان"),
+    ("مرتضیٰعمران", "imran.urdu@techset.example", "عمران مرتضیٰ"),
+    ("Techset2026!", EMAIL, NAME),
 ])
 def test_passwords_made_only_of_the_users_own_words_are_rejected(password, email, name):
     assert "similar" in broken(password, email=email, name=name)
@@ -104,42 +94,35 @@ def test_own_words_rule_needs_every_letter_to_be_the_users():
 
 
 def test_similarity_is_not_overly_broad():
-    # Short name parts can never reach the threshold against an 8-character password.
     assert broken("liwu-blue-kettle", email="li.wu@example.io", name="Li Wu") == []
-    # Without an email or name there is nothing to compare with.
     assert "similar" not in broken("ayesha.malik", email=None, name=None)
-    # Similar to someone else's name is fine.
     assert broken("ayeshamalik1", email="bilal@example.io", name="Bilal Ahmed") == []
 
 
 def test_similarity_ignores_case_and_look_alike_characters():
-    assert "similar" in broken("ＡＹＥＳＨＡＭＡＬＩＫ")  # full-width letters fold to plain ones
-
-
-# --- rule 2: at least 8 characters --------------------------------------------
+    assert "similar" in broken("ＡＹＥＳＨＡＭＡＬＩＫ")
 
 
 def test_minimum_length_is_eight():
     assert MIN_LENGTH == 8
-    assert "length" in broken("Kx7#mqp")  # 7
-    assert "length" not in broken("Kx7#mqp2")  # 8
+    assert "length" in broken("Kx7#mqp")
+    assert "length" not in broken("Kx7#mqp2")
     assert "length" in broken("")
 
 
 def test_length_counts_characters_not_code_points():
-    composed, decomposed = "é", "é"  # "é" typed two ways
+    composed, decomposed = "é", "é"
     assert password_length(composed) == password_length(decomposed) == 1
     assert password_length("ریاضی") == 5
-    # Seven characters, but ten code points when the accents are combining marks.
     seven = "qvbn" + decomposed * 3
     assert len(seven) == 10 and "length" in broken(seven)
     assert "length" not in broken("qvbn" + composed * 4)
 
 
 def test_invisible_characters_do_not_count_or_hide_a_common_password():
-    for hidden in ("\u200b", "\u200d", "\u00ad", "\u200f", "\ufeff"):  # zero-width, joiner, soft hyphen, RLM, BOM
+    for hidden in ("\u200b", "\u200d", "\u00ad", "\u200f", "\ufeff"):
         assert "common" in broken(f"pass{hidden}word"), repr(hidden)
-        assert "length" in broken(f"Kx7#{hidden}mqp"), repr(hidden)  # 7 visible characters
+        assert "length" in broken(f"Kx7#{hidden}mqp"), repr(hidden)
 
 
 def test_spaces_count_towards_the_length():
@@ -152,14 +135,11 @@ def test_too_long_passwords_are_rejected_before_hashing():
     assert error.value.fields == {"password": f"Use at most {MAX_LENGTH} characters."}
 
 
-# --- rule 3: not a common password --------------------------------------------
-
-
 @pytest.mark.parametrize("password", [
     "password", "password123", "Password123", "PASSWORD123", "iloveyou", "qwertyuiop",
-    " password ",  # outer spaces do not hide it
-    "ｐａｓｓｗｏｒｄ",  # full-width letters
-    "𝓅𝒶𝓈𝓈𝓌ℴ𝓇𝒹",  # mathematical script letters
+    " password ",
+    "ｐａｓｓｗｏｒｄ",
+    "𝓅𝒶𝓈𝓈𝓌ℴ𝓇𝒹",
 ])
 def test_common_passwords_are_rejected(password):
     assert "common" in broken(password)
@@ -207,16 +187,13 @@ def test_update_script_rebuilds_the_list_reproducibly(tmp_path):
     assert gzip.decompress(first.read_bytes()).decode("utf-8") == "abc\npassword\nqwerty\n"
 
 
-# --- rule 4: not only numbers --------------------------------------------------
-
-
 @pytest.mark.parametrize("password", [
     "12345678", "987654321",
-    "93847261059",  # not on the common list: rejected by this rule alone
-    " 93847261059 ",  # outer spaces do not make it more than numbers
-    "۹۳۸۴۷۲۶۱۰۵",  # Urdu (Extended Arabic-Indic) digits
-    "١٢٣٤٥٦٧٨٩",  # Arabic-Indic digits
-    "１２３４５６７８",  # full-width digits
+    "93847261059",
+    " 93847261059 ",
+    "۹۳۸۴۷۲۶۱۰۵",
+    "١٢٣٤٥٦٧٨٩",
+    "１２３４５６７８",
 ])
 def test_numeric_only_passwords_are_rejected(password):
     assert "numeric" in broken(password)
@@ -230,9 +207,6 @@ def test_digits_mixed_with_other_characters_pass_the_numeric_rule():
         assert "numeric" not in broken(password), password
 
 
-# --- messages ---------------------------------------------------------------------
-
-
 def test_every_broken_rule_is_reported_in_order():
     assert broken("1234567") == ["length", "numeric", "common"]
     with pytest.raises(ValidationFailed) as error:
@@ -242,9 +216,6 @@ def test_every_broken_rule_is_reported_in_order():
         assert rule.message in message
     assert message.index("at least 8") < message.index("more than numbers") < message.index("too common")
     assert error.value.message == "The password does not meet the requirements."
-
-
-# --- enforced in every flow that sets a password ------------------------------
 
 
 def test_first_run_setup_applies_the_policy(db):
@@ -286,3 +257,4 @@ def test_password_change_applies_the_policy(db, settings, acme):
         assert set(error.value.fields) == {"new_password"}, weak
     auth.change_password(db, Actor.for_user(user), current_session_id=session.id,
                          current_password=PASSWORD, new_password="blue-kettle-42")
+

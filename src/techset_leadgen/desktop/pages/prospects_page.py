@@ -1,5 +1,3 @@
-"""Native LinkedIn prospect list, detail, editing, and reviewed imports."""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -76,8 +74,6 @@ def _prospect_fields() -> list[FieldSpec]:
 
 
 def create_prospect(parent: QWidget, context: AppContext) -> str | None:
-    """Open the one-prospect form and return the new ID when it is saved."""
-
     def submit(dialog: FormDialog) -> str:
         data = parse(ProspectCreate, {**dialog.values(), "source": "Added by hand"})
         return context.write("prospect", lambda db, actor: prospects.create_prospect(db, actor, data).id)
@@ -95,15 +91,11 @@ def create_prospect(parent: QWidget, context: AppContext) -> str | None:
 
 
 class _FileSignals(QObject):
-    """Results of a file read, delivered on the GUI thread."""
-
-    succeeded = Signal(int, str, object)  # token, path, rows
+    succeeded = Signal(int, str, object)
     failed = Signal(int, str)
 
 
 class _FileReader(QRunnable):
-    """Read a CSV/XLSX file into prospect rows off the GUI thread (no database or widget access)."""
-
     def __init__(self, token: int, path: str) -> None:
         super().__init__()
         self.token = token
@@ -117,20 +109,13 @@ class _FileReader(QRunnable):
             rows = prospects.rows_from_table(headers, records)
         except ValidationFailed as exc:
             self.signals.failed.emit(self.token, exc.message)
-        except Exception as exc:  # unreadable or malformed file: shown to the user, nothing is saved
+        except Exception as exc:
             self.signals.failed.emit(self.token, f"The file could not be read: {exc}")
         else:
             self.signals.succeeded.emit(self.token, self.path, rows)
 
 
 class ProspectImportDialog(ModalDialog):
-    """Paste profiles or load a table, preview every outcome, then explicitly import.
-
-    A chosen file is read by a background worker, so a large spreadsheet never
-    freezes the window. The workflow is paste/load -> preview -> confirm;
-    neither preview path writes data.
-    """
-
     _TONES = {"New": "success", "Existing": "info", "Repeated": "warning", "Rejected": "danger"}
 
     def __init__(self, parent: QWidget, context: AppContext) -> None:
@@ -274,7 +259,6 @@ class ProspectImportDialog(ModalDialog):
         return self._reader is not None
 
     def load_file(self, path: str) -> None:
-        """Start reading ``path`` in the background; the preview follows when it is read."""
         self._read_token += 1
         self._reader = _FileReader(self._read_token, path)
         self._reader.signals.succeeded.connect(self._file_read)
@@ -286,7 +270,7 @@ class ProspectImportDialog(ModalDialog):
 
     def _file_failed(self, token: int, message: str) -> None:
         if token != self._read_token:
-            return  # a newer file was chosen meanwhile
+            return
         self._reader = None
         self.file_button.setEnabled(True)
         self.preview_button.setEnabled(True)
@@ -386,7 +370,6 @@ class ProspectImportDialog(ModalDialog):
 
 
 def prospect_view(db: Session, actor: Actor, record_id: str) -> DetailView:
-    """The one authoritative prospect detail (facts, ownership, bounded history), shared by every outreach screen."""
     prospect = prospects.get_prospect(db, actor, record_id)
     assignment = prospects.open_assignment(db, prospect.id)
     timeline = prospects.history(db, actor, prospect, limit=HISTORY_LIMIT)
@@ -453,8 +436,6 @@ def prospect_view(db: Session, actor: Actor, record_id: str) -> DetailView:
 
 
 class ProspectsPage(RecordPage):
-    """Authoritative prospect list and bounded operational history."""
-
     title = "Prospects"
     subtitle = "LinkedIn profiles, current ownership, recent activity, and scheduled follow-ups."
     noun = "prospect"
@@ -650,3 +631,4 @@ class ProspectsPage(RecordPage):
 
 
 __all__ = ["HISTORY_LIMIT", "ProspectImportDialog", "ProspectsPage", "create_prospect"]
+

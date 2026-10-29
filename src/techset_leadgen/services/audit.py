@@ -1,5 +1,3 @@
-"""Business audit trail. Written in the same transaction as the change it records."""
-
 from __future__ import annotations
 
 from collections.abc import Collection
@@ -16,7 +14,6 @@ from techset_leadgen.database.models import AuditLog
 from techset_leadgen.services.access import Actor
 from techset_leadgen.services.pagination import Page, PageRequest, paginate
 
-# Values never written to the audit trail, whatever the entity.
 _SECRET_FIELDS = {"password", "password_hash", "token", "token_hash", "code"}
 
 
@@ -39,7 +36,6 @@ def snapshot(record: object, fields: list[str] | tuple[str, ...]) -> dict[str, A
 
 
 def diff(before: dict[str, Any], after: dict[str, Any]) -> dict[str, list[Any]]:
-    """``{field: [old, new]}`` for changed fields, secrets excluded."""
     return {
         field: [_jsonable(before.get(field)), _jsonable(after.get(field))]
         for field in after
@@ -75,7 +71,6 @@ def record(
 def list_entries(db: Session, actor: Actor, *, page: PageRequest, entity_type: str | None = None,
                  entity_id: str | None = None, action: str | None = None,
                  actions: Collection[str] | None = None) -> Page[AuditLog]:
-    """The audit log, newest first (Super Admin only); ``actions`` keeps any of several actions."""
     actor.require("audit.view")
     statement = select(AuditLog).options(joinedload(AuditLog.actor))
     if entity_type:
@@ -99,3 +94,4 @@ def get_entry(db: Session, actor: Actor, entry_id: Any) -> AuditLog:
     if entry is None:
         raise NotFound()
     return entry
+

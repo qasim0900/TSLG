@@ -1,5 +1,3 @@
-"""Tasks and follow-ups. A lead's next follow-up is its earliest open task."""
-
 from __future__ import annotations
 
 from datetime import timedelta
@@ -27,7 +25,6 @@ from techset_leadgen.desktop.workflows import client_options, open_lead, user_op
 
 
 def _about(task: Any) -> str:
-    """ "Prospect Ayesha Malik", "Lead L-1048 · Northwind Dental" style text for what a task is about."""
     if task.prospect:
         return f"Prospect {task.prospect.full_name or task.prospect.linkedin_key}"
     if task.lead:
@@ -40,10 +37,6 @@ def _about(task: Any) -> str:
 def task_fields(people: list[tuple[str, str]], lead_choices: list[tuple[str, str]],
                 client_choices: list[tuple[str, str]],
                 prospect_choices: list[tuple[str, str]] | None = None) -> list[FieldSpec]:
-    """A general task needs no LinkedIn profile; the links below are optional.
-
-    Lead and client links (the retired analytics records) are offered only when such records exist.
-    """
     fields = [
         FieldSpec("title", "Task", required=True, span=True, placeholder="e.g. Research 50 new fintech profiles"),
         FieldSpec("due_at", "Due", "datetime", hint="Shown in your time zone. Overdue tasks are highlighted."),
@@ -65,7 +58,6 @@ def task_fields(people: list[tuple[str, str]], lead_choices: list[tuple[str, str
 
 
 def _prospect_choices(db: Session, actor: Actor, current: str | None) -> list[tuple[str, str]]:
-    """The 100 most recently active prospects the user can see (and the task's current one)."""
     if not actor.can("prospects.view"):
         return []
     page = prospects.list_prospects(db, actor, page=PageRequest(page_size=100, sort="activity", descending=True))
@@ -133,7 +125,7 @@ class TasksPage(RecordPage):
 
     def __init__(self, context: AppContext, parent: QWidget | None = None) -> None:
         super().__init__(context, parent)
-        self.records.table.setProperty("hoverNudge", True)  # rows nudge right under the mouse
+        self.records.table.setProperty("hoverNudge", True)
         self.empty_state = self.records.set_empty_state(
             "No tasks match these filters", "Change the filters, or create a follow-up with New task.",
             ("New task", self.create_record))
@@ -252,13 +244,12 @@ class TasksPage(RecordPage):
         self.snooze_button = panel.add_action("Snooze", self.snooze, ghost=True)
         self.cancel_button = panel.add_action("Cancel task", lambda: self.set_status("cancelled"), ghost=True)
         self.lead_button = panel.add_action("Open lead", self.open_lead, icon="leads")
-        self.lead_button.hide()  # the "About" link opens the lead
+        self.lead_button.hide()
 
     def update_actions(self, view: DetailView | None) -> None:
         allowed = view.allowed if view else set()
         self.done_button.setEnabled("done" in allowed)
         self.reopen_button.setEnabled("reopen" in allowed)
-        # One completion button, as in the design: "Mark complete", or "Reopen" for a closed task.
         self.done_button.setVisible("reopen" not in allowed)
         self.reopen_button.setVisible("reopen" in allowed)
         self.edit_button.setEnabled("edit" in allowed)
@@ -268,7 +259,6 @@ class TasksPage(RecordPage):
         self.lead_button.setEnabled("lead" in allowed)
 
     def snooze(self) -> None:
-        """Push the due time back one day (from now when the task is already overdue)."""
         view = self.current_view()
         if view is None or "snooze" not in view.allowed or self.context.actor is None:
             return
@@ -337,3 +327,4 @@ class TasksPage(RecordPage):
 
 
 __all__ = ["TasksPage", "create_task"]
+

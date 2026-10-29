@@ -1,11 +1,3 @@
-"""Daily prospect assignment batches and the member work queue.
-
-Services never commit.  A batch, its assignments, audit entries, and queued
-notifications therefore succeed or roll back as one caller-owned transaction.
-Draft assignments reserve their prospects but remain invisible to assignees
-until the batch is activated.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
@@ -64,7 +56,6 @@ def _load_users(db: Session, ids: Sequence[str]) -> dict[str, User]:
 
 
 def _validate_plan(db: Session, actor: Actor, data: BatchCreate) -> tuple[list[tuple[str, str]], dict[str, Prospect]]:
-    """Validate the entire plan before adding any ORM object."""
     actor.require("assignments.manage")
     actor.require("prospects.view")
     plan = [(str(item.prospect_id).strip(), str(item.assignee_id).strip()) for item in data.plan]
@@ -124,7 +115,6 @@ def _notify_assignment(db: Session, actor: Actor, assignment: ProspectAssignment
 
 
 def create_batch(db: Session, actor: Actor, data: BatchCreate) -> AssignmentBatch:
-    """Create and fully validate a draft or active assignment batch."""
     plan, prospects = _validate_plan(db, actor, data)
     now = utcnow()
     status = "draft" if data.draft else "active"
@@ -281,7 +271,7 @@ def reassign(db: Session, actor: Actor, assignment_id: Any, data: Reassignment) 
     current.closed_at = now
     current.closed_by_id = actor.user_id
     current.close_reason = data.reason
-    db.flush()  # release the partial unique index before inserting the successor
+    db.flush()
 
     successor = ProspectAssignment(
         prospect_id=current.prospect_id,
@@ -363,7 +353,6 @@ def list_assignments(db: Session, actor: Actor, *, page: PageRequest, view: str 
                      status: str | None = None, due: str | None = None, q: str | None = None,
                      batch_id: str | None = None, assignee_id: str | None = None,
                      now: datetime | None = None) -> Page[ProspectAssignment]:
-    """A paged, bounded assignment list with every displayed relationship eager-loaded."""
     actor.require("prospects.view")
     statement = (_assignment_query().join(Prospect, Prospect.id == ProspectAssignment.prospect_id)
                  .join(User, User.id == ProspectAssignment.assignee_id))
@@ -407,7 +396,6 @@ def list_assignments(db: Session, actor: Actor, *, page: PageRequest, view: str 
 
 
 def open_count(db: Session, actor: Actor) -> int:
-    """How many profiles the actor is currently working on (assigned or in progress)."""
     return db.scalar(select(func.count()).select_from(ProspectAssignment).where(
         ProspectAssignment.assignee_id == actor.user_id,
         ProspectAssignment.status.in_(sorted(_VISIBLE_STATUSES)))) or 0
@@ -422,7 +410,7 @@ def list_my_work(db: Session, actor: Actor, *, page: PageRequest, status: str | 
 @dataclass(frozen=True)
 class BatchSummary:
     batch: AssignmentBatch
-    counts: dict[str, int]  # assignment status -> rows
+    counts: dict[str, int]
 
     @property
     def total(self) -> int:
@@ -430,7 +418,6 @@ class BatchSummary:
 
 
 def list_batches(db: Session, actor: Actor, *, limit: int = 60) -> list[BatchSummary]:
-    """The latest batches with their assignments counted by status: two queries for any number of batches."""
     actor.require("assignments.manage")
     batches = list(db.scalars(select(AssignmentBatch).order_by(AssignmentBatch.work_date.desc(),
                                                                AssignmentBatch.created_at.desc()).limit(limit)))
@@ -453,7 +440,6 @@ class Member:
 
 
 def assignable_members(db: Session, actor: Actor) -> list[Member]:
-    """Active people who can record outreach, with their open (assigned or in-progress) work, in one query."""
     actor.require("assignments.manage")
     open_work = (select(ProspectAssignment.assignee_id.label("user_id"), func.count().label("n"))
                  .where(ProspectAssignment.status.in_(sorted(_VISIBLE_STATUSES)))
@@ -483,3 +469,4 @@ __all__ = [
     "list_my_work",
     "reassign",
 ]
+

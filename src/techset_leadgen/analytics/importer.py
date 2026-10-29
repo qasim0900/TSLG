@@ -1,10 +1,3 @@
-"""Importación de datos desde archivos Excel/CSV a SQLite.
-
-Soporta importación de ventas (sales), leads, y archivos mixtos.
-Incluye validación de cabeceras, normalización de datos, detección de
-duplicados y registro de metadata de importación.
-"""
-
 import codecs
 import csv
 import hashlib
@@ -20,8 +13,6 @@ from techset_leadgen.domain.lead_stages import normalize_lead_status
 from techset_leadgen.database.local_db import get_connection, get_data_dir, get_logs_dir
 from techset_leadgen.utils.formatting import pluralize
 
-# Lazy import de openpyxl (solo cargar cuando se use import de Excel)
-# Esto evita problemas al compilar con PyInstaller
 _openpyxl = None
 
 def _get_openpyxl():
@@ -32,27 +23,12 @@ def _get_openpyxl():
     return _openpyxl
 
 _LOGGER = None
-MAX_IMPORT_FILE_SIZE_MB = 50  # límite razonable desktop
+MAX_IMPORT_FILE_SIZE_MB = 50
 MAX_IMPORT_FILE_SIZE_BYTES = MAX_IMPORT_FILE_SIZE_MB * 1024 * 1024
 
-# Nombres lógicos obligatorios para guardar en BD
 REQUIRED_LOGICAL_COLS = {"client_name", "client_id", "product_type", "price"}
 
-# Normalización de fuentes de marketing (agnóstico a plataforma)
-# ============================================================
-# Durante la importación de leads, el campo "source" se normaliza
-# para unificar valores de distintas plataformas (Meta, Google, LinkedIn, TikTok, etc.)
-# Esto permite:
-# - Agrupar correctamente leads y gastos por plataforma
-# - Calcular métricas consistentes de ROI / CAC / CPL
-# - Evitar fragmentación de datos
-# 
-# Esta normalización DEBE usarse en TODOS los importadores de lead-related data:
-# - import_leads_to_db()
-# - futuros: import_marketing_spend_to_db()
-# - futuros: import_campaigns_to_db()
 SOURCE_NORMALIZATION = {
-    # Meta ecosystem
     "facebook": "meta_ads",
     "fb": "meta_ads",
     "meta": "meta_ads",
@@ -60,33 +36,25 @@ SOURCE_NORMALIZATION = {
     "ig": "meta_ads",
     "messenger": "meta_ads",
     "audience_network": "meta_ads",
-    
-    # Google ecosystem
+
     "google": "google_ads",
     "google_ads": "google_ads",
     "adwords": "google_ads",
     "gads": "google_ads",
-    
-    # LinkedIn
+
     "linkedin": "linkedin_ads",
     "linkedin_ads": "linkedin_ads",
-    
-    # TikTok
+
     "tiktok": "tiktok_ads",
     "tiktok_ads": "tiktok_ads",
-    
-    # Manual imports
+
     "csv": "manual_import",
     "manual": "manual_import",
 }
 
-# Nombres lógicos obligatorios para leads
 REQUIRED_LEADS_COLS = {"created_at", "source"}
 DEFAULT_LEAD_STATUS = "new"
 
-# ============================================================
-#  MARKETING SPEND — Aliases y columnas requeridas
-# ============================================================
 REQUIRED_MARKETING_SPEND_COLS = {"source", "amount"}
 OPTIONAL_MARKETING_SPEND_COLS = {"date"}
 
@@ -102,10 +70,8 @@ MARKETING_SPEND_HEADER_ALIASES = {
         "date", "fecha", "period", "periodo", "month", "mes",
     ],
 }
-# Nombres lógicos opcionales para leads
 OPTIONAL_LEADS_COLS = {"external_id", "status", "meeting_date", "client_id"}
 
-# Posibles aliases para leads (agnóstico a la plataforma)
 LEADS_HEADER_ALIASES = {
     "external_id": [
         "leadgen_id",
@@ -145,10 +111,6 @@ LEADS_HEADER_ALIASES = {
     ],
 }
 
-# Generic lead aliases that also appear in ad-platform spend exports. A file
-# such as ``source, amount, date`` satisfies the lead schema only through these
-# (``date`` -> ``created_at``), so they must not decide that a file is a lead
-# export when it also carries a spend amount.
 _SHARED_LEAD_SPEND_HEADERS = {
     "date", "datetime", "source", "platform", "origin", "channel",
     "campaign_id", "campaign_status",
@@ -160,53 +122,37 @@ _LEAD_ONLY_HEADERS = {
     if alias not in _SHARED_LEAD_SPEND_HEADERS
 }
 
-# Posibles alias que pueden aparecer en CSV o Excel
 HEADER_ALIASES = {
     "cliente": "client_name",
     "nombre cliente": "client_name",
     "nombre": "client_name",
-    "client_name": "client_name",  # ← AÑADE ESTA LÍNEA
+    "client_name": "client_name",
     "identificador del cliente": "client_id",
     "cliente id": "client_id",
     "id cliente": "client_id",
     "identificador": "client_id",
-    "client_id": "client_id",  # ← AÑADE ESTA LÍNEA
+    "client_id": "client_id",
     "tipo de producto": "product_type",
     "producto": "product_type",
     "tipo producto": "product_type",
     "tipo": "product_type",
-    "product_type": "product_type",  # ← AÑADE ESTA LÍNEA
+    "product_type": "product_type",
     "precio": "price",
     "importe": "price",
-    "price": "price",  # ← AÑADE ESTA LÍNEA
+    "price": "price",
     "fecha": "date",
     "date": "date",
 }
 
 
-# ============================================================
-#  NORMALIZACIÓN UNIVERSAL DE HEADERS (CORRECCIÓN CLAVE)
-# ============================================================
-
 def _normalise_header(h: str) -> str:
-    """
-    Normaliza encabezados eliminando:
-    - BOM (\ufeff)
-    - NBSP (\xa0)
-    - acentos invisibles
-    - espacios duplicados
-    - mayúsculas/minúsculas
-    """
     if not h:
         return ""
 
-    # Normalización unicode (elimina acentos invisibles)
     h = unicodedata.normalize("NFKD", h)
 
-    # Quitar BOM y espacios NBSP
     h = h.replace("\ufeff", "").replace("\xa0", " ")
 
-    # Trim, minúsculas, collapse spaces
     return " ".join(h.strip().lower().split())
 
 def _cell_number_to_text(value):
@@ -221,14 +167,6 @@ def _cell_number_to_text(value):
 
 
 def _validate_required_string(field: str, value) -> str:
-    """
-    Valida que un campo obligatorio sea un string no vacío.
-    Retorna el valor normalizado (strip).
-
-    :param field: nombre lógico del campo (para mensajes de error)
-    :param value: valor a validar
-    :raises ValueError: si el valor es inválido
-    """
     if value is None:
         raise ValueError(f"The required field '{field}' is missing")
 
@@ -248,18 +186,9 @@ def _validate_required_string(field: str, value) -> str:
     return normalized
 
 def _validate_positive_price(field: str, value) -> float:
-    """
-    Valida que un campo de precio sea numérico y > 0.
-    Retorna el valor normalizado como float.
-
-    :param field: nombre lógico del campo (para mensajes de error)
-    :param value: valor a validar
-    :raises ValueError: si el valor es inválido
-    """
     if value is None:
         raise ValueError(f"The field '{field}' is required")
 
-    # Evitar que strings vacíos pasen al float()
     if isinstance(value, str):
         value = value.strip()
         if not value:
@@ -291,10 +220,6 @@ def _validate_positive_price(field: str, value) -> float:
 
 
 def _build_header_map(headers):
-    """
-    Construye dict: logical_name -> real_header_name
-    según los alias definidos.
-    """
     logical_to_real = {}
     for real in headers:
         if real is None:
@@ -327,7 +252,7 @@ def _get_importer_logger() -> logging.Logger:
 
     handler = RotatingFileHandler(
         str(log_file),
-        maxBytes=1_000_000,  # 1 MB
+        maxBytes=1_000_000,
         backupCount=3,
         encoding="utf-8",
     )
@@ -342,9 +267,6 @@ def _get_importer_logger() -> logging.Logger:
 
     _LOGGER = logger
     return logger
-# ============================================================
-#  PARSEO DE FECHAS ROBUSTO
-# ============================================================
 def _parse_date(value: object, default_today: str | None) -> str | None:
     if value is None or str(value).strip() == "":
         return default_today
@@ -391,9 +313,6 @@ def _parse_date(value: object, default_today: str | None) -> str | None:
     raise ValueError(f"Unrecognized date format: {value}")
 
 
-# ============================================================
-#  LECTURA DE CSV y EXCEL
-# ============================================================
 def _detect_csv_encoding(file_path: str) -> str:
     decoder = codecs.getincrementaldecoder("utf-8")()
     with open(file_path, "rb") as fb:
@@ -441,13 +360,12 @@ def _read_csv_rows(file_path: str):
     encoding = _detect_csv_encoding(file_path)
     f = open(file_path, "r", encoding=encoding, errors="replace", newline="")
 
-    # Autodetectar delimitador (coma, punto y coma, tabulador, etc.)
     sample = f.read(4096)
     f.seek(0)
     try:
         dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
     except csv.Error:
-        dialect = csv.excel  # fallback: coma estándar
+        dialect = csv.excel
 
     reader = csv.DictReader(f, dialect=dialect)
     headers = reader.fieldnames or []
@@ -479,9 +397,9 @@ def _read_excel_rows(file_path: str):
     except StopIteration:
         wb.close()
         return [], []
-    
+
     headers = [str(h) if h is not None else "" for h in headers]
-        
+
     def row_generator():
         try:
             for r in rows_iter:
@@ -497,12 +415,6 @@ def _read_excel_rows(file_path: str):
 
 
 def read_table(file_path: str, *, max_rows: int) -> tuple[list[str], list[dict]]:
-    """Headers (normalized) and at most ``max_rows`` rows of a .csv/.xlsx/.xlsm file.
-
-    The same reading rules as every other import: size limit, encoding and
-    delimiter detection, first row as headers. Raises ``ValueError`` with a
-    user-facing message for unsupported, damaged, or oversized files.
-    """
     _check_file_size(file_path)
     ext = os.path.splitext(file_path)[1].lower()
     if ext == ".csv":
@@ -520,18 +432,13 @@ def read_table(file_path: str, *, max_rows: int) -> tuple[list[str], list[dict]]
     finally:
         close = getattr(row_gen, "close", None)
         if close is not None:
-            close()  # releases the file handle when reading stopped early
+            close()
     return [_normalise_header(str(header)) for header in headers], rows
 
 
-
-# ============================================================
-#  FUNCIÓN PRINCIPAL: IMPORTAR A SQLITE
-# ============================================================
-
 def _begin_transaction(conn) -> None:
     conn.execute("BEGIN")
- 
+
 def import_csv_to_db(file_path: str, dry_run: bool = False):
     import time
     start_time = time.perf_counter()
@@ -542,7 +449,6 @@ def import_csv_to_db(file_path: str, dry_run: bool = False):
         _check_file_size(file_path)
         ext = os.path.splitext(file_path)[1].lower()
 
-        # Leer según tipo
         if ext == ".csv":
             headers, raw_rows = _read_csv_rows(file_path)
         elif ext in (".xlsx", ".xlsm"):
@@ -553,10 +459,8 @@ def import_csv_to_db(file_path: str, dry_run: bool = False):
         if not headers:
             return False, "The file has no column headers."
 
-        # Mapeo real -> lógico
         header_map = _build_header_map(headers)
 
-        # Verificar columnas obligatorias
         missing = REQUIRED_LOGICAL_COLS - set(header_map.keys())
         if missing:
             missing_str = ",".join(sorted(missing))
@@ -574,7 +478,6 @@ def import_csv_to_db(file_path: str, dry_run: bool = False):
 
         has_date_col = "date" in header_map
 
-        # Procesar fila por fila
         for i, raw in enumerate(raw_rows, start=2):
             try:
                 client_name = _validate_required_string(
@@ -615,18 +518,16 @@ def import_csv_to_db(file_path: str, dry_run: bool = False):
         if not valid_rows:
             return False, "No valid rows to import."
 
-        # Insertar en BD
         conn = get_connection()
         try:
             clients_in_file = {}
             for client_name, client_id, *_ in valid_rows:
                 if client_id not in clients_in_file:
                     clients_in_file[client_id] = client_name
-            
+
             _begin_transaction(conn)
             cursor = conn.cursor()
-            
-            # Obtener client_id existentes en la BD (defensivo si está vacío)
+
             existing_ids = set()
             if clients_in_file:
                 cursor.execute(
@@ -637,7 +538,6 @@ def import_csv_to_db(file_path: str, dry_run: bool = False):
                 )
                 existing_ids = {row[0] for row in cursor.fetchall()}
 
-            # Crear clientes faltantes
             missing_clients = [
                 (cid, cname, "-", None, None, None)
                 for cid, cname in clients_in_file.items()
@@ -654,7 +554,6 @@ def import_csv_to_db(file_path: str, dry_run: bool = False):
                 )
                 logger.info("Inserted %d new clients", len(missing_clients))
 
-            # Insertar ventas
             cursor.executemany(
                 """
                 INSERT INTO sales (client_name, client_id, product_type, price, date)
@@ -706,7 +605,7 @@ def import_csv_to_db(file_path: str, dry_run: bool = False):
                 len(errors),
                 used_default_date,
                 dry_run,)
-            
+
         except Exception:
             conn.rollback()
             raise
@@ -714,7 +613,6 @@ def import_csv_to_db(file_path: str, dry_run: bool = False):
         finally:
             conn.close()
 
-        # Mensaje final
 
         if dry_run:
             msg = f"OK {pluralize(len(valid_rows), 'valid record')} analyzed."
@@ -735,39 +633,24 @@ def import_csv_to_db(file_path: str, dry_run: bool = False):
         return False, f"Could not process the file: {e}"
 
 
-# ============================================================
-#  IMPORTADOR DE LEADS (agnóstico a plataforma)
-# ============================================================
-
 def _build_leads_header_map(headers):
-    """
-    Construye dict: logical_name -> real_header_name
-    según los aliases de LEADS definidos.
-    
-    Solo mapea campos definidos en LEADS_HEADER_ALIASES.
-    """
     logical_to_real = {}
     for real in headers:
         if real is None:
             continue
         key = _normalise_header(real)
-        
-        # Buscar en LEADS_HEADER_ALIASES
+
         for logical_name, aliases_list in LEADS_HEADER_ALIASES.items():
             normalized_aliases = [_normalise_header(a) for a in aliases_list]
             if key in normalized_aliases:
                 if logical_name not in logical_to_real:
                     logical_to_real[logical_name] = real
                 break
-    
+
     return logical_to_real
 
 
 def _build_marketing_spend_header_map(headers):
-    """
-    Construye dict: logical_name -> real_header_name
-    según los aliases de MARKETING_SPEND definidos.
-    """
     logical_to_real = {}
     for real in headers:
         if real is None:
@@ -785,111 +668,44 @@ def _build_marketing_spend_header_map(headers):
 
 
 def _validate_optional_string(field: str, value) -> str | None:
-    """
-    Valida un campo opcional (puede ser None o vacío).
-    Si es válido, retorna el string normalizado.
-    Si es None o vacío, retorna None.
-    
-    :param field: nombre del campo (para logs)
-    :param value: valor a validar
-    :return: string normalizado o None
-    :raises ValueError: solo si el valor existe pero es de tipo incorrecto
-    """
     if value is None or value == "":
         return None
-    
+
     if not isinstance(value, str):
         s = str(value).strip() if value is not None else None
         if not s:
             return None
         return s
-    
+
     normalized = value.strip()
     if not normalized:
         return None
-    
+
     return normalized
 
 
 def _normalize_source(source: str) -> str:
-    """
-    Normaliza el campo 'source' de un lead para agrupar correctamente
-    leads y gastos provenientes de distintas plataformas de marketing de forma robusta.
-    
-    REGLAS OBLIGATORIAS DE NORMALIZACIÓN (en orden):
-    1. Convertir a minúsculas
-    2. Eliminar espacios al inicio y final (strip)
-    3. Eliminar variaciones comunes utilizadas por plataformas de ads:
-       - " lead ads"
-       - " lead form"
-       - " ads"
-       - "_ads"
-       - "-ads"
-    4. Buscar en SOURCE_NORMALIZATION
-    5. Si existe mapeo → retornar valor normalizado
-    6. Si no existe → retornar valor original normalizado y registrar aviso en log
-    
-    Esta función DEBE reutilizarse en todos los importadores de datos de marketing:
-    - import_leads_to_db() ← aplicado
-    - import_marketing_spend_to_db() ← futuro
-    - import_campaigns_to_db() ← futuro
-    
-    Ejemplos de normalización:
-    - "Facebook Lead Ads" → "facebook" → "meta_ads"
-    - "Instagram Lead Form" → "instagram" → "meta_ads"
-    - "Google Search Ads" → "google" → "google_ads"
-    - "Meta Ads" → "meta" → "meta_ads"
-    - "LinkedIn" → "linkedin" → "linkedin_ads"
-    - "unknown_platform" → "unknown_platform" (mantiene valor, log warning)
-    
-    :param source: valor de source del CSV/Excel
-    :return: valor normalizado
-    """
     if not source:
         return source
-    
-    # 1. Convertir a minúsculas y eliminar espacios al inicio/final
+
     source_key = source.lower().strip()
-    
-    # 2. Eliminar variaciones comunes utilizadas por plataformas de ads
-    #    En orden de longitud más larga a más corta para evitar conflictos
+
     for suffix in [" lead ads", " lead form", " ads", "_ads", "-ads"]:
         if source_key.endswith(suffix):
             source_key = source_key[:-len(suffix)].strip()
-    
-    # 3. Buscar en el diccionario de normalización
+
     normalized = SOURCE_NORMALIZATION.get(source_key, source_key)
-    
-    # 4. Detección de fuentes desconocidas (no están en SOURCE_NORMALIZATION)
+
     if normalized == source_key and source_key not in SOURCE_NORMALIZATION:
         logger = _get_importer_logger()
         logger.warning(
             f"Unknown marketing source detected during import: '{source}' -> '{source_key}'"
         )
-    
+
     return normalized
 
 
-# ============================================================
-#  PRE-FLIGHT INSPECTOR (NO abre BD, NO modifica datos)
-# ============================================================
-
 def inspect_import_file(file_path: str) -> dict:
-    """
-    Detecta automáticamente el esquema de un archivo CSV/XLSX sin importar datos.
-
-    No abre conexión a la BD ni modifica ningún dato.
-    Reutiliza helpers internos del módulo.
-
-    Retorna dict:
-        {
-            "valid"          : bool,
-            "detected_type"  : "sales" | "leads" | "mixed" | "invalid",
-            "headers"        : list[str],
-            "missing_sales"  : list[str],   # vacío si cumple esquema ventas
-            "missing_leads"  : list[str],   # vacío si cumple esquema leads
-        }
-    """
     _INVALID = {
         "valid": False,
         "detected_type": "invalid",
@@ -911,7 +727,6 @@ def inspect_import_file(file_path: str) -> dict:
             return {**_INVALID, "missing_sales": ["unsupported file format"], "missing_leads": ["unsupported file format"]}
 
         if not headers:
-            # Consumir generador para cerrar el file handle antes de retornar
             try:
                 for _ in row_gen:
                     pass
@@ -919,17 +734,14 @@ def inspect_import_file(file_path: str) -> dict:
                 pass
             return {**_INVALID, "missing_sales": ["no column headers"], "missing_leads": ["no column headers"]}
 
-        # --- Esquema VENTAS ---
         sales_map     = _build_header_map(headers)
         missing_sales = sorted(REQUIRED_LOGICAL_COLS - set(sales_map.keys()))
         fits_sales    = len(missing_sales) == 0
 
-        # --- Esquema LEADS ---
         leads_map     = _build_leads_header_map(headers)
         missing_leads = sorted(REQUIRED_LEADS_COLS - set(leads_map.keys()))
         fits_leads    = len(missing_leads) == 0
 
-        # --- Esquema MARKETING SPEND ---
         spend_map             = _build_marketing_spend_header_map(headers)
         missing_marketing_spend = sorted(REQUIRED_MARKETING_SPEND_COLS - set(spend_map.keys()))
         fits_marketing_spend  = len(missing_marketing_spend) == 0
@@ -951,7 +763,6 @@ def inspect_import_file(file_path: str) -> dict:
         else:
             detected_type = "invalid"
 
-        # --- Contar filas y cerrar el file handle consumiendo todo el generador ---
         row_count = 0
         try:
             for _ in row_gen:
@@ -1004,18 +815,6 @@ def _lead_exists_for_source(cursor, external_id: str, source: str | None) -> boo
 
 
 def import_leads_to_db(file_path: str, dry_run: bool = False):
-    """
-    Importa leads desde archivo CSV o Excel.
-    Agnóstico respecto a la plataforma de origen (Meta, Google, CRM, etc.).
-    
-    Estructura esperada:
-    - Campos obligatorios: created_at, source
-    - Campos opcionales: external_id, status, meeting_date, client_id
-    - Genera id interno (UUID) si no existe
-    - Usa INSERT OR IGNORE para ignorar duplicados automáticamente
-    
-    Retorna: (ok: bool, message: str)
-    """
     import time
 
     start_time = time.perf_counter()
@@ -1026,7 +825,6 @@ def import_leads_to_db(file_path: str, dry_run: bool = False):
         _check_file_size(file_path)
         ext = os.path.splitext(file_path)[1].lower()
 
-        # Leer según tipo
         if ext == ".csv":
             headers, raw_rows = _read_csv_rows(file_path)
         elif ext in (".xlsx", ".xlsm"):
@@ -1037,10 +835,8 @@ def import_leads_to_db(file_path: str, dry_run: bool = False):
         if not headers:
             return False, "The file has no column headers."
 
-        # Mapeo real -> lógico (solo campos conocidos)
         header_map = _build_leads_header_map(headers)
 
-        # Verificar columnas obligatorias
         missing = REQUIRED_LEADS_COLS - set(header_map.keys())
         if missing:
             missing_str = ",".join(sorted(missing))
@@ -1057,49 +853,19 @@ def import_leads_to_db(file_path: str, dry_run: bool = False):
         unlinked_leads = 0
         key_occurrences: dict[str, int] = {}
 
-        # Procesar fila por fila
         for i, raw in enumerate(raw_rows, start=2):
             try:
-                # ============================================================
-                # TRAZABILIDAD: Almacenar valor original antes de normalizar
-                # ============================================================
-                # Se guarda raw_source para logging y depuración si ocurre
-                # algún problema. No se modifica la BD por ahora.
                 raw_source = raw.get(header_map["source"])
-                
-                # Campos obligatorios
+
                 created_at_raw = raw.get(header_map["created_at"])
                 created_at = _parse_date(created_at_raw, date.today().isoformat())
-                
+
                 source = _validate_required_string(
                     "source", raw_source
                 )
-                
-                # ============================================================
-                # NORMALIZACIÓN DE SOURCE (FUNCIÓN REUTILIZABLE)
-                # ============================================================
-                # Se aplica _normalize_source() para unificar valores de
-                # diferentes plataformas (Meta, Google, LinkedIn, TikTok, etc.)
-                # 
-                # Reglas obligatorias de normalización:
-                # 1. Convertir a minúsculas
-                # 2. Eliminar espacios al inicio y final
-                # 3. Eliminar variaciones comunes (" lead ads", " lead form", etc.)
-                # 4. Aplicar diccionario de normalización
-                # 5. Detectar y registrar fuentes desconocidas
-                # 
-                # Esta función DEBE usarse en TODOS los importadores que
-                # inserten datos en campos "source":
-                # - import_leads_to_db() ← aplicado
-                # - import_marketing_spend_to_db() ← futuro
-                # - import_campaigns_to_db() ← futuro
-                # 
-                # Garantía de coherencia:
-                # leads.source == marketing_spend.source
-                # Permite calcular métricas: CPL, CAC, ROI por plataforma
+
                 source = _normalize_source(source)
 
-                # Campos opcionales
                 external_id = None
                 if "external_id" in header_map:
                     ext_id_raw = raw.get(header_map["external_id"])
@@ -1108,8 +874,6 @@ def import_leads_to_db(file_path: str, dry_run: bool = False):
                 status = DEFAULT_LEAD_STATUS
                 if "status" in header_map:
                     status_raw = raw.get(header_map["status"])
-                    # Codes or labels ("Client" -> converted); unknown stages reject the row
-                    # instead of being stored where the funnel cannot count them.
                     status = normalize_lead_status(
                         _validate_optional_string("status", status_raw), DEFAULT_LEAD_STATUS
                     )
@@ -1121,7 +885,6 @@ def import_leads_to_db(file_path: str, dry_run: bool = False):
                         try:
                             meeting_date = _parse_date(meeting_raw, None)
                         except ValueError:
-                            # Si no es una fecha válida, ignorar silenciosamente
                             meeting_date = None
 
                 client_id = None
@@ -1129,8 +892,6 @@ def import_leads_to_db(file_path: str, dry_run: bool = False):
                     client_id_raw = raw.get(header_map["client_id"])
                     client_id = _validate_optional_string("client_id", client_id_raw)
 
-                # Generar id interno si no existe external_id.
-                # ID determinista: evita duplicados al re-importar el mismo archivo.
                 if external_id:
                     lead_id = external_id
                 else:
@@ -1164,19 +925,17 @@ def import_leads_to_db(file_path: str, dry_run: bool = False):
         if not valid_rows:
             return False, "No valid rows to import."
 
-        # Insertar en BD
         conn = get_connection()
         try:
             _begin_transaction(conn)
             cursor = conn.cursor()
 
-            # Verificar si client_ids existen (solo si se proporcionaron)
             client_ids_in_file = {
                 row["client_id"] 
                 for row in valid_rows 
                 if row["client_id"] is not None
             }
-            
+
             existing_client_ids = set()
             if client_ids_in_file:
                 placeholders = ",".join("?" * len(client_ids_in_file))
@@ -1264,7 +1023,6 @@ def import_leads_to_db(file_path: str, dry_run: bool = False):
         finally:
             conn.close()
 
-        # Mensaje final
         if dry_run:
             msg = f"OK {pluralize(len(valid_rows), 'valid lead')} analyzed."
         else:
@@ -1292,21 +1050,7 @@ def import_leads_to_db(file_path: str, dry_run: bool = False):
         return False, f"Could not process the leads file: {e}"
 
 
-# ============================================================
-#  IMPORTADOR DE MARKETING SPEND
-# ============================================================
-
 def import_marketing_spend_to_db(file_path: str, dry_run: bool = False):
-    """
-    Importa gasto de marketing desde archivo CSV o Excel.
-
-    Estructura esperada:
-    - Campos obligatorios: source, amount
-    - Campos opcionales: date (si falta, usa fecha de hoy)
-    - source se normaliza con _normalize_source() (coherente con leads)
-
-    Retorna: (ok: bool, message: str)
-    """
     import time
 
     start_time = time.perf_counter()
@@ -1345,16 +1089,13 @@ def import_marketing_spend_to_db(file_path: str, dry_run: bool = False):
 
         for i, raw in enumerate(raw_rows, start=2):
             try:
-                # Source — obligatorio, normalizado
                 raw_source = raw.get(header_map["source"])
                 source = _validate_required_string("source", raw_source)
                 source = _normalize_source(source)
 
-                # Amount — obligatorio, numérico > 0
                 raw_amount = raw.get(header_map["amount"])
                 amount = _validate_positive_price("amount", raw_amount)
 
-                # Date — opcional, default hoy
                 raw_date = None
                 if "date" in header_map:
                     raw_date = raw.get(header_map["date"])
@@ -1375,7 +1116,6 @@ def import_marketing_spend_to_db(file_path: str, dry_run: bool = False):
         if not valid_rows:
             return False, "No valid rows to import."
 
-        # Insertar en BD
         conn = get_connection()
         try:
             _begin_transaction(conn)
@@ -1432,7 +1172,6 @@ def import_marketing_spend_to_db(file_path: str, dry_run: bool = False):
         finally:
             conn.close()
 
-        # Mensaje final
         if dry_run:
             msg = f"OK {pluralize(insert_count, 'spend record')} analyzed."
         else:

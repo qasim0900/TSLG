@@ -1,5 +1,3 @@
-"""Migration safety for the additive LinkedIn-outreach schema."""
-
 from __future__ import annotations
 
 import sqlite3
@@ -85,3 +83,4 @@ def test_core_schema_preflight_is_read_only_and_detects_old_layout(monkeypatch, 
 
     assert core_db.base_schema_needs_migration() is True
     assert database.read_bytes() == before
+

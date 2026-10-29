@@ -1,9 +1,3 @@
-"""Lead stages: the one definition used by imports, funnel analytics, reports, and screens.
-
-The first five stages are the original funnel; "qualified" and "nurture" came
-with the CRM workflow. Stored values are codes; "converted" is shown as "Client".
-"""
-
 from __future__ import annotations
 
 LEAD_STATUSES: dict[str, str] = {
@@ -15,10 +9,8 @@ LEAD_STATUSES: dict[str, str] = {
     "converted": "Client",
     "lost": "Lost",
 }
-# Stages that count as having reached the meeting stage in the funnel.
 MEETING_OR_LATER = frozenset({"meeting", "qualified", "converted"})
 CLOSED_STATUSES = frozenset({"converted", "lost"})
-# Moves allowed through the screens. Imports record whatever stage the source reports.
 LEAD_TRANSITIONS: dict[str, frozenset[str]] = {
     "new": frozenset({"contacted", "meeting", "qualified", "nurture", "lost"}),
     "contacted": frozenset({"meeting", "qualified", "nurture", "lost"}),
@@ -35,7 +27,6 @@ _BY_NAME = {**{code: code for code in LEAD_STATUSES}, **{label.casefold(): code 
 
 
 def normalize_lead_status(value: str | None, default: str = "new") -> str:
-    """A stage code from an imported value ("Client", "contacted", ...); unknown values are refused."""
     text = (value or "").strip()
     if not text:
         return default
@@ -44,3 +35,4 @@ def normalize_lead_status(value: str | None, default: str = "new") -> str:
         known = ", ".join(LEAD_STATUSES.values())
         raise ValueError(f"Unknown lead stage {text!r}. Use one of: {known}.")
     return code
+

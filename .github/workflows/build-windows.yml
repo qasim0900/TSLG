@@ -1,11 +1,8 @@
-# Builds the Windows desktop application (TechsetLeadGen.exe) on a Windows machine.
-# The result is a zip under the run's "Artifacts": unzip it into a folder you can
-# write to (for example Documents\TechsetLeadGen) and start TechsetLeadGen.exe.
 name: Build Windows app
 
 on:
   workflow_dispatch:
-  push:  # every branch and tag
+  push:
 
 jobs:
   windows:
@@ -50,20 +47,16 @@ jobs:
           path: dist/TechsetLeadGen/
           retention-days: 30
 
-      # After the upload, so a Windows-specific test failure still leaves the build to try.
       - name: Tests on Windows
         continue-on-error: true
         env:
           QT_QPA_PLATFORM: offscreen
         run: poetry run pytest -q --junitxml=test-results.xml
 
-      # Failures become annotations and a summary on the run page; the job fails if any test did.
       - name: Report test results
         if: always()
         run: poetry run python scripts/ci_report_tests.py test-results.xml
 
-  # The shared team database: the service and migration tests against a real PostgreSQL server
-  # (Windows runners cannot run service containers, so this job runs on Linux).
   postgresql:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -86,8 +79,6 @@ jobs:
         run: |
           pipx install poetry
           poetry install --with dev --no-interaction
-          # PySide6 (imported by several integration tests) needs these system libraries on Linux;
-          # without them every such test module fails to import and pytest stops (exit code 2).
           sudo apt-get update && sudo apt-get install -y postgresql-client \
             libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libglib2.0-0
 

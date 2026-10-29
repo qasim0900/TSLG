@@ -1,5 +1,3 @@
-"""Helpers shared by the record services."""
-
 from __future__ import annotations
 
 from typing import Any
@@ -15,7 +13,6 @@ STALE_MESSAGE = "This record was changed by someone else. Reload it and try agai
 
 
 def check_version(record: Any, expected: int | None) -> None:
-    """Optimistic concurrency: reject updates based on an outdated copy."""
     if expected is not None and expected != record.version:
         raise Conflict(STALE_MESSAGE, details={"current_version": record.version})
 
@@ -27,7 +24,6 @@ def require_values(changes: dict[str, Any], *fields: str) -> None:
 
 
 def drop_unset_defaults(changes: dict[str, Any], *fields: str) -> None:
-    """Fields with a default cannot be cleared; a null means "leave unchanged"."""
     for field in fields:
         if field in changes and changes[field] is None:
             del changes[field]
@@ -35,11 +31,6 @@ def drop_unset_defaults(changes: dict[str, Any], *fields: str) -> None:
 
 def resolve_owner(db: Session, actor: Actor, permission: str, owner_id: str | None, *, current: str | None,
                   record: object | None, field: str = "owner_id") -> str | None:
-    """Validate an owner/assignee change.
-
-    Users without the assign permission may only take unassigned records for
-    themselves or keep the current owner; assigning to someone else requires it.
-    """
     owner_id = owner_id or None
     if owner_id == current:
         return owner_id
@@ -55,7 +46,6 @@ def resolve_owner(db: Session, actor: Actor, permission: str, owner_id: str | No
 
 
 def _referenced(db: Session, model: type[Any], record_id: Any, *, field: str, noun: str) -> Any:
-    """Resolve a reference chosen in a form as a field error rather than a not-found error."""
     try:
         return get_record(db, model, record_id)
     except NotFound as exc:
@@ -78,7 +68,6 @@ def referenced_contact(db: Session, contact_id: Any, *, field: str = "contact_id
 
 
 def owner_filter(statement: Any, column: Any, owner: str | None, actor: Actor) -> Any:
-    """``owner`` is "me", "none", or a user id."""
     if not owner:
         return statement
     if owner == "me":
@@ -86,3 +75,4 @@ def owner_filter(statement: Any, column: Any, owner: str | None, actor: Actor) -
     if owner == "none":
         return statement.where(column.is_(None))
     return statement.where(column == owner) if owner.strip() else statement.where(false())
+

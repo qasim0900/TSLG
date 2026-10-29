@@ -16,3 +16,4 @@ def ui_callback(page, fn: Callable[..., Any]) -> Callable[..., None]:
         page.run_task(run_on_ui)
 
     return schedule
+

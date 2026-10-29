@@ -1,10 +1,3 @@
-"""
-Análisis de marketing: métricas de CPL, CAC y ROI por plataforma.
-
-Funciones para calcular eficiencia de canales de marketing usando datos
-de leads, sales y marketing_spend. No modifica la base de datos.
-"""
-
 import logging
 
 import polars as pl
@@ -14,14 +7,6 @@ _ma_logger = logging.getLogger(__name__)
 
 
 def get_leads_by_source():
-    """
-    Obtiene número de leads por plataforma de marketing.
-    
-    SQL: SELECT source, COUNT(*) FROM leads GROUP BY source
-    
-    Returns:
-        list: [{"source": str, "leads": int}, ...]
-    """
     try:
         conn = get_db_connection()
         query = """
@@ -41,15 +26,6 @@ def get_leads_by_source():
 
 
 def get_customers_by_source():
-    """
-    Obtiene número de clientes convertidos por plataforma.
-
-    Usa First Touch Attribution: un cliente pertenece a la fuente
-    de su PRIMER lead (MIN(created_at)).
-
-    Returns:
-        list: [{"source": str, "customers": int}, ...]
-    """
     try:
         conn = get_db_connection()
         query = """
@@ -90,15 +66,6 @@ def get_customers_by_source():
 
 
 def get_revenue_by_source():
-    """
-    Obtiene revenue total por plataforma.
-
-    Usa First Touch Attribution: la venta se atribuye a la fuente
-    del primer lead del cliente (MIN(created_at)).
-
-    Returns:
-        list: [{"source": str, "revenue": float}, ...]
-    """
     try:
         conn = get_db_connection()
         query = """
@@ -139,14 +106,6 @@ def get_revenue_by_source():
 
 
 def get_marketing_spend_by_source():
-    """
-    Obtiene gasto total en marketing por plataforma.
-    
-    SQL: SELECT source, SUM(amount) FROM marketing_spend GROUP BY source
-    
-    Returns:
-        list: [{"source": str, "spend": float}, ...]
-    """
     try:
         conn = get_db_connection()
         query = """
@@ -168,66 +127,34 @@ def get_marketing_spend_by_source():
 
 
 def get_marketing_metrics():
-    """
-    Calcula métricas consolidadas de marketing por plataforma.
-    
-    Combina datos de leads, sales y marketing_spend para calcular:
-    - CPL (Cost Per Lead): spend / leads
-    - CAC (Customer Acquisition Cost): spend / customers
-    - ROI (Return on Investment): (revenue - spend) / spend
-    
-    Maneja unificación de plataformas: si una fuente existe en leads
-    pero no en marketing_spend, usa 0 para spend.
-    
-    Returns:
-        list: [
-            {
-                "source": str,
-                "leads": int,
-                "customers": int,
-                "revenue": float,
-                "spend": float,
-                "cpl": float,      # Cost Per Lead
-                "cac": float,      # Customer Acquisition Cost
-                "roi": float       # Return on Investment
-            },
-            ...
-        ]
-    """
     try:
-        # Obtener datos de cada fuente
         leads_data = get_leads_by_source()
         customers_data = get_customers_by_source()
         revenue_data = get_revenue_by_source()
         spend_data = get_marketing_spend_by_source()
-        
-        # Convertir a dicts indexados por source para merge eficiente
+
         leads_dict = {item["source"]: item["leads"] for item in leads_data}
         customers_dict = {item["source"]: item["customers"] for item in customers_data}
         revenue_dict = {item["source"]: item["revenue"] for item in revenue_data}
         spend_dict = {item["source"]: item["spend"] for item in spend_data}
-        
-        # Unificar todas las fuentes conocidas
+
         all_sources = set()
         all_sources.update(leads_dict.keys())
         all_sources.update(customers_dict.keys())
         all_sources.update(revenue_dict.keys())
         all_sources.update(spend_dict.keys())
-        
-        # Construir resultado consolidado
+
         metrics = []
         for source in sorted(all_sources):
             leads = leads_dict.get(source, 0)
             customers = customers_dict.get(source, 0)
             revenue = revenue_dict.get(source, 0.0)
             spend = spend_dict.get(source, 0.0)
-            
-            # Calcular KPIs
+
             cpl = spend / leads if leads > 0 else 0.0
             cac = spend / customers if customers > 0 else 0.0
             roi = (revenue - spend) / spend if spend > 0 else 0.0
-            
-            # Redondear a 2 decimales para moneda
+
             metrics.append({
                 "source": source,
                 "leads": leads,
@@ -238,38 +165,20 @@ def get_marketing_metrics():
                 "cac": round(cac, 2),
                 "roi": round(roi, 2),
             })
-        
-        # Ordenar por revenue descendente (mayor ROI primero)
+
         metrics.sort(key=lambda x: x["revenue"], reverse=True)
-        
+
         return metrics
-    
+
     except Exception:
         _ma_logger.exception("Could not calculate marketing metrics")
         return []
 
 
 def get_marketing_efficiency_summary():
-    """
-    Obtiene resumen de eficiencia total de marketing.
-    
-    Suma todas las métricas sin agrupar por fuente.
-    
-    Returns:
-        dict: {
-            "total_leads": int,
-            "total_customers": int,
-            "total_revenue": float,
-            "total_spend": float,
-            "avg_cpl": float,
-            "avg_cac": float,
-            "overall_roi": float,
-            "conversion_rate": float  # customers / leads
-        }
-    """
     try:
         metrics = get_marketing_metrics()
-        
+
         if not metrics:
             return {
                 "total_leads": 0,
@@ -281,18 +190,17 @@ def get_marketing_efficiency_summary():
                 "overall_roi": 0.0,
                 "conversion_rate": 0.0,
             }
-        
+
         total_leads = sum(m["leads"] for m in metrics)
         total_customers = sum(m["customers"] for m in metrics)
         total_revenue = sum(m["revenue"] for m in metrics)
         total_spend = sum(m["spend"] for m in metrics)
-        
-        # Calcular promedios ponderados
+
         avg_cpl = total_spend / total_leads if total_leads > 0 else 0.0
         avg_cac = total_spend / total_customers if total_customers > 0 else 0.0
         overall_roi = (total_revenue - total_spend) / total_spend if total_spend > 0 else 0.0
         conversion_rate = total_customers / total_leads if total_leads > 0 else 0.0
-        
+
         return {
             "total_leads": total_leads,
             "total_customers": total_customers,
@@ -303,29 +211,16 @@ def get_marketing_efficiency_summary():
             "overall_roi": round(overall_roi, 2),
             "conversion_rate": round(conversion_rate, 4),
         }
-    
+
     except Exception:
         _ma_logger.exception("Could not calculate the marketing efficiency summary")
         return {}
 
 
-# ---------------------------------------------------------------------------
-# Funciones in-memory — trabajan sobre datos ya cargados (sin queries).
-# Usadas para marketing reactivo a filtros client-side.
-# ---------------------------------------------------------------------------
-
 from collections import defaultdict
 
 
 def get_revenue_per_client() -> dict:
-    """
-    Obtiene revenue total por cliente desde la tabla sales.
-
-    Cargado UNA vez al iniciar la vista; después se usa en memoria.
-
-    Returns:
-        dict: {client_id: total_revenue}
-    """
     try:
         conn = get_db_connection()
         cursor = conn.execute(
@@ -341,14 +236,6 @@ def get_revenue_per_client() -> dict:
 
 
 def get_spend_by_source_as_dict() -> dict:
-    """
-    Obtiene gasto de marketing por fuente como dict.
-
-    Cargado UNA vez al iniciar la vista; después se usa en memoria.
-
-    Returns:
-        dict: {source: spend_amount}
-    """
     try:
         spend_list = get_marketing_spend_by_source()
         return {item["source"]: item["spend"] for item in spend_list}
@@ -362,29 +249,11 @@ def compute_marketing_metrics_from_leads(
     spend_by_source: dict,
     revenue_by_client: dict,
 ) -> list:
-    """
-    Calcula métricas de marketing in-memory sobre leads ya filtrados.
-
-    Usa First Touch Attribution por client_id dentro del conjunto filtrado:
-    si varios leads del mismo cliente están en el filtro, el revenue se
-    atribuye al lead más antiguo (menor created_at).
-
-    Args:
-        leads: Lista de leads enriched ya filtrados (en memoria).
-        spend_by_source: {source: spend_amount} — cargado una vez desde BD.
-        revenue_by_client: {client_id: total_revenue} — cargado una vez desde BD.
-
-    Returns:
-        list[dict]: [{source, leads, customers, revenue, spend, cpl, cac, roi}, ...]
-                    ordenado por revenue DESC.
-    """
-    # Agrupar leads por fuente
     source_leads: dict[str, list] = defaultdict(list)
     for lead in leads:
         source = lead.get("source") or "unknown"
         source_leads[source].append(lead)
 
-    # Unificar fuentes: leads filtrados + fuentes con spend
     all_sources = set(source_leads.keys()) | set(spend_by_source.keys())
 
     first_touch_source: dict = {}
@@ -426,17 +295,6 @@ def compute_marketing_metrics_from_leads(
 
 
 def compute_marketing_summary_from_metrics(metrics: list) -> dict:
-    """
-    Agrega métricas por fuente en un resumen global.
-
-    Misma forma que get_marketing_efficiency_summary() para compatibilidad.
-
-    Args:
-        metrics: Salida de compute_marketing_metrics_from_leads().
-
-    Returns:
-        dict con total_spend, total_revenue, avg_cpl, avg_cac, overall_roi, etc.
-    """
     total_spend = sum(m["spend"] for m in metrics)
     total_revenue = sum(m["revenue"] for m in metrics)
     total_leads = sum(m["leads"] for m in metrics)

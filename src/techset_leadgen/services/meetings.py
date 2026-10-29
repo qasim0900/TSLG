@@ -1,24 +1,3 @@
-"""Meetings: clients, attendees, conflict-free scheduling, suggested slots, and the lifecycle.
-
-The rule (``domain.scheduling``): only scheduled meetings reserve time, and a client
-or a team member may not have two meetings whose reserved times (the meeting plus
-the organization's buffer) overlap. Cancelled meetings never block; completed
-meetings are history.
-
-Concurrency. Creating, editing, and rescheduling lock the client's row and every
-attendee's ``users`` row, always in the same order (clients, then users, by ID),
-then check the schedule and write, all in one transaction. On PostgreSQL the locks
-(``SELECT … FOR NO KEY UPDATE``) make a second computer booking the same client or
-person wait for the first to commit; its check, a new statement under READ
-COMMITTED, then sees the first meeting and is refused. SQLite's ``BEGIN
-IMMEDIATE`` serializes every writer. ``check_availability`` runs the same check
-without locks: it is advisory, the save is authoritative.
-
-Visibility. ``meetings.view`` with scope ALL sees every meeting; scope OWN sees the
-meetings the user attends or created. A conflict with a meeting the caller may not
-see names only its time, never its title or people.
-"""
-
 from __future__ import annotations
 
 from collections import defaultdict
@@ -71,13 +50,11 @@ AUDITED_FIELDS = (
 _LOADED = (selectinload(Meeting.attendee_links).joinedload(MeetingAttendee.user), joinedload(Meeting.created_by))
 
 
-# --- results --------------------------------------------------------------------------------------
-
 @dataclass(frozen=True)
 class ClientChoice:
     id: str
     name: str
-    email: str | None  # None when the caller may not see client emails
+    email: str | None
     contact_person: str | None
 
 
@@ -90,8 +67,6 @@ class PersonChoice:
 
 @dataclass(frozen=True)
 class ScheduleEntry:
-    """A meeting on a client's schedule; ``title`` is None when the caller may not see it."""
-
     id: str
     title: str | None
     starts_at: datetime
@@ -110,11 +85,9 @@ class ClientSchedule:
 
 @dataclass(frozen=True)
 class Clash:
-    """A stored meeting that blocks the requested time for the client or one attendee."""
-
-    party: str  # "client", or the attendee's user ID
+    party: str
     party_name: str
-    kind: str  # "overlap" (the meetings overlap) or "buffer" (too close under the buffer rule)
+    kind: str
     meeting_id: str
     title: str | None
     starts_at: datetime
@@ -129,10 +102,10 @@ class Availability:
     rules: SchedulingRules
     client_conflicts: list[Clash] = field(default_factory=list)
     attendee_conflicts: list[Clash] = field(default_factory=list)
-    problems: list[str] = field(default_factory=list)  # e.g. the time is in the past
+    problems: list[str] = field(default_factory=list)
     suggestions: list[Interval] = field(default_factory=list)
     suggestion_day: date | None = None
-    suggestions_later: bool = False  # the requested date had no free slot
+    suggestions_later: bool = False
     outside_hours: bool = False
 
     @property
@@ -147,8 +120,6 @@ class Availability:
     def available(self) -> bool:
         return not self.conflicts and not self.problems
 
-
-# --- settings -------------------------------------------------------------------------------------
 
 def scheduling_rules(db: Session) -> SchedulingRules:
     organization = db.get(Organization, 1)
@@ -165,7 +136,6 @@ def scheduling_rules(db: Session) -> SchedulingRules:
 
 
 def get_scheduling_rules(db: Session, actor: Actor) -> SchedulingRules:
-    """The rules, for anyone who works with meetings or manages the organization."""
     if not (actor.can("meetings.view") or actor.can("org.manage")):
         raise PermissionDenied()
     return scheduling_rules(db)
@@ -183,8 +153,6 @@ _RULE_COLUMNS = {
 
 
 def update_scheduling_rules(db: Session, actor: Actor, data: SchedulingRulesUpdate) -> SchedulingRules:
-    """Change the buffer and business hours. Existing meetings stay; ones that now clash are counted
-    as scheduling conflicts until someone moves them."""
     actor.require("org.manage")
     organization = users.get_organization(db)
     changes: dict[str, list[Any]] = {}
@@ -199,8 +167,6 @@ def update_scheduling_rules(db: Session, actor: Actor, data: SchedulingRulesUpda
     db.flush()
     return scheduling_rules(db)
 
-
-# --- visibility -----------------------------------------------------------------------------------
 
 def _attends(user_id: str) -> Any:
     return select(MeetingAttendee.id).where(MeetingAttendee.meeting_id == Meeting.id,
@@ -223,7 +189,6 @@ def _can_see(actor: Actor, meeting: Meeting) -> bool:
 
 
 def _require_on(actor: Actor, permission: str, meeting: Meeting) -> Scope:
-    """Another member's meeting is reported as not found, so IDs cannot be probed."""
     scope = actor.require(permission)
     if scope is Scope.OWN and not _involves(actor, meeting):
         raise NotFound()
@@ -238,16 +203,11 @@ def _load(db: Session, meeting_id: Any) -> Meeting:
     return meeting
 
 
-# --- clients and people ---------------------------------------------------------------------------
-
 def _client_choice(client: Client, sensitive: bool) -> ClientChoice:
     return ClientChoice(client.id, client.name, client.email if sensitive else None, client.contact_person)
 
 
 def search_clients(db: Session, actor: Actor, query: str = "", *, limit: int = 20) -> list[ClientChoice]:
-    """Existing clients by name, contact person, or email (case-insensitive), exact matches first.
-
-    Emails are searched and returned only for callers allowed to see them."""
     actor.require("meetings.create")
     actor.require("clients.view")
     sensitive = actor.can("clients.view_sensitive")
@@ -268,7 +228,6 @@ def search_clients(db: Session, actor: Actor, query: str = "", *, limit: int = 2
 
 
 def search_attendees(db: Session, actor: Actor, query: str = "", *, limit: int = 50) -> list[PersonChoice]:
-    """Active team members by name or email (case-insensitive)."""
     actor.require("meetings.create")
     statement = select(User).where(User.is_active.is_(True))
     if query and query.strip():
@@ -287,10 +246,6 @@ def _entry(actor: Actor, meeting: Meeting) -> ScheduleEntry:
 
 def client_schedule(db: Session, actor: Actor, client_id: str, *, on_date: date | None = None,
                     now: datetime | None = None, limit: int = 5) -> ClientSchedule:
-    """The client's meetings on ``on_date``, the next scheduled ones, and recent past ones.
-
-    Meetings the caller may not see are listed by time only, so nobody double-books a client
-    whose other meetings belong to a colleague."""
     actor.require("meetings.view")
     actor.require("clients.view")
     client = db.get(Client, str(client_id or ""))
@@ -313,7 +268,6 @@ def client_schedule(db: Session, actor: Actor, client_id: str, *, on_date: date 
 
 
 def _resolve_client(db: Session, actor: Actor, data: MeetingCreate | MeetingUpdate) -> tuple[Client, str]:
-    """The meeting's client and the email used for it: an existing client, or a new one added now."""
     if data.client_id:
         actor.require("clients.view")
         client = db.get(Client, data.client_id)
@@ -334,7 +288,6 @@ def _resolve_client(db: Session, actor: Actor, data: MeetingCreate | MeetingUpda
 
 
 def _add_client(db: Session, actor: Actor, name: str, email: str) -> Client:
-    """A new client typed into the meeting form, unless one already has that name or email."""
     actor.require("clients.create")
     target = name.strip().casefold()
     for client_id, existing in db.execute(select(Client.id, Client.name)):
@@ -359,8 +312,6 @@ def _add_client(db: Session, actor: Actor, name: str, email: str) -> Client:
                  changes={"name": client.name, "email": email, "source": "meeting"})
     return client
 
-
-# --- scheduling checks ----------------------------------------------------------------------------
 
 def _interval(start: object, end: object) -> tuple[datetime, datetime]:
     if not isinstance(start, datetime) or not isinstance(end, datetime) or start.tzinfo is None or end.tzinfo is None:
@@ -400,7 +351,6 @@ def _attendee_list(ids: list[str]) -> list[str]:
 
 
 def _people(db: Session, ids: set[str], *, must_be_active: set[str], lock: bool) -> dict[str, User]:
-    """The attendees' accounts, locked in ID order when ``lock`` (after any client locks)."""
     if not ids:
         return {}
     statement = select(User).where(User.id.in_(sorted(ids))).order_by(User.id)
@@ -420,7 +370,6 @@ def _lock_clients(db: Session, client_ids: set[str]) -> None:
 
 def _blocking_meetings(db: Session, *, client_id: str | None, attendee_ids: set[str], start: datetime,
                        end: datetime, gap: timedelta, exclude_id: str | None) -> list[Meeting]:
-    """Scheduled meetings of the client or any attendee whose reserved time could touch [start, end)."""
     shared = []
     if client_id:
         shared.append(Meeting.client_id == client_id)
@@ -505,7 +454,6 @@ def _unavailable(rules: SchedulingRules, clashes: list[Clash], suggestions: sche
 def _ensure_free(db: Session, actor: Actor, rules: SchedulingRules, *, client_id: str | None,
                  people: dict[str, User], start: datetime, end: datetime, exclude_id: str | None,
                  now: datetime) -> None:
-    """The final check, made while the client and attendees are locked."""
     meetings = _blocking_meetings(db, client_id=client_id, attendee_ids=set(people), start=start, end=end,
                                   gap=rules.gap, exclude_id=exclude_id)
     for_client, for_people = _clashes(actor, rules, client_id, people, start, end, meetings)
@@ -517,9 +465,6 @@ def _ensure_free(db: Session, actor: Actor, rules: SchedulingRules, *, client_id
 
 def check_availability(db: Session, actor: Actor, query: AvailabilityQuery, *,
                        now: datetime | None = None) -> Availability:
-    """Is the proposed time free for the client and every attendee? If not: why, and free slots.
-
-    Informational: nothing is locked or saved; ``create_meeting`` and the edits check again."""
     current = (now or utcnow()).astimezone(UTC)
     exclude_id = None
     if query.meeting_id:
@@ -547,8 +492,6 @@ def check_availability(db: Session, actor: Actor, query: AvailabilityQuery, *,
     return Availability(start, end, rules, for_client, for_people, problems, suggestions.slots, suggestions.day,
                         suggestions.later_day, result.outside_hours)
 
-
-# --- changes --------------------------------------------------------------------------------------
 
 def _check_request(db: Session, actor: Actor, request_id: str | None) -> Meeting | None:
     if not request_id:
@@ -636,7 +579,6 @@ def _record_change(db: Session, actor: Actor, meeting: Meeting, before: dict[str
 
 def update_meeting(db: Session, actor: Actor, meeting_id: str, data: MeetingUpdate, *,
                    now: datetime | None = None) -> Meeting:
-    """Change any detail of a scheduled meeting; the resulting schedule is checked like a new one."""
     current = (now or utcnow()).astimezone(UTC)
     meeting, scope = _editable(db, actor, meeting_id, data.version)
     start, end = _interval(data.starts_at, data.ends_at)
@@ -667,7 +609,6 @@ def update_meeting(db: Session, actor: Actor, meeting_id: str, data: MeetingUpda
 
 def reschedule_meeting(db: Session, actor: Actor, meeting_id: str, data: MeetingReschedule, *,
                        now: datetime | None = None) -> Meeting:
-    """Move a scheduled meeting; it never conflicts with itself."""
     current = (now or utcnow()).astimezone(UTC)
     meeting, _scope = _editable(db, actor, meeting_id, data.version)
     start, end = _interval(data.starts_at, data.ends_at)
@@ -686,7 +627,6 @@ def reschedule_meeting(db: Session, actor: Actor, meeting_id: str, data: Meeting
 
 def cancel_meeting(db: Session, actor: Actor, meeting_id: str, reason: str | None = None,
                    *, version: int | None = None) -> Meeting:
-    """Cancel a scheduled meeting: it stays in the history and no longer reserves time."""
     meeting = _load(db, meeting_id)
     _require_on(actor, "meetings.cancel", meeting)
     check_version(meeting, version)
@@ -706,7 +646,6 @@ def cancel_meeting(db: Session, actor: Actor, meeting_id: str, reason: str | Non
 
 def complete_meeting(db: Session, actor: Actor, meeting_id: str, *, version: int | None = None,
                      now: datetime | None = None) -> Meeting:
-    """Mark a meeting that has started as held; it becomes history."""
     current = (now or utcnow()).astimezone(UTC)
     meeting = _load(db, meeting_id)
     _require_on(actor, "meetings.edit", meeting)
@@ -724,8 +663,6 @@ def complete_meeting(db: Session, actor: Actor, meeting_id: str, *, version: int
     return meeting
 
 
-# --- reading --------------------------------------------------------------------------------------
-
 def get_meeting(db: Session, actor: Actor, meeting_id: str) -> Meeting:
     meeting = _load(db, meeting_id)
     _require_on(actor, "meetings.view", meeting)
@@ -733,8 +670,6 @@ def get_meeting(db: Session, actor: Actor, meeting_id: str) -> Meeting:
 
 
 def history(db: Session, actor: Actor, meeting_id: str, *, limit: int = 100) -> list[AuditLog]:
-    """What happened to a meeting (created, updated, rescheduled, cancelled, completed), newest first,
-    for anyone who may see the meeting."""
     meeting = get_meeting(db, actor, meeting_id)
     return list(db.scalars(select(AuditLog).where(AuditLog.entity_type == "meeting", AuditLog.entity_id == meeting.id)
                            .options(joinedload(AuditLog.actor))
@@ -742,8 +677,6 @@ def history(db: Session, actor: Actor, meeting_id: str, *, limit: int = 100) -> 
 
 
 def conflicting_ids(db: Session, rules: SchedulingRules, now: datetime | None = None) -> set[str]:
-    """Scheduled meetings, not yet over, whose reserved time overlaps another scheduled meeting of the
-    same client or attendee under the current rules (e.g. booked before the buffer was raised)."""
     current = (now or utcnow()).astimezone(UTC)
     gap = rules.gap
     window = (Meeting.status == "scheduled", Meeting.ends_at > current - gap)
@@ -759,7 +692,7 @@ def conflicting_ids(db: Session, rules: SchedulingRules, now: datetime | None = 
         resources[f"user:{user_id}"].append(meeting_id)
     found: set[str] = set()
     for ids in resources.values():
-        latest: str | None = None  # the earlier meeting that ends last
+        latest: str | None = None
         for meeting_id in sorted(ids, key=lambda key: times[key]):
             starts_at, ends_at = times[meeting_id]
             if latest is not None and starts_at < times[latest][1] + gap:
@@ -805,7 +738,6 @@ def list_meetings(
     client_q: str | None = None,
     now: datetime | None = None,
 ) -> Page[Meeting]:
-    """One page of the meetings the caller may see, with attendees and creator loaded."""
     current = (now or utcnow()).astimezone(UTC)
     statement = select(Meeting).where(_visible(actor)).options(*_LOADED)
     term = (q or "").strip()[:200]
@@ -851,7 +783,6 @@ def list_meetings(
 
 
 def meeting_counts(db: Session, actor: Actor, now: datetime | None = None) -> dict[str, int]:
-    """The summary cards, from stored meetings; each matches the list ``view`` of the same name."""
     current = (now or utcnow()).astimezone(UTC)
     rules = scheduling_rules(db)
     visible = _visible(actor)
@@ -876,3 +807,4 @@ __all__ = [
     "reschedule_meeting", "scheduling_rules", "search_attendees", "search_clients", "slot_text",
     "update_meeting", "update_scheduling_rules",
 ]
+

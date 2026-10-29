@@ -1,11 +1,3 @@
-"""The selected-tab underline: a 3 px brand-green bar that grows out from the tab's centre.
-
-``TabMotion`` (installed app-wide by :func:`desktop_ui.motion.install`) gives every
-``QTabBar`` an indicator child that replaces the stylesheet underline. With
-reduced motion the indicator is not attached and the stylesheet draws a static
-underline instead.
-"""
-
 from __future__ import annotations
 
 from functools import partial
@@ -22,10 +14,6 @@ from techset_leadgen.desktop.widgets import repolish
 _INSET = 10
 _HEIGHT = 3
 
-# Keeps each indicator's Python half alive until Qt destroys the widget. Its parent is
-# usually a tab bar Qt made inside a QTabWidget, whose Python wrapper nothing keeps: the
-# garbage collector freed the pair, and the widget lived on without its attributes
-# (every later event failed with "'TabIndicator' object has no attribute 'bar'").
 _LIVE: dict[int, TabIndicator] = {}
 
 
@@ -65,7 +53,7 @@ class TabIndicator(QWidget):
     def _changed(self, _index: int) -> None:
         animate(0.0, 1.0, 300, self.set_progress, curve=EASE, owner=self)
 
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if event.type() in (QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.LayoutRequest,
                             QEvent.Type.FontChange, QEvent.Type.StyleChange):
             try:
@@ -74,19 +62,17 @@ class TabIndicator(QWidget):
                 pass
         return False
 
-    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt API
+    def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(tokens()["brand"]))
-        painter.drawRoundedRect(QRectF(self.rect()).adjusted(0, 0, 0, 2), 1.5, 1.5)  # rounded top only
+        painter.drawRoundedRect(QRectF(self.rect()).adjusted(0, 0, 0, 2), 1.5, 1.5)
         painter.end()
 
 
 class TabMotion(QObject):
-    """Attach a :class:`TabIndicator` to every tab bar when it is first shown."""
-
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if event.type() == QEvent.Type.Show and isinstance(watched, QTabBar) and not reduced_motion():
             if watched.findChild(TabIndicator) is None:
                 TabIndicator(watched)
@@ -94,3 +80,4 @@ class TabMotion(QObject):
 
 
 __all__ = ["TabIndicator", "TabMotion"]
+

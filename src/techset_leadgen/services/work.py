@@ -1,8 +1,3 @@
-"""The signed-in user's work summary for the Dashboard: tasks due and leads waiting.
-
-Every number is a count over current rows; nothing is cached or estimated.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -24,7 +19,7 @@ class WorkSummary:
     due_today: int
     my_open_leads: int
     unassigned_new_leads: int
-    upcoming: list[tuple[str, str, datetime | None, bool]]  # task id, title, due, overdue
+    upcoming: list[tuple[str, str, datetime | None, bool]]
 
 
 def summary(db: Session, actor: Actor, *, now: datetime | None = None) -> WorkSummary:
@@ -44,3 +39,4 @@ def summary(db: Session, actor: Actor, *, now: datetime | None = None) -> WorkSu
             Lead.status == "new", Lead.owner_id.is_(None))) or 0
     return WorkSummary(task_counts["open"], task_counts["overdue"], task_counts["today"], my_leads, unassigned,
                        upcoming)
+

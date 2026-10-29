@@ -1,11 +1,3 @@
-"""
-Definición de presets de comparación para modo COMPARE.
-
-Un preset define cómo transformar el estado de CompareController
-(períodos, clientes, productos) SIN calcular métricas ni acceder a datos.
-
-Snapshot-only compliant.
-"""
 from datetime import date, timedelta
 from dataclasses import dataclass
 from typing import Callable, Optional, List
@@ -27,69 +19,14 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ComparePreset:
-    """
-    Define un preset de comparación.
-
-    Un preset:
-    - NO calcula datos
-    - NO accede a BD
-    - NO conoce UI
-    - SOLO modifica el estado de CompareController
-    """
-
     id: str
-    """Identificador único del preset (ej: 'current_vs_previous_month')"""
-
     label: str
-    """Texto corto para UI (ej: 'Mes actual vs anterior')"""
-
     description: str
-    """Descripción larga (tooltips / ayuda)"""
-
     grouping_hint: Optional[str]
-    """
-    Agrupación temporal recomendada ('day', 'week', 'month', ...).
-    Es SOLO una sugerencia para UI.
-    """
-
     apply_func: Callable[["CompareController"], None]
-    """
-    Función que aplica el preset sobre CompareController.
-
-    Contrato:
-    - Recibe CompareController ya inicializado
-    - Puede modificar:
-        - a_start / a_end
-        - b_start / b_end
-        - client_b / product_b
-        - flags de override
-    - NO retorna nada
-    - NO lanza excepciones (o las deja propagar)
-    """
-
     affects: List[str]
-    """
-    Qué partes del estado modifica.
-    Valores posibles:
-        - 'dates'
-        - 'client'
-        - 'product'
-        - 'grouping'
-    """
-
     requires_period_a: bool = True
-    """
-    Si True, el preset solo puede aplicarse si período A es válido.
-    """
-
 class ComparePresetRegistry:
-    """
-    Registro central de presets de comparación.
-
-    NO ejecuta presets.
-    NO conoce CompareController internamente.
-    """
-
     def __init__(self):
         self._presets: dict[str, ComparePreset] = {}
 
@@ -106,15 +43,11 @@ class ComparePresetRegistry:
 
     def list_by_affect(self, affect: str) -> List[ComparePreset]:
         return [p for p in self._presets.values() if affect in p.affects]
-    
+
 PRESET_REGISTRY = ComparePresetRegistry()
 
 
 def _apply_same_period_as_a(controller):
-    """
-    Período B = exactamente el mismo intervalo que período A.
-    Útil para comparar los mismos filtros con distintos clientes/productos.
-    """
     if not controller.a_start or not controller.a_end:
         return
 
@@ -141,23 +74,12 @@ PRESET_REGISTRY.register(same_period_as_a)
 
 
 def _apply_period_vs_previous_year(controller):
-    """
-    Compara el período A con el mismo período del año anterior.
-
-    A = [a_start, a_end]
-    B = [a_start - 1 año, a_end - 1 año]
-
-    Requiere período A válido.
-    """
-
-    # Seguridad: no aplicar si A no es válido
     if not controller.a_start or not controller.a_end:
         return
 
     controller.b_start = shift_year_iso(controller.a_start, -1)
     controller.b_end = shift_year_iso(controller.a_end, -1)
 
-    # Heredar cliente y producto desde A
     controller.client_b = controller.client_a
     controller.product_b = controller.product_a
 
@@ -169,7 +91,7 @@ period_vs_previous_year = ComparePreset(
     id="period_vs_previous_year",
     label="Same period, previous year",
     description="Compares the selected period with the same range one year earlier.",
-    grouping_hint=None,  # no impone grouping
+    grouping_hint=None,
     apply_func=_apply_period_vs_previous_year,
     affects=["dates"],
     requires_period_a=True,)
@@ -177,15 +99,7 @@ period_vs_previous_year = ComparePreset(
 PRESET_REGISTRY.register(period_vs_previous_year)
 
 
-# ============================================================
-# PRESET STUBS (SIN IMPLEMENTACIÓN)
-# ============================================================
-
 def _apply_current_vs_previous(controller):
-    """
-    Período A vs período inmediatamente anterior (misma duración).
-    """
-
     if not controller.a_start or not controller.a_end:
         return
 
@@ -206,7 +120,6 @@ def _apply_current_vs_previous(controller):
     controller.product_b_overridden = False
 
 
-
 current_vs_previous = ComparePreset(
     id="current_vs_previous",
     label="Current vs. previous period",
@@ -221,10 +134,6 @@ PRESET_REGISTRY.register(current_vs_previous)
 
 
 def _apply_current_month_vs_previous(controller):
-    """
-    Mes actual hasta hoy vs mes anterior completo.
-    """
-
     a_start, a_end = current_month_to_date()
     b_start, b_end = previous_month_full()
 
@@ -252,10 +161,6 @@ current_month_vs_previous = ComparePreset(
 PRESET_REGISTRY.register(current_month_vs_previous)
 
 def _apply_quarter_vs_previous_year(controller):
-    """
-    Quarter actual hasta hoy vs mismo quarter del año anterior.
-    """
-
     a_start, a_end = current_quarter_to_date()
     b_start, b_end = same_quarter_previous_year()
 
@@ -268,8 +173,6 @@ def _apply_quarter_vs_previous_year(controller):
     controller.product_b = controller.product_a
     controller.client_b_overridden = False
     controller.product_b_overridden = False
-
-
 
 
 quarter_vs_previous_year = ComparePreset(
@@ -335,3 +238,4 @@ current_semester_vs_previous = ComparePreset(
 )
 
 PRESET_REGISTRY.register(current_semester_vs_previous)
+

@@ -1,18 +1,3 @@
-"""Accounts, audit trail, contacts, tasks, and lead workflow on the application database.
-
-Adds new tables and optional columns to the original ``clients`` and ``leads``
-tables. Uses ``ALTER TABLE ... ADD COLUMN`` only: rebuilding ``clients`` would
-drop it, and with foreign keys on, that cascades to its sales.
-
-SQLite runs exactly the DDL it always ran. A PostgreSQL team database (added
-later, never migrated before) gets the original tables from
-``_create_base_tables_postgresql`` and ``TIMESTAMP`` where SQLite says ``DATETIME``.
-
-Revision ID: 0001
-Revises:
-Create Date: 2026-10-21
-"""
-
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -62,10 +47,6 @@ def _user_ref(name: str, ondelete: str = "SET NULL") -> sa.Column:
 
 
 def _create_base_tables_postgresql() -> None:
-    """The original analytics tables (``local_db.create_base_tables``) in PostgreSQL types.
-
-    Dates stay ``YYYY-MM-DD`` text, as the analytics read and write them.
-    """
     text_id = sa.Column("id", sa.Text(), primary_key=True)
     op.create_table("clients", text_id, sa.Column("name", sa.Text(), nullable=False),
                     sa.Column("cif", sa.Text(), nullable=False), sa.Column("address", sa.Text()),
@@ -112,8 +93,6 @@ def upgrade() -> None:
     if postgresql:
         _create_base_tables_postgresql()
     else:
-        # A database created only by migrations (tests, a fresh install) gets the
-        # original tables from their single definition in local_db first.
         from techset_leadgen.database.local_db import create_base_tables
 
         cursor = bind.connection.cursor()
@@ -278,8 +257,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # The added client/lead columns stay (SQLite cannot drop them without rebuilding the
-    # tables, which would cascade to sales); everything else is removed.
     for table in ("tasks", "activities", "contacts", "lead_status_history", "audit_logs", "auth_attempts",
                   "user_tokens", "user_sessions", "users", "organization"):
         op.drop_table(table)
+

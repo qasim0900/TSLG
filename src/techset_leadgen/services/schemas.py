@@ -1,11 +1,3 @@
-"""Validated input for every change made through the screens.
-
-Every model forbids unknown fields, so a form cannot set server-owned
-attributes (IDs, status, reasons, audit columns). Cleaning (trimming,
-normalizing domains/emails, rejecting unsafe URLs) happens here; rules that
-need the database happen in the services.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
@@ -34,8 +26,6 @@ class InputModel(BaseModel):
 
 InputModelT = TypeVar("InputModelT", bound=InputModel)
 
-
-# --- field validators -------------------------------------------------------
 
 def _text(max_length: int, *, required: bool = False) -> BeforeValidator:
     def validate(value: Any) -> str | None:
@@ -101,7 +91,6 @@ def _aware(value: Any) -> Any:
 
 
 def _iso_date(value: Any) -> str | None:
-    """``YYYY-MM-DD`` text, the format of the original date columns."""
     if value is None or value == "":
         return None
     try:
@@ -111,7 +100,6 @@ def _iso_date(value: Any) -> str | None:
 
 
 def _request_id(value: Any) -> str | None:
-    """A client-generated ID that makes a retried save idempotent."""
     if value is None or value == "":
         return None
     text = str(value).strip()
@@ -127,14 +115,12 @@ IsoDate = Annotated[str | None, BeforeValidator(_iso_date)]
 Short = Annotated[str | None, _text(80)]
 
 
-# --- clients and contacts -----------------------------------------------------
-
 class ClientFields(InputModel):
     name: Annotated[str | None, _text(200)] = None
     cif: Annotated[str | None, _text(40)] = None
     address: Annotated[str | None, _text(300)] = None
     contact_person: Annotated[str | None, _text(200)] = None
-    email: Annotated[str | None, _text(254)] = None  # format checked by models.client_validators
+    email: Annotated[str | None, _text(254)] = None
     primary_domain: Annotated[str | None, _using(norm.normalize_domain)] = None
     website_url: Annotated[str | None, _using(norm.normalize_url)] = None
     industry: Annotated[str | None, _text(120)] = None
@@ -174,8 +160,6 @@ class ContactUpdate(ContactFields):
     version: int | None = None
 
 
-# --- leads --------------------------------------------------------------------
-
 class LeadFields(InputModel):
     title: Annotated[str | None, _text(200)] = None
     client_id: OptionalId = None
@@ -189,7 +173,7 @@ class LeadFields(InputModel):
 class LeadCreate(LeadFields):
     title: Annotated[str, _text(200, required=True)]
     source: Annotated[str, _text(40, required=True)]
-    created_on: IsoDate = None  # defaults to today
+    created_on: IsoDate = None
     allow_duplicate: bool = False
 
 
@@ -212,8 +196,6 @@ class BulkAssignment(InputModel):
     lead_ids: list[str] = Field(min_length=1, max_length=500)
     owner_id: OptionalId = None
 
-
-# --- activities and tasks -----------------------------------------------------
 
 class ActivityCreate(InputModel):
     activity_type: Annotated[str, _choice(ACTIVITY_TYPES)]
@@ -249,7 +231,6 @@ def _meeting_link(value: Any) -> str | None:
 
 
 def _attendee_ids(value: Any) -> Any:
-    """Distinct IDs in the order given (a person chosen twice attends once)."""
     if not isinstance(value, list | tuple):
         return value
     seen: dict[str, None] = {}
@@ -265,7 +246,6 @@ AttendeeIds = Annotated[list[str], BeforeValidator(_attendee_ids), Field(max_len
 
 class MeetingFields(InputModel):
     title: Annotated[str, _text(200, required=True)]
-    # An existing client; or, when empty, a new client named ``client_name`` is added.
     client_id: OptionalId = None
     client_name: Annotated[str | None, _text(200)] = None
     client_email: Annotated[str | None, _using(norm.normalize_email)] = None
@@ -291,8 +271,6 @@ class MeetingReschedule(InputModel):
 
 
 class AvailabilityQuery(InputModel):
-    """A proposed time for a client and attendees; ``meeting_id`` is the meeting being changed."""
-
     client_id: OptionalId = None
     attendee_ids: AttendeeIds = Field(default_factory=list)
     starts_at: Annotated[datetime, BeforeValidator(_aware)]
@@ -325,8 +303,6 @@ class SchedulingRulesUpdate(InputModel):
         return value
 
 
-# --- LinkedIn outreach --------------------------------------------------------
-
 class ProspectFields(InputModel):
     full_name: Annotated[str | None, _text(200)] = None
     company: Annotated[str | None, _text(200)] = None
@@ -335,7 +311,7 @@ class ProspectFields(InputModel):
 
 
 class ProspectCreate(ProspectFields):
-    linkedin_url: Annotated[str, _text(500, required=True)]  # canonicalized by the service
+    linkedin_url: Annotated[str, _text(500, required=True)]
     source: Annotated[str | None, _text(120)] = None
 
 
@@ -345,8 +321,6 @@ class ProspectUpdate(ProspectFields):
 
 
 class ProspectRow(InputModel):
-    """One row of an import or a paste, before validation (row numbers are 1-based, as shown)."""
-
     row: int
     linkedin_url: str | None = None
     full_name: Annotated[str | None, _text(200)] = None
@@ -377,8 +351,8 @@ class OutreachRecord(InputModel):
     prospect_id: str
     event_type: Annotated[str, _choice(OUTREACH_EVENTS)]
     note: Annotated[str | None, _long_text(5000)] = None
-    occurred_at: AwareDateTime = None  # defaults to now
-    follow_up_at: AwareDateTime = None  # schedules (or moves) the prospect's follow-up
+    occurred_at: AwareDateTime = None
+    follow_up_at: AwareDateTime = None
     request_id: RequestId = None
 
 
@@ -400,8 +374,6 @@ class FollowUpSchedule(InputModel):
 class TaskUpdate(TaskFields):
     version: int | None = None
 
-
-# --- users and authentication -------------------------------------------------
 
 class UserInvite(InputModel):
     email: Annotated[str, _using(norm.normalize_email)]
@@ -427,14 +399,10 @@ class PasswordChange(InputModel):
 
 class OrganizationUpdate(InputModel):
     name: Annotated[str, _text(200, required=True)]
-    # The team's business time zone: "today", due today, and the end-of-day summary use it.
     timezone: Annotated[str | None, _using(norm.normalize_timezone)] = None
 
 
-# --- helpers ------------------------------------------------------------------
-
 def error_messages(errors: Iterable[Any]) -> dict[str, str]:
-    """Pydantic error items as ``{field: message}`` with user-facing wording."""
     fields: dict[str, str] = {}
     for item in errors:
         location = [str(part) for part in item.get("loc", ()) if not isinstance(part, int)]
@@ -462,8 +430,8 @@ def error_messages(errors: Iterable[Any]) -> dict[str, str]:
 
 
 def parse(model: type[InputModelT], data: Any) -> InputModelT:
-    """Validate ``data`` or raise ``ValidationFailed`` with per-field messages."""
     try:
         return model.model_validate(data)
     except ValidationError as exc:
         raise ValidationFailed("Please correct the highlighted fields.", fields=error_messages(exc.errors())) from exc
+

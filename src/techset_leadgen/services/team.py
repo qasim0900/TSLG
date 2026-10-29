@@ -1,24 +1,3 @@
-"""Operational dashboard, team workload, and the end-of-day summary.
-
-Metrics are calculated in SQL over stored assignments, outreach events, tasks,
-and follow-up deadlines. They never infer LinkedIn outcomes: a reply counts only
-when someone recorded "Reply received". Managers use the organization's
-business time zone; an individual contributor's personal view uses their own.
-
-End-of-day summary (``daily_summary``), per person, for one business day:
-
-* assigned – assignments that became visible to them that day (``assigned_at``);
-* completed – their assignments completed that day (``closed_at``, status completed);
-* connection requests / messages / replies / meetings – outreach events of that
-  type they recorded, by when it happened (``occurred_at``);
-* follow-ups scheduled – follow-ups they created that day; follow-ups done – their
-  follow-ups completed that day (``completed_at``);
-* open assignments, open tasks, overdue follow-ups – their state now (live).
-
-The summary is calculated live from stored records rather than saved as a
-snapshot, so a correction recorded later changes it.
-"""
-
 from __future__ import annotations
 
 import csv
@@ -71,7 +50,6 @@ def _business_timezone(db: Session, actor: Actor, team_scope: bool) -> str:
 
 
 def summary(db: Session, actor: Actor, *, now: datetime | None = None) -> OperationalSummary:
-    """Return one role-scoped operational snapshot using bounded aggregate queries."""
     can_assignments = actor.can("prospects.view")
     can_tasks = actor.can("tasks.view")
     team_scope = actor.can("team.view")
@@ -158,8 +136,6 @@ def _workload(db: Session, *, start: datetime, end: datetime, now: datetime) -> 
             for user_id, name, open_count, completed_count, overdue_count in db.execute(statement)]
 
 
-# --- end-of-day summary ------------------------------------------------------------
-
 @dataclass(frozen=True)
 class DailyRow:
     user_id: str
@@ -199,7 +175,6 @@ class DailySummary:
 
 
 def day_bounds(timezone: str, day: date) -> tuple[datetime, datetime]:
-    """UTC start and end of the calendar ``day`` in ``timezone`` (23 or 25 hours across DST changes)."""
     zone = ZoneInfo(timezone)
     start = datetime.combine(day, time.min, tzinfo=zone)
     end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=zone)
@@ -226,11 +201,6 @@ def _event_counts(start: datetime, end: datetime) -> Any:
 
 def daily_summary(db: Session, actor: Actor, day: date | None = None, *,
                   now: datetime | None = None) -> DailySummary:
-    """Per-person counts for one business day: a fixed number of grouped queries, whatever the team size.
-
-    With ``team.view`` it covers every active user, in the business time zone;
-    otherwise only the actor, in their own time zone.
-    """
     actor.require("prospects.view")
     team_scope = actor.can("team.view")
     moment = now or utcnow()
@@ -273,7 +243,6 @@ def daily_summary(db: Session, actor: Actor, day: date | None = None, *,
 
 
 def _cell(value: object) -> object:
-    """Spreadsheet-safe: text starting with = + - @ is not run as a formula when the file is opened."""
     if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
         return "'" + value
     return value
@@ -281,7 +250,6 @@ def _cell(value: object) -> object:
 
 def export_daily_summary(db: Session, actor: Actor, day: date | None = None, *,
                          now: datetime | None = None) -> tuple[DailySummary, str]:
-    """The summary as CSV text (``data.export``); the export itself is audited."""
     actor.require("data.export")
     result = daily_summary(db, actor, day, now=now)
     buffer = io.StringIO()
@@ -297,3 +265,4 @@ def export_daily_summary(db: Session, actor: Actor, day: date | None = None, *,
 
 __all__ = ["COLUMN_LABELS", "COUNT_FIELDS", "DailyRow", "DailySummary", "OperationalSummary", "WorkloadRow",
            "daily_summary", "day_bounds", "export_daily_summary", "summary"]
+

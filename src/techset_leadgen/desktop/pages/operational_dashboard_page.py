@@ -1,5 +1,3 @@
-"""Role-aware operational dashboard for the LinkedIn outreach workflow."""
-
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -27,8 +25,6 @@ from techset_leadgen.desktop.widgets import KpiCard, PageHeader, SectionCard, bu
 
 
 class OperationalDashboardPage(QWidget):
-    """Actionable counts for a manager or the signed-in contributor."""
-
     status_requested = Signal(str, str)
 
     def __init__(self, context: AppContext, *, on_navigate: Callable[..., object] | None = None,
@@ -138,10 +134,10 @@ class OperationalDashboardPage(QWidget):
             self.kpi_grid.removeWidget(card)
         for index, card in enumerate(self.cards.values()):
             self.kpi_grid.addWidget(card, index // columns, index % columns)
-        for column in range(4):  # a column left over from a wider layout must not keep its share
+        for column in range(4):
             self.kpi_grid.setColumnStretch(column, 1 if column < columns else 0)
 
-    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._place_cards(4 if event.size().width() >= 1120 else 2 if event.size().width() >= 650 else 1)
 
@@ -186,3 +182,4 @@ class OperationalDashboardPage(QWidget):
 
 
 __all__ = ["OperationalDashboardPage"]
+

@@ -1,9 +1,3 @@
-"""Meetings: clients, attendees, conflict detection, buffers, suggested slots, lifecycle, and access.
-
-Times are fixed: ``NOW`` is Wednesday 28 Oct 2026 08:00 UTC and meetings are booked on
-Monday 2 Nov 2026 (business time zone UTC unless a test changes it; 09:00–18:00, Monday–Friday).
-"""
-
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
@@ -30,7 +24,7 @@ from techset_leadgen.services.schemas import (
 )
 
 NOW = datetime(2026, 10, 28, 8, tzinfo=UTC)
-DAY = datetime(2026, 11, 2, tzinfo=UTC)  # a Monday
+DAY = datetime(2026, 11, 2, tzinfo=UTC)
 
 
 def at(hour: int, minute: int = 0, *, day: datetime = DAY) -> datetime:
@@ -87,8 +81,6 @@ def _update_values(meeting: Meeting, **changes) -> dict:
             "version": meeting.version, **changes}
 
 
-# --- creating and finding -------------------------------------------------------------------------
-
 def test_create_stores_client_attendees_creator_audit_and_notifications(db, acme, manager, client):
     bdr, executive = acme.users["bdr"], acme.users["account_executive"]
     meeting = _create(db, manager, [bdr, executive], at(10), at(10, 30), client=client,
@@ -98,7 +90,7 @@ def test_create_stores_client_attendees_creator_audit_and_notifications(db, acme
     assert (saved.client_id, saved.client_name, saved.client_email) == (client.id, "Smith Holdings",
                                                                        "john@example.com")
     assert saved.attendee_ids == {bdr.id, executive.id}
-    assert saved.created_by_id == manager.user_id  # the signed-in user, never a submitted value
+    assert saved.created_by_id == manager.user_id
     assert saved.status == "scheduled" and saved.description == "Agenda: pricing"
     assert db.scalar(select(func.count()).select_from(MeetingAttendee).where(
         MeetingAttendee.meeting_id == meeting.id)) == 2
@@ -165,11 +157,9 @@ def test_client_schedule_shows_the_day_upcoming_and_past_and_hides_colleagues_ti
     assert [entry.title for entry in later.past] == ["BDR call"]
 
     member_view = meetings.client_schedule(db, Actor.for_user(bdr), client.id, on_date=DAY.date(), now=NOW)
-    assert [entry.title for entry in member_view.on_date] == ["BDR call", None]  # a colleague's: time only
+    assert [entry.title for entry in member_view.on_date] == ["BDR call", None]
     assert member_view.on_date[1].attendees == ""
 
-
-# --- conflicts --------------------------------------------------------------------------------------
 
 def test_overlapping_meeting_for_the_same_client_is_refused_with_its_time(db, acme, manager, client):
     _create(db, manager, [acme.users["bdr"]], at(10), at(10, 30), client=client)
@@ -208,11 +198,11 @@ def test_with_several_attendees_only_the_busy_one_is_reported(db, acme, manager,
 
 
 @pytest.mark.parametrize("requested, overlap", [
-    ((10, 20, 10, 50), True),  # starts inside
-    ((10, 15, 10, 20), True),  # inside
-    ((9, 30, 11, 0), True),  # around it
-    ((10, 30, 11, 0), False),  # starts exactly when it ends
-    ((9, 30, 10, 0), False),  # ends exactly when it starts
+    ((10, 20, 10, 50), True),
+    ((10, 15, 10, 20), True),
+    ((9, 30, 11, 0), True),
+    ((10, 30, 11, 0), False),
+    ((9, 30, 10, 0), False),
 ])
 def test_overlap_uses_start_and_end_and_touching_meetings_do_not_overlap(db, acme, manager, client, requested,
                                                                          overlap):
@@ -239,16 +229,14 @@ def test_completed_meetings_do_not_block_later_slots(db, acme, manager, client):
     assert _check(db, manager, at(11), at(11, 30), client=client, attendees=[acme.users["bdr"]]).available
 
 
-# --- buffer modes -----------------------------------------------------------------------------------
-
 @pytest.mark.parametrize("mode, minutes, start, expected", [
     ("none", 120, (10, 30), None),
     ("post", 120, (10, 30), "buffer"),
     ("post", 120, (12, 29), "buffer"),
-    ("post", 120, (12, 30), None),  # 120 minutes after it ends
+    ("post", 120, (12, 30), None),
     ("post", 60, (11, 30), None),
     ("around", 60, (12, 29), "buffer"),
-    ("around", 60, (12, 30), None),  # 60 after it + 60 before the next = 120 between
+    ("around", 60, (12, 30), None),
     ("around", 120, (12, 30), "buffer"),
     ("around", 120, (14, 30), None),
 ])
@@ -282,7 +270,7 @@ def test_buffer_message_explains_the_rule(db, acme, manager, client):
 def test_editing_an_unchanged_meeting_is_valid_in_every_mode(db, acme, manager, client):
     first = _create(db, manager, [acme.users["bdr"]], at(10), at(10, 30), client=client)
     second = _create(db, manager, [acme.users["bdr"]], at(14), at(14, 30), client=client)
-    _set_rules(db, acme, "around", 120)  # the two are now too close: both count as conflicts
+    _set_rules(db, acme, "around", 120)
     assert meetings.meeting_counts(db, manager, now=NOW)["conflicts"] == 2
     assert meetings.list_meetings(db, manager, page=PageRequest(), view="conflicts", now=NOW).total == 2
     _set_rules(db, acme, "post", 120)
@@ -293,8 +281,6 @@ def test_editing_an_unchanged_meeting_is_valid_in_every_mode(db, acme, manager, 
     assert meetings.meeting_counts(db, manager, now=NOW)["conflicts"] == 0
 
 
-# --- suggestions --------------------------------------------------------------------------------------
-
 def test_suggestions_are_free_closest_to_the_request_and_respect_business_hours(db, acme, manager, client):
     _create(db, manager, [acme.users["bdr"]], at(10), at(10, 30), client=client)
 
@@ -304,11 +290,11 @@ def test_suggestions_are_free_closest_to_the_request_and_respect_business_hours(
     assert starts == [at(12, 30), at(12, 45), at(13), at(13, 15), at(13, 30), at(13, 45)]
     for slot in result.suggestions:
         assert _check(db, manager, slot.starts_at, slot.ends_at, client=client,
-                      attendees=[acme.users["bdr"]]).available  # every suggestion passes the real check
+                      attendees=[acme.users["bdr"]]).available
         assert not scheduling.outside_hours(slot.starts_at, slot.ends_at, result.rules)
 
     early = _check(db, manager, at(7), at(7, 30), client=client, attendees=[acme.users["bdr"]])
-    assert early.available and early.outside_hours  # allowed, but flagged as outside business hours
+    assert early.available and early.outside_hours
 
 
 def test_suggestions_consider_every_attendee_and_the_client(db, acme, manager, client, world):
@@ -323,7 +309,7 @@ def test_suggestions_consider_every_attendee_and_the_client(db, acme, manager, c
     for slot in result.suggestions:
         for busy_start, busy_end in ((at(9), at(10)), (at(13), at(14)), (at(16), at(16, 30))):
             assert scheduling.conflict_kind(busy_start, busy_end, slot.starts_at, slot.ends_at, rules.gap) is None
-    assert result.suggestions  # 12:00 (after 9–10 + 120) to 12:00 does not fit before 13:00; later days do
+    assert result.suggestions
 
 
 def test_a_full_day_offers_the_next_working_day(db, acme, manager, client, world):
@@ -333,14 +319,14 @@ def test_a_full_day_offers_the_next_working_day(db, acme, manager, client, world
             client=world.client(manager, "All day", email="a@example.com"))
 
     result = _check(db, manager, at(11, day=friday), at(11, 30, day=friday), attendees=[bdr])
-    assert result.suggestions_later and result.suggestion_day == date(2026, 11, 9)  # Monday, not the weekend
+    assert result.suggestions_later and result.suggestion_day == date(2026, 11, 9)
     assert result.suggestions[0].starts_at == datetime(2026, 11, 9, 9, tzinfo=UTC)
 
 
 def test_no_free_time_anywhere_returns_no_suggestions(db, acme, manager, client):
-    _set_rules(db, acme, "post", 120, day_start=540, day_end=570)  # a 30-minute business day
-    result = _check(db, manager, at(9), at(10), client=client)  # an hour never fits
-    assert result.available  # nothing booked: the requested time itself is free
+    _set_rules(db, acme, "post", 120, day_start=540, day_end=570)
+    result = _check(db, manager, at(9), at(10), client=client)
+    assert result.available
     _create(db, manager, [acme.users["bdr"]], at(9), at(10), client=client)
     blocked = _check(db, manager, at(9), at(10), client=client)
     assert not blocked.available and blocked.suggestions == [] and blocked.suggestion_day is None
@@ -359,8 +345,6 @@ def test_meetings_across_midnight_use_elapsed_time(db, acme, manager, client):
     assert _check(db, manager, at(2, 30, day=next_day), at(3, day=next_day), attendees=[bdr]).available
 
 
-# --- edit, reschedule, cancel, complete -------------------------------------------------------------
-
 def test_edit_changes_details_and_attendees_and_never_conflicts_with_itself(db, acme, manager, client):
     bdr, executive = acme.users["bdr"], acme.users["account_executive"]
     meeting = _create(db, manager, [bdr], at(10), at(10, 30), client=client)
@@ -370,7 +354,7 @@ def test_edit_changes_details_and_attendees_and_never_conflicts_with_itself(db, 
         link="https://zoom.us/j/123")), now=NOW)
     db.commit()
     assert (updated.title, updated.attendee_ids, updated.ends_at) == ("Pricing review", {executive.id}, at(10, 45))
-    assert db.scalar(select(func.count()).select_from(MeetingAttendee)) == 1  # the removed link is deleted
+    assert db.scalar(select(func.count()).select_from(MeetingAttendee)) == 1
     kinds = {(row.recipient_id, row.kind) for row in db.scalars(select(Notification).where(
         Notification.entity_id == meeting.id))}
     assert {(bdr.id, "meeting.removed"), (executive.id, "meeting.scheduled")} <= kinds
@@ -388,7 +372,7 @@ def test_reschedule_checks_the_new_time_and_records_the_old_one(db, acme, manage
             "starts_at": at(15), "ends_at": at(15, 30), "version": first.version}), now=NOW)
     db.rollback()
     moved = meetings.reschedule_meeting(db, manager, first.id, parse(MeetingReschedule, {
-        "starts_at": at(11), "ends_at": at(11, 30), "version": first.version}), now=NOW)  # overlaps only itself
+        "starts_at": at(11), "ends_at": at(11, 30), "version": first.version}), now=NOW)
     db.commit()
     assert (moved.starts_at, moved.ends_at) == (at(11), at(11, 30))
     entry = db.scalar(select(AuditLog).where(AuditLog.action == "meeting.rescheduled",
@@ -424,8 +408,6 @@ def test_status_transitions(db, acme, manager, client):
     assert db.get(Meeting, meeting.id).cancellation_reason == "No longer needed"
 
 
-# --- validation ----------------------------------------------------------------------------------------
-
 @pytest.mark.parametrize("changes, field", [
     ({"title": "  "}, "title"),
     ({"title": None}, "title"),
@@ -433,7 +415,7 @@ def test_status_transitions(db, acme, manager, client):
     ({"link": "javascript:alert(1)"}, "link"),
     ({"link": "http://meet.example.com/x"}, "link"),
     ({"link": "https://user:pass@meet.example.com"}, "link"),
-    ({"starts_at": "2026-11-02T10:00:00"}, "starts_at"),  # no time zone
+    ({"starts_at": "2026-11-02T10:00:00"}, "starts_at"),
     ({"attendee_ids": "everyone"}, "attendee_ids"),
     ({"attendee_ids": [str(index) for index in range(21)]}, "attendee_ids"),
 ])
@@ -446,11 +428,11 @@ def test_invalid_input_is_refused_by_the_schema(acme, changes, field):
 
 
 @pytest.mark.parametrize("changes, field", [
-    ({"ends_at": at(9)}, "ends_at"),  # end before start
-    ({"ends_at": at(10)}, "ends_at"),  # zero length
-    ({"ends_at": at(23)}, "ends_at"),  # longer than 12 hours
+    ({"ends_at": at(9)}, "ends_at"),
+    ({"ends_at": at(10)}, "ends_at"),
+    ({"ends_at": at(23)}, "ends_at"),
     ({"starts_at": datetime(2026, 10, 27, 10, tzinfo=UTC), "ends_at": datetime(2026, 10, 27, 11, tzinfo=UTC)},
-     "starts_at"),  # in the past
+     "starts_at"),
     ({"attendee_ids": []}, "attendee_ids"),
     ({"attendee_ids": ["no-such-user"]}, "attendee_ids"),
     ({"client_id": "NO_SUCH_CLIENT"}, "client_id"),
@@ -478,7 +460,7 @@ def test_a_failed_save_leaves_no_meeting_attendee_or_new_client(db, acme, manage
     _create(db, manager, [acme.users["bdr"]], at(10), at(10, 30), client=client)
     with pytest.raises(Conflict):
         _create(db, manager, [acme.users["bdr"]], at(10), at(10, 30), client_name="Brand New Client",
-                client_email="new@example.com")  # the attendee is busy
+                client_email="new@example.com")
     db.rollback()
     assert db.scalar(select(func.count()).select_from(Meeting)) == 1
     assert db.scalar(select(func.count()).select_from(MeetingAttendee)) == 1
@@ -493,27 +475,23 @@ def test_duplicate_request_id_returns_the_original_meeting(db, acme, manager, cl
     assert db.scalar(select(func.count()).select_from(Meeting)) == 1
 
 
-# --- time zones -------------------------------------------------------------------------------------------
-
 def test_business_time_zone_is_used_for_days_hours_and_messages(db, acme, manager, client):
     organization = db.get(Organization, 1)
-    organization.timezone = "Asia/Karachi"  # UTC+5
+    organization.timezone = "Asia/Karachi"
     db.commit()
     bdr = acme.users["bdr"]
-    meeting = _create(db, manager, [bdr], at(5), at(5, 30), client=client)  # 10:00–10:30 in Karachi
-    assert meeting.starts_at == at(5)  # stored in UTC
+    meeting = _create(db, manager, [bdr], at(5), at(5, 30), client=client)
+    assert meeting.starts_at == at(5)
 
     result = _check(db, manager, at(5, 15), at(5, 45), client=client)
     assert "from 10:00 AM to 10:30 AM" in result.client_conflicts[0].message
     assert result.suggestions[0].starts_at.astimezone(result.rules.zone).hour >= 9
-    late_utc = datetime(2026, 11, 2, 20, tzinfo=UTC)  # 3 Nov 01:00 in Karachi
+    late_utc = datetime(2026, 11, 2, 20, tzinfo=UTC)
     _create(db, manager, [acme.users["account_executive"]], late_utc, late_utc + timedelta(minutes=30),
             client_name="Night Owl", client_email="owl@example.com")
     assert meetings.list_meetings(db, manager, page=PageRequest(), on_date=date(2026, 11, 2)).total == 1
     assert meetings.list_meetings(db, manager, page=PageRequest(), on_date=date(2026, 11, 3)).total == 1
 
-
-# --- lists and counts --------------------------------------------------------------------------------------
 
 def test_counts_match_views_and_lists_filter_and_page(db, acme, manager, client, world):
     bdr, executive = acme.users["bdr"], acme.users["account_executive"]
@@ -541,7 +519,7 @@ def test_counts_match_views_and_lists_filter_and_page(db, acme, manager, client,
     second = meetings.list_meetings(db, manager, page=PageRequest(page=2, page_size=3), view="upcoming", now=later)
     assert (first.total, first.pages, len(first.items), len(second.items)) == (5, 2, 3, 2)
     assert {item.id for item in first.items}.isdisjoint({item.id for item in second.items})
-    assert [item.title for item in first.items][0] == "Today later"  # by date, earliest first
+    assert [item.title for item in first.items][0] == "Today later"
 
     def total(**filters) -> int:
         return meetings.list_meetings(db, manager, page=PageRequest(), now=later, **filters).total
@@ -562,8 +540,6 @@ def test_counts_match_views_and_lists_filter_and_page(db, acme, manager, client,
         total(view="everything")
 
 
-# --- access ------------------------------------------------------------------------------------------------
-
 def test_members_see_and_change_only_their_own_meetings(db, acme, manager, client):
     member, colleague = acme.users["bdr"], acme.users["account_executive"]
     actor = Actor.for_user(member)
@@ -581,7 +557,7 @@ def test_members_see_and_change_only_their_own_meetings(db, acme, manager, clien
     with pytest.raises(PermissionDenied, match="Add yourself"):
         _create(db, actor, [colleague], at(17), at(17, 30), client=client)
     result = _check(db, actor, at(10), at(10, 30), client=client)
-    assert result.client_conflicts[0].title is None  # a colleague's meeting: time only
+    assert result.client_conflicts[0].title is None
     assert result.client_conflicts[0].message == "This client already has a meeting scheduled from 10:00 AM to 10:30 AM."
 
 
@@ -621,8 +597,6 @@ def test_scheduling_rules_are_validated_and_audited(db, acme):
     assert entry.changes["buffer_mode"] == ["post", "around"]
 
 
-# --- concurrency (SQLite: BEGIN IMMEDIATE; PostgreSQL: see test_postgresql.py) -------------------------------
-
 def test_concurrent_conflicting_saves_are_serialized(db, session_factory, acme, manager, client):
     gate = Barrier(2)
 
@@ -639,7 +613,6 @@ def test_concurrent_conflicting_saves_are_serialized(db, session_factory, acme, 
                 worker_db.rollback()
                 return "conflict"
 
-    # Different attendees, same client: only the client links them.
     with ThreadPoolExecutor(max_workers=2) as pool:
         outcomes = list(pool.map(save, [acme.users["bdr"].id, acme.users["account_executive"].id]))
     assert sorted(outcomes) == ["conflict", "created"]
@@ -668,3 +641,4 @@ def test_client_filter_matches_name_or_email(db, acme, manager, client, world):
             client=world.client(manager, "Other Co", email="team@other.example"))
     assert meetings.list_meetings(db, manager, page=PageRequest(), client_q="SMITH").total == 1
     assert meetings.list_meetings(db, manager, page=PageRequest(), client_q="other.example").total == 1
+

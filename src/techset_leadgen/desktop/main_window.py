@@ -1,5 +1,3 @@
-"""Main window: sign-in, one sidebar for every work area, and the shared top bar."""
-
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -70,21 +68,19 @@ from techset_leadgen.desktop.widgets import Avatar, SearchField, Toast, repolish
 SESSION_CHECK_MS = 60_000
 SIDEBAR_WIDTH = 252
 SIDEBAR_COLLAPSED = 76
-COMPACT_BELOW = 980  # window width under which the sidebar always shows icons only
+COMPACT_BELOW = 980
 
 
 @dataclass(frozen=True)
 class Section:
     key: str
     label: str
-    permission: str | None  # needed to see the entry; None means every signed-in user
+    permission: str | None
     group: str = ""
-    icon: str = ""  # defaults to the key
-    local_only: bool = False  # needs the local SQLite file (the retired analytics)
+    icon: str = ""
+    local_only: bool = False
 
 
-# The outreach workflow first; the original sales, lead, and client analytics are
-# kept as the Archive (their data is preserved) on a single-computer installation.
 SECTIONS = (
     Section("dashboard", "Dashboard", None, "Overview"),
     Section("my_work", "My Work", "outreach.record", "Overview"),
@@ -107,8 +103,6 @@ GROUPS = ("Overview", "Outreach", "Manage", "Archive")
 
 
 class NavButton(QAbstractButton):
-    """One sidebar entry: icon, label, and an optional count, painted to the design."""
-
     def __init__(self, label: str, icon_name: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setText(label)
@@ -136,10 +130,10 @@ class NavButton(QAbstractButton):
         self.updateGeometry()
         self.update()
 
-    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+    def sizeHint(self) -> QSize:
         return QSize(48 if self.compact else 220, 42)
 
-    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+    def minimumSizeHint(self) -> QSize:
         return QSize(48, 42)
 
     def event(self, event: QEvent) -> bool:
@@ -149,7 +143,7 @@ class NavButton(QAbstractButton):
             animate(self._hover, 0.0, 220, self._set_hover, curve=SPRING, owner=self)
         return super().event(event)
 
-    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt API
+    def paintEvent(self, event: QPaintEvent) -> None:
         t = tokens()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -166,7 +160,7 @@ class NavButton(QAbstractButton):
         else:
             icon_left = 14
         image = pixmap(self.icon_name, color, 18)
-        scale = 1 + 0.12 * self._hover  # the icon grows a little under the mouse (spring)
+        scale = 1 + 0.12 * self._hover
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.translate(icon_left + 9, area.height() / 2)
@@ -199,7 +193,7 @@ class NavButton(QAbstractButton):
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                              painter.fontMetrics().elidedText(self.text(), Qt.TextElideMode.ElideRight,
                                                               int(text_rect.width())))
-        if self.hasFocus():  # a 2 px ring reaching the button's edge, >= 3:1 against both fills
+        if self.hasFocus():
             painter.setPen(QPen(QColor(t["focus"]), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(area.adjusted(1, 1, -1, -1), 9, 9)
@@ -207,31 +201,27 @@ class NavButton(QAbstractButton):
 
 
 class AccountButton(QToolButton):
-    """The top bar's account button: avatar, name and role laid out inside it, sized by that layout."""
-
-    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+    def sizeHint(self) -> QSize:
         layout = self.layout()
         return layout.sizeHint() if layout is not None else super().sizeHint()
 
-    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+    def minimumSizeHint(self) -> QSize:
         return self.sizeHint()
 
 
 class Sidebar(QFrame):
-    """The navigation column; paints the brand-green marker beside the current page."""
-
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("sidebar")
         self.current: NavButton | None = None
-        self.marker = 1.0  # 0..1: the marker grows from its centre when the page changes
-        self.clip: QWidget | None = None  # the scrolling navigation area: the marker never leaves it
+        self.marker = 1.0
+        self.clip: QWidget | None = None
 
     def set_marker(self, value: float) -> None:
         self.marker = value
         self.update()
 
-    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt API
+    def paintEvent(self, event: QPaintEvent) -> None:
         super().paintEvent(event)
         button = self.current
         if button is None or not button.isVisible():
@@ -253,8 +243,6 @@ class Sidebar(QFrame):
 
 
 class MainWindow(QMainWindow):
-    """Branded, responsive shell. Nothing but the sign-in screens is shown until someone signs in."""
-
     _PAGE_ORDER = tuple(section.key for section in SECTIONS)
     _PAGE_LABELS = {section.key: section.label for section in SECTIONS}
     _PAGE_GROUPS = {section.key: section.group for section in SECTIONS}
@@ -290,13 +278,11 @@ class MainWindow(QMainWindow):
         self._session_timer.timeout.connect(self.check_session)
         self.start()
 
-    # ------------------------------------------------------------------ layout
 
     def _build_ui(self) -> None:
         self.root_stack = QStackedWidget()
         self.setCentralWidget(self.root_stack)
 
-        # Sign-in area: shown until someone signs in, and again after signing out.
         self.auth_stack = QStackedWidget()
         self.auth_stack.setObjectName("applicationRoot")
         self.connection_page = ConnectionPage()
@@ -360,7 +346,6 @@ class MainWindow(QMainWindow):
             self._group_boxes[group] = box
             nav_layout.addWidget(box)
         nav_layout.addStretch(1)
-        # Fifteen areas do not fit a short window: the list scrolls; brand and footer stay put.
         self.nav_area.setObjectName("navArea")
         self.nav_scroll = QScrollArea()
         self.nav_scroll.setObjectName("navScroll")
@@ -596,10 +581,8 @@ class MainWindow(QMainWindow):
         self.context.signed_out.connect(self._signed_out)
         self.context.data_changed.connect(self._record_changed)
 
-    # ------------------------------------------------------------------ sign-in
 
     def start(self) -> None:
-        """Open the database and show first-run setup or sign-in."""
         self.root_stack.setCurrentWidget(self.auth_stack)
         try:
             if not self.context.is_open:
@@ -641,7 +624,7 @@ class MainWindow(QMainWindow):
         self.account_button.setText("")
         self.account_button.setToolTip(f"{actor.full_name} ({role})")
         self.account_button.setAccessibleName(f"Account menu for {actor.full_name}, {role}")
-        self._account_layout.invalidate()  # the name and role just changed; measure them, not the cached size
+        self._account_layout.invalidate()
         self.account_button.updateGeometry()
         self._build_account_menu(actor.full_name, actor.email, role)
         self.search_field.setVisible(actor.can("prospects.view") or actor.can("clients.view")
@@ -665,7 +648,6 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._shell_entrance)
 
     def _shell_entrance(self) -> None:
-        """Sidebar slides in, the top bar drops in, and the navigation follows one entry at a time."""
         enter(self.sidebar, dx=-16, dy=0, duration=500)
         enter(self.top_bar, dy=-10, duration=450)
         buttons = [button for button in self._nav_buttons.values() if button.isVisible()]
@@ -712,7 +694,6 @@ class MainWindow(QMainWindow):
         self._sign_out_action.setIcon(icon("logout", t["danger"], 16))
 
     def confirm_sign_out(self) -> bool:
-        """Ask first (open forms lose unsaved input), then end the session."""
         actor = self.context.actor
         who = actor.email if actor is not None else "this account"
         if not ask_confirmation(
@@ -728,10 +709,10 @@ class MainWindow(QMainWindow):
     def _signed_out(self, reason: str) -> None:
         self._session_timer.stop()
         self._monitor.remove()
-        for dialog in self.findChildren(QDialog):  # forms the previous session left open
+        for dialog in self.findChildren(QDialog):
             if dialog.isVisible():
                 dialog.reject()
-        for page in self._pages.values():  # they hold the previous user's data
+        for page in self._pages.values():
             self.stack.removeWidget(page)
             page.deleteLater()
         self._pages.clear()
@@ -746,7 +727,6 @@ class MainWindow(QMainWindow):
         if self.context.verify():
             self.refresh_task_badge()
 
-    # ------------------------------------------------------------------ navigation
 
     def _ensure_page(self, name: str) -> tuple[QWidget, bool]:
         page = self._pages.get(name)
@@ -777,7 +757,6 @@ class MainWindow(QMainWindow):
                 page.data_changed.connect(lambda: self._mark_dataset_changed(source=name))
 
     def _open_numbered(self, number: int) -> None:
-        """Ctrl+1 … Ctrl+9: the areas in the order this person's sidebar shows them."""
         shown = [key for key in self._PAGE_ORDER if self._nav_buttons[key].isVisibleTo(self.sidebar)]
         if self.context.is_signed_in and number <= len(shown):
             self.navigate(shown[number - 1])
@@ -817,21 +796,17 @@ class MainWindow(QMainWindow):
 
     def show_status(self, message: str, level: str = "info") -> None:
         if level == "error":
-            # Single owner of error pop-ups for every page; messages can contain
-            # imported names, so never let Qt interpret them as rich text.
             show_message(self, title=PRODUCT_NAME, heading=message, level="error")
             return
         self.toast.show_message(message, level)
 
     def _record_changed(self, kind: str) -> None:
-        """A change saved through the services: other pages refresh when next shown."""
         self._dirty_pages.update(name for name in self._pages if name != self._current_page)
         if kind in ("task", "lead"):
             self.refresh_task_badge()
         self.refresh_counts()
 
     def _mark_dataset_changed(self, *, source: str | None) -> None:
-        """Invalidate loaded pages and refresh only the visible one."""
         self._dirty_pages.update(self._pages)
         if source is not None:
             self._dirty_pages.discard(source)
@@ -853,18 +828,16 @@ class MainWindow(QMainWindow):
         self._dirty_pages.discard(name)
 
     def _refresh_all(self) -> None:
-        """Explicit maintenance hook; refresh only pages already constructed."""
         for name in tuple(self._pages):
             self._refresh_page(name, dataset_changed=True)
 
-    # ------------------------------------------------------------------ import, search, tasks
 
     def _request_import(self) -> None:
         if not self.context.can("data.import"):
             show_message(self, title=PRODUCT_NAME, heading="Your role cannot import data.",
                          message="Ask a Sales Manager or an administrator to import the file.", level="info")
             return
-        try:  # re-checked against the database: the role may have changed elsewhere
+        try:
             self.context.run(lambda db, actor: actor.require("data.import"))
         except Exception as exc:
             report(self, exc, title="Import")
@@ -875,7 +848,7 @@ class MainWindow(QMainWindow):
         self.show_status(message, "success")
         try:
             self.context.record("data.imported", entity_type="data", changes={"result": message[:500]})
-        except Exception as exc:  # the data is imported; say that the audit entry is missing
+        except Exception as exc:
             report(self, exc, title="Import audit")
 
     def _focus_search(self) -> None:
@@ -917,7 +890,6 @@ class MainWindow(QMainWindow):
             self.open_record(*dialog.chosen)
 
     def open_record(self, kind: str, record_id: str) -> None:
-        """Open a search result where it lives: a prospect, a lead, or a client profile."""
         if kind == "prospects":
             page = self.navigate("prospects")
             if isinstance(page, ProspectsPage):
@@ -932,7 +904,6 @@ class MainWindow(QMainWindow):
                 page.show_client_profile(record_id)
 
     def refresh_task_badge(self) -> None:
-        """The top-bar reminder: the user's own follow-ups and tasks that are overdue or due today."""
         if not self.context.is_signed_in or not self.context.can("tasks.view"):
             self.task_badge.hide()
             return
@@ -942,7 +913,7 @@ class MainWindow(QMainWindow):
 
         try:
             follow_ups, general = self.context.run(work, busy=False, touch=False)
-        except Exception:  # a convenience; the periodic check reports real problems
+        except Exception:
             return
         overdue, today = follow_ups["overdue"] + general["overdue"], follow_ups["today"] + general["today"]
         self._overdue = overdue
@@ -960,7 +931,6 @@ class MainWindow(QMainWindow):
         self._nav_buttons["followups"].set_count((follow_ups["overdue"] + follow_ups["today"]) or None)
 
     def refresh_counts(self) -> None:
-        """Counts beside the navigation entries: open work, unread notifications, archive totals."""
         if not self.context.is_signed_in:
             return
 
@@ -970,11 +940,11 @@ class MainWindow(QMainWindow):
 
         try:
             open_work, unread = self.context.run(work, busy=False, touch=False)
-        except Exception:  # a convenience; the periodic check reports real problems
+        except Exception:
             return
         self._nav_buttons["my_work"].set_count(open_work or None)
         self._nav_buttons["notifications"].set_count(unread or None)
-        if self._nav_buttons["leads"].isVisibleTo(self.sidebar):  # the archive runs on the local file only
+        if self._nav_buttons["leads"].isVisibleTo(self.sidebar):
             snapshot = DashboardController.get_dashboard_kpi_snapshot()
             self._nav_buttons["leads"].set_count(snapshot.total_leads or None)
             self._nav_buttons["clients"].set_count(snapshot.clients_rows or None)
@@ -986,10 +956,8 @@ class MainWindow(QMainWindow):
         else:
             self.navigate("tasks", {"view": "mine", "due": due})
 
-    # ------------------------------------------------------------------ appearance
 
     def _toggle_theme(self) -> None:
-        # Colours glide instead of snapping: the old look fades out over the new one.
         cross_fade(self, self.theme_manager.toggle, duration=300)
         self._sync_theme_button()
 
@@ -1001,7 +969,6 @@ class MainWindow(QMainWindow):
         self.sidebar.update()
 
     def _sync_theme_button(self, _dark: bool | None = None) -> None:
-        """Label the button with the theme it switches to, matching the persisted state."""
         is_dark = self.theme_manager.dark
         self.theme_button.setChecked(is_dark)
         self.theme_button.setText("Light mode" if is_dark else "Dark mode")
@@ -1010,7 +977,6 @@ class MainWindow(QMainWindow):
         self._refresh_account_menu_icons()
 
     def toggle_sidebar(self) -> None:
-        """Collapse the sidebar to icons, or expand it again; remembered between sessions."""
         self._user_collapsed = not self._user_collapsed
         QSettings(QSettings.defaultFormat(), QSettings.Scope.UserScope, PARENT_BRAND,
                   PRODUCT_NAME).setValue("appearance/sidebarCollapsed", self._user_collapsed)
@@ -1021,7 +987,6 @@ class MainWindow(QMainWindow):
         target = SIDEBAR_COLLAPSED if compact else SIDEBAR_WIDTH
         start = self.sidebar.width()
         if animated and start != target:
-            # The width glides (0.3 s); labels hide when collapsing finishes and show as expanding starts.
             if compact:
                 animate(start, target, 300, lambda value: self.sidebar.setFixedWidth(round(value)),
                         curve=EASE, owner=self.sidebar, done=lambda: self._apply_sidebar_mode())
@@ -1051,7 +1016,7 @@ class MainWindow(QMainWindow):
         self.collapse_button.setVisible(not self._compact_navigation)
         self.sidebar.update()
 
-    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - Qt API
+    def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         compact = event.size().width() < COMPACT_BELOW
         if compact == self._compact_navigation:
@@ -1059,7 +1024,7 @@ class MainWindow(QMainWindow):
         self._compact_navigation = compact
         self._apply_sidebar_mode()
 
-    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt API
+    def closeEvent(self, event: QCloseEvent) -> None:
         if self.import_coordinator.is_busy:
             show_message(
                 self,
@@ -1073,5 +1038,6 @@ class MainWindow(QMainWindow):
         self.import_coordinator.shutdown()
         self._session_timer.stop()
         self._monitor.remove()
-        self.context.shutdown()  # ends the session in the database
+        self.context.shutdown()
         super().closeEvent(event)
+

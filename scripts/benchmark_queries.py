@@ -42,3 +42,4 @@ def main(start="2025-01-01", end="2025-12-31", runs=5):
 
 if __name__ == "__main__":
     sys.exit(main(*sys.argv[1:3]))
+

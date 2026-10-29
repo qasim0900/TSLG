@@ -1,26 +1,3 @@
-"""Fill the local database with demo data for the Archive (sales, leads, clients analytics).
-
-For the LinkedIn-outreach workflow (on the team database or a local file) use
-``scripts/seed_outreach_demo.py`` instead.
-
-    poetry run python scripts/seed_demo_data.py         # asks before changing anything
-    poetry run python scripts/seed_demo_data.py --yes   # no question
-
-It uses the database the app opens (``data/sales.db``, or ``FDT_DATA_DIR``). A new or
-empty database is prepared the way the app prepares it on start, and gets a demo
-organization whose Super Admin is ``admin@demo.techset.example``; otherwise the demo
-records are added by the first existing Super Admin.
-
-* The database is backed up first, to ``data/backups/sales-before-demo-data-<time>.db``;
-  copy that file back over ``data/sales.db`` (with the app closed) to remove the demo data.
-* Records go in through the app's own importer and services, so they pass the same
-  validation and permissions as the screens and appear in the audit log, as changes made
-  by the first Super Admin.
-* Demo people use ``@demo.techset.example`` addresses; the script refuses to run twice.
-
-Everything is random but reproducible (a fixed seed), with dates relative to today.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -35,28 +12,28 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from sqlalchemy import select  # noqa: E402
+from sqlalchemy import select
 
-from techset_leadgen.database.local_db import init_db  # noqa: E402
-from techset_leadgen.analytics.importer import import_csv_to_db, import_leads_to_db, import_marketing_spend_to_db  # noqa: E402
-from techset_leadgen.database import migrations_util  # noqa: E402
-from techset_leadgen.config import load_settings  # noqa: E402
-from techset_leadgen.database.engine import create_db_engine, create_session_factory  # noqa: E402
-from techset_leadgen.database.models import Client, Lead, User  # noqa: E402
-from techset_leadgen.services.schemas import (  # noqa: E402
+from techset_leadgen.database.local_db import init_db
+from techset_leadgen.analytics.importer import import_csv_to_db, import_leads_to_db, import_marketing_spend_to_db
+from techset_leadgen.database import migrations_util
+from techset_leadgen.config import load_settings
+from techset_leadgen.database.engine import create_db_engine, create_session_factory
+from techset_leadgen.database.models import Client, Lead, User
+from techset_leadgen.services.schemas import (
     ActivityCreate, BulkAssignment, ClientCreate, ClientUpdate, ContactCreate, LeadCreate, LeadTransition,
     TaskCreate, UserAdminUpdate, UserInvite, parse,
 )
-from techset_leadgen.services import activities, auth, clients, contacts, leads, maintenance, tasks, users  # noqa: E402
-from techset_leadgen.services.access import Actor  # noqa: E402
-from techset_leadgen.desktop.session import system_timezone  # noqa: E402
+from techset_leadgen.services import activities, auth, clients, contacts, leads, maintenance, tasks, users
+from techset_leadgen.services.access import Actor
+from techset_leadgen.desktop.session import system_timezone
 
 DEMO_DOMAIN = "demo.techset.example"
-DEMO_PASSWORD = "Demo-Kettle-2026"  # passes the password policy; shared by every demo account
+DEMO_PASSWORD = "Demo-Kettle-2026"
 rng = random.Random(20261023)
 today = date.today()
 
-TEAM = [  # name, local part, role
+TEAM = [
     ("Ayesha Malik", "ayesha.malik", "sales_manager"),
     ("Bilal Ahmed", "bilal.ahmed", "bdr"),
     ("Sana Iqbal", "sana.iqbal", "bdr"),
@@ -66,9 +43,9 @@ TEAM = [  # name, local part, role
     ("Nadia Hussain", "nadia.hussain", "read_only"),
 ]
 PENDING = [("Zain Abbas", "zain.abbas", "bdr"), ("Maryam Rizvi", "maryam.rizvi", "account_executive")]
-FORMER = ("Faisal Qureshi", "faisal.qureshi", "bdr")  # deactivated
+FORMER = ("Faisal Qureshi", "faisal.qureshi", "bdr")
 
-COMPANIES = [  # name, industry, city, country, size
+COMPANIES = [
     ("Tandoor House", "Restaurants", "Lahore", "PK", "11-50"),
     ("Kite Learning", "Education", "Karachi", "PK", "51-200"),
     ("Orchid Skincare", "Beauty & cosmetics", "Islamabad", "PK", "11-50"),
@@ -106,7 +83,7 @@ PROSPECTS = [
     ("Hunza Water", "Food & beverage", "Karimabad", "PK", "11-50"),
     ("Shalimar Interiors", "Design", "Lahore", "PK", "1-10"),
 ]
-PRODUCTS = [  # product, typical price (EUR)
+PRODUCTS = [
     ("SEO retainer", 1200), ("Custom website build", 3200), ("Social media management", 900),
     ("Google Ads management", 950), ("Shopify store setup", 1400), ("WordPress site", 700),
     ("Brand identity package", 1800), ("Email marketing", 450), ("Content writing", 350),
@@ -165,7 +142,7 @@ def main() -> None:
         state = migrations_util.schema_state(connection)
     if state.newer_than_app:
         raise SystemExit("This database is newer than this copy of the app; nothing was changed.")
-    if not state.ready:  # as the app does on start: back up (skipped for a new file), then upgrade
+    if not state.ready:
         maintenance.backup_before_migration(database, state.current, state.head)
         migrations_util.upgrade(settings.database_url)
     with engine.connect() as connection:
@@ -190,7 +167,7 @@ def main() -> None:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     backup = maintenance.copy_database(database, database.parent / "backups" / f"{database.stem}-before-demo-data-{stamp}.db")
     print(f"Backup: {backup}")
-    zone = system_timezone()  # "today", "overdue" and due times follow this computer's clock
+    zone = system_timezone()
 
     with factory() as db:
         if admin is None:
@@ -203,8 +180,7 @@ def main() -> None:
         else:
             admin_id = admin.id
 
-    # ---------------------------------------------------------------- people
-    people: dict[str, str] = {}  # local part -> user id
+    people: dict[str, str] = {}
     codes: list[tuple[str, str, str]] = []
     with factory() as db:
         actor = acting_as(db, admin_id)
@@ -213,7 +189,7 @@ def main() -> None:
             user, code = users.invite_user(db, actor, settings, parse(UserInvite, {
                 "email": f"{local}@{DEMO_DOMAIN}", "full_name": name, "role": role}))
             db.commit()
-            auth.redeem_code(db, settings, raw_code=code, password=DEMO_PASSWORD)  # the password policy applies
+            auth.redeem_code(db, settings, raw_code=code, password=DEMO_PASSWORD)
             auth.revoke_sessions(db, user.id)
             user.timezone = zone
             db.commit()
@@ -228,11 +204,10 @@ def main() -> None:
         db.commit()
     sellers = [people[local] for local in ("bilal.ahmed", "sana.iqbal", "usman.tariq", "ayesha.malik")] + [admin_id]
 
-    # ---------------------------------------------------------------- sales (the importer, like Import data)
     client_ids = {name: f"C-{index:04d}" for index, (name, *_rest) in enumerate(COMPANIES, start=1)}
     weights = [rng.uniform(0.4, 2.5) for _ in COMPANIES]
     sales_rows = []
-    for offset in range(0, 425):  # about 14 months, busier recently
+    for offset in range(0, 425):
         day = today - timedelta(days=offset)
         for _ in range(rng.choices((0, 1, 2, 3), weights=(4, 5, 2, 1 + (offset < 120)))[0]):
             (company, *_rest), = rng.choices(COMPANIES, weights=weights)
@@ -254,7 +229,7 @@ def main() -> None:
         meeting = ""
         if status in ("meeting", "qualified", "converted"):
             meeting = (created + timedelta(days=rng.randint(2, 20))).isoformat()
-        if status == "meeting" and index % 3 == 0:  # some meetings still ahead
+        if status == "meeting" and index % 3 == 0:
             meeting = (today + timedelta(days=rng.randint(1, 14))).isoformat()
         linked = client_ids[rng.choice(COMPANIES)[0]] if status == "converted" else ""
         lead_rows.append({"external_id": f"DEMO-{3000 + index}", "created_at": created.isoformat(),
@@ -262,7 +237,6 @@ def main() -> None:
                           "client_id": linked})
     checked(import_leads_to_db(str(write_csv(lead_rows, "demo-leads.csv"))), "leads")
 
-    # ---------------------------------------------------------------- clients, contacts, leads, activity, tasks
     with factory() as db:
         actor = acting_as(db, admin_id)
         for name, industry, city, country, size in COMPANIES:
@@ -306,7 +280,6 @@ def main() -> None:
                 contact_ids.setdefault(client.id, []).append(contact.id)
         db.commit()
 
-        # Leads worked in the app: titles, owners, priorities, stage changes with reasons.
         worked = []
         prospect_names = {client_id: name for client_id, (name, *_rest) in zip(prospect_ids, PROSPECTS)}
         for index, client_id in enumerate(prospect_ids * 2):
@@ -333,7 +306,7 @@ def main() -> None:
                 leads.bulk_assign(db, actor, parse(BulkAssignment, {"lead_ids": batch, "owner_id": owner}))
         new_imported = db.scalars(select(Lead.id).where(Lead.id.like("DEMO-%"), Lead.status == "new")).all()
         leads.bulk_assign(db, actor, parse(BulkAssignment, {"lead_ids": new_imported[:12], "owner_id": admin_id}))
-        db.commit()  # the other new leads stay unassigned ("new leads unassigned" on the Dashboard)
+        db.commit()
 
         all_leads = db.scalars(select(Lead.id)).all()
         subjects = {"call": ["Intro call", "Follow-up call", "Pricing questions"],
@@ -391,3 +364,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

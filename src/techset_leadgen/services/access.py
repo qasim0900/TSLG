@@ -1,5 +1,3 @@
-"""Who is acting, what they may do, and record lookup."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -22,7 +20,7 @@ class Actor:
     email: str = ""
     full_name: str = ""
     timezone: str = "UTC"
-    client_host: str | None = None  # computer name, recorded in the audit trail
+    client_host: str | None = None
 
     @classmethod
     def for_user(cls, user: User, *, client_host: str | None = None) -> Actor:
@@ -51,11 +49,6 @@ class Actor:
 
 
 def owns(record: object, user_id: str) -> bool:
-    """Ownership rule for ``own``-scoped permissions.
-
-    Clients and leads: assigned to the user, or unassigned and created by them.
-    Contacts follow their client. Tasks: assigned to or created by the user.
-    """
     if isinstance(record, Task):
         return user_id in (record.assigned_to_id, record.created_by_id)
     if isinstance(record, Contact):
@@ -68,7 +61,6 @@ def owns(record: object, user_id: str) -> bool:
 
 
 def get_record(session: Session, model: type[M], record_id: Any) -> M:
-    """Load a record by ID or raise ``NotFound``."""
     if record_id is None or str(record_id).strip() == "":
         raise NotFound()
     record = session.get(model, str(record_id))
@@ -78,7 +70,6 @@ def get_record(session: Session, model: type[M], record_id: Any) -> M:
 
 
 def get_user(session: Session, user_id: Any, *, field: str, active_only: bool = True) -> User:
-    """Resolve a user reference chosen in a form (owner, assignee)."""
     user = session.get(User, str(user_id)) if user_id else None
     if user is None or (active_only and not user.is_active):
         raise ValidationFailed("Choose an active user.", fields={field: "Choose an active user."})
@@ -86,10 +77,10 @@ def get_user(session: Session, user_id: Any, *, field: str, active_only: bool = 
 
 
 def id_filter(statement: Any, column: Any, value: Any) -> Any:
-    """Restrict ``statement`` to ``column == value``; a blank ID matches nothing."""
     key = str(value).strip() if value is not None else ""
     return statement.where(column == key) if key else statement.where(false())
 
 
 def user_names(session: Session) -> dict[str, str]:
     return {user_id: name for user_id, name in session.execute(select(User.id, User.full_name)).all()}
+

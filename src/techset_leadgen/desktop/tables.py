@@ -1,24 +1,9 @@
-"""Shared look and behaviour of every table in the application.
-
-``prepare_table()`` gives a table the house style: no grid lines, comfortable
-rows, headers aligned with their values (numbers right), a highlighted row
-under the mouse, a calm tinted selection, Ctrl+C to copy the selected rows,
-and a message inside the table when it is empty.
-
-``TableDelegate`` draws stage, status, and priority values as coloured labels
-("badges") from one tone table, so the same word looks the same in every list.
-It can also show a person's initials before their name (avatar columns), IDs
-and timestamps in the monospace font, and a second, smaller line under a cell
-(``SUBTEXT_ROLE``). The cell text is unchanged, so sorting, searching, copying,
-and screen readers keep working with the plain words.
-"""
-
 from __future__ import annotations
 
 import time
 from collections.abc import Iterable, Mapping
 from functools import partial
-from typing import Any
+from typing import Any, cast
 
 from PySide6.QtCore import (
     QEvent,
@@ -40,6 +25,7 @@ from PySide6.QtGui import (
     QGuiApplication,
     QHelpEvent,
     QKeySequence,
+    QMouseEvent,
     QPainter,
     QPalette,
     QPen,
@@ -54,6 +40,7 @@ from PySide6.QtWidgets import (
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
+    QTableView,
     QTableWidget,
     QToolTip,
     QVBoxLayout,
@@ -67,33 +54,25 @@ from techset_leadgen.desktop.widgets import badge_colors, initials, paint_badge
 
 ROW_HEIGHT = 52
 MAX_AUTO_COLUMN_WIDTH = 360
-CELL_INSET = 14  # left padding of cell text, matching the header labels
+CELL_INSET = 14
 _HOVER_PROPERTY = "hoverRow"
-SUBTEXT_ROLE = Qt.ItemDataRole.UserRole + 65  # a second, smaller line under the cell text
-TONE_ROLE = Qt.ItemDataRole.UserRole + 66  # explicit badge tone for one cell
+SUBTEXT_ROLE = Qt.ItemDataRole.UserRole + 65
+TONE_ROLE = Qt.ItemDataRole.UserRole + 66
 
-# One meaning per word, whichever list it appears in (tones: neutral, info, success, warning, danger).
 BADGE_TONES: dict[str, str] = {
-    # Lead stages (domain.lead_stages)
     "lead": "info", "new": "info", "contacted": "neutral", "meeting": "warning", "qualified": "success",
     "nurture": "neutral", "client": "success", "won": "success", "lost": "danger",
-    # Priorities
     "low": "neutral", "medium": "warning", "high": "danger", "urgent": "danger",
-    # Tasks and meetings
     "open": "info", "done": "success", "cancelled": "neutral", "scheduled": "info",
-    # LinkedIn outreach and assignments
     "not contacted": "neutral", "request sent": "info", "connected": "success", "messaged": "info",
     "replied": "success", "meeting requested": "warning", "not interested": "danger",
     "wrong profile": "danger", "planned": "neutral", "assigned": "info", "in progress": "warning",
     "completed": "success", "reassigned": "neutral", "draft": "neutral",
-    # Client accounts
     "prospect": "info", "active client": "success", "former client": "neutral", "not a fit": "danger",
-    # User accounts and roles
     "active": "success", "inactive": "neutral", "invited (no password yet)": "info", "invited": "info",
     "super admin": "warning", "sales manager": "info", "lead researcher": "success",
     "business development rep": "success", "account executive": "success", "marketing": "success",
     "management (read-only)": "neutral",
-    # Audit actions
     "signed in": "success", "signed out": "neutral", "sign-in failed": "danger",
 }
 
@@ -102,7 +81,6 @@ _ROWS_PROPERTY = "_rowsEnteredAt"
 
 
 def animate_rows(table: QAbstractItemView) -> None:
-    """Fade and slide the visible rows in, one after another (the design's row entrance)."""
     from techset_leadgen.desktop.motion import animate, reduced_motion
 
     model = table.model()
@@ -123,7 +101,6 @@ def animate_rows(table: QAbstractItemView) -> None:
 
 
 def row_entrance(view: QAbstractItemView, row: int) -> float | None:
-    """Entrance progress (0..1) of ``row`` while its table animates in, else None."""
     started = view.property(_ROWS_PROPERTY)
     if started is None:
         return None
@@ -149,8 +126,6 @@ def _hover_color(widget: QWidget | None) -> QColor:
 
 
 class TableDelegate(QStyledItemDelegate):
-    """Row hover, badges, avatars, monospace and two-line cells for the columns that ask for them."""
-
     def __init__(self, view: QAbstractItemView, badge_columns: Iterable[int] = (), *,
                  avatar_columns: Iterable[int] = (), mono_columns: Iterable[int] = (),
                  strong_columns: Iterable[int] = (), default_tones: Mapping[int, str] | None = None,
@@ -158,7 +133,7 @@ class TableDelegate(QStyledItemDelegate):
         super().__init__(view)
         self._view = view
         self.check_column = check_column
-        self.large_avatar_columns = set(large_avatar_columns)  # 32 px initials (record names) instead of 26
+        self.large_avatar_columns = set(large_avatar_columns)
         self.badge_columns = set(badge_columns)
         self.avatar_columns = set(avatar_columns)
         self.mono_columns = set(mono_columns)
@@ -193,7 +168,6 @@ class TableDelegate(QStyledItemDelegate):
                index: QModelIndex | QPersistentModelIndex) -> None:
         opt = QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
-        # A selected row is already highlighted, so a box around one of its cells is noise.
         opt.state &= ~QStyle.StateFlag.State_HasFocus
         view = self._view
         selected = bool(opt.state & QStyle.StateFlag.State_Selected)
@@ -229,7 +203,7 @@ class TableDelegate(QStyledItemDelegate):
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setPen(Qt.PenStyle.NoPen)
             unassigned = text.strip() in ("—", "Unassigned", "")
-            neutral = unassigned or text.startswith("System")  # system entries: neutral "SY"
+            neutral = unassigned or text.startswith("System")
             painter.setBrush(QColor(values["muted"] if neutral else values["tint2"]))
             painter.drawEllipse(circle)
             small = QFont(opt.font)
@@ -270,16 +244,15 @@ class TableDelegate(QStyledItemDelegate):
                              metrics.elidedText(text, Qt.TextElideMode.ElideRight, int(cell.width())))
         painter.restore()
 
-    def sizeHint(self, option: QStyleOptionViewItem,  # noqa: N802 - Qt API
+    def sizeHint(self, option: QStyleOptionViewItem,
                  index: QModelIndex | QPersistentModelIndex) -> Any:
         hint = super().sizeHint(option, index)
         if index.column() == self.check_column:
             hint.setWidth(hint.width() + CHECK_SPACE)
         return hint
 
-    def helpEvent(self, event: QHelpEvent, view: QAbstractItemView, option: QStyleOptionViewItem,  # noqa: N802
+    def helpEvent(self, event: QHelpEvent, view: QAbstractItemView, option: QStyleOptionViewItem,
                   index: QModelIndex | QPersistentModelIndex) -> bool:
-        """Show a shortened ("…") cell's full text on hover when it has no tooltip of its own."""
         if event.type() == QEvent.Type.ToolTip and index.isValid() and not index.data(Qt.ItemDataRole.ToolTipRole):
             text = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
             if text and option.fontMetrics.horizontalAdvance(text) > view.visualRect(index).width() - 24:
@@ -288,7 +261,7 @@ class TableDelegate(QStyledItemDelegate):
         return super().helpEvent(event, view, option, index)
 
 
-CHECK_SPACE = 28  # room the selection checkbox takes before the first column's text
+CHECK_SPACE = 28
 
 
 def check_rect(cell: QRect) -> QRectF:
@@ -296,7 +269,6 @@ def check_rect(cell: QRect) -> QRectF:
 
 
 def paint_check(painter: QPainter, rect: QRectF, state: str, dark: bool) -> None:
-    """A checkbox: "on" (green with a tick), "off" (outline) or "some" (green with a dash)."""
     from techset_leadgen.desktop.icons import pixmap
 
     values = tokens(dark)
@@ -321,8 +293,6 @@ def paint_check(painter: QPainter, rect: QRectF, state: str, dark: bool) -> None
 
 
 class CheckHeader(QHeaderView):
-    """A horizontal header whose first section starts with a select-all checkbox."""
-
     def __init__(self, table: QTableWidget, column: int = 0) -> None:
         super().__init__(Qt.Orientation.Horizontal, table)
         self._table = table
@@ -335,7 +305,7 @@ class CheckHeader(QHeaderView):
         chosen = len(selection.selectedRows()) if selection is not None else 0
         return "off" if not rows or not chosen else "on" if chosen >= rows else "some"
 
-    def paintSection(self, painter: QPainter, rect: QRect, logical_index: int) -> None:  # noqa: N802 - Qt API
+    def paintSection(self, painter: QPainter, rect: QRect, logical_index: int) -> None:
         if logical_index != self._column:
             super().paintSection(painter, rect, logical_index)
             return
@@ -348,7 +318,7 @@ class CheckHeader(QHeaderView):
         painter.fillRect(QRect(rect.left(), rect.bottom(), CHECK_SPACE + CELL_INSET, 1), QColor(values["line"]))
         paint_check(painter, check_rect(rect), self._state(), _is_dark(self))
 
-    def mousePressEvent(self, event: Any) -> None:  # noqa: N802 - Qt API
+    def mousePressEvent(self, event: Any) -> None:
         position = event.position().toPoint()
         section = self.logicalIndexAt(position)
         if section == self._column:
@@ -366,8 +336,6 @@ class CheckHeader(QHeaderView):
 
 
 class _CheckClicks(QObject):
-    """A click on a row's checkbox adds or removes that row from the selection (no Ctrl needed)."""
-
     def __init__(self, table: QTableWidget, column: int) -> None:
         super().__init__(table)
         self._table = table
@@ -375,11 +343,11 @@ class _CheckClicks(QObject):
         table.viewport().installEventFilter(self)
         table.itemSelectionChanged.connect(lambda: table.horizontalHeader().viewport().update())
 
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if event.type() not in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonDblClick):
             return False
         try:
-            position = event.position().toPoint()  # type: ignore[attr-defined]
+            position = cast(QMouseEvent, event).position().toPoint()
             index = self._table.indexAt(position)
             if not index.isValid() or index.column() != self._column:
                 return False
@@ -396,8 +364,6 @@ class _CheckClicks(QObject):
 
 
 class EmptyOverlay(QWidget):
-    """The design's empty state (icon, title, text, actions) inside a table while it has no rows."""
-
     def __init__(self, table: QTableWidget, state: QWidget) -> None:
         super().__init__(table.viewport())
         self._table = table
@@ -410,7 +376,7 @@ class EmptyOverlay(QWidget):
             signal.connect(self.refresh)
         self.refresh()
 
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if event.type() == QEvent.Type.Resize:
             try:
                 self.setGeometry(self._table.viewport().rect())
@@ -427,10 +393,6 @@ class EmptyOverlay(QWidget):
 
 
 def set_empty_state(table: QTableWidget, state: QWidget, text: str) -> None:
-    """Show ``state`` (an :class:`~desktop_ui.widgets.EmptyState`) in the empty table.
-
-    The plain in-table message keeps ``text`` for assistive tools but stays hidden.
-    """
     set_empty_text(table, text)
     message = table.viewport().findChild(EmptyMessage)
     if message is not None:
@@ -440,7 +402,6 @@ def set_empty_state(table: QTableWidget, state: QWidget, text: str) -> None:
 
 
 def change_color(widget: QWidget | None, positive: bool) -> QColor:
-    """Readable green/red for gains and losses on the current (light or dark) surface."""
     return QColor(badge_colors("success" if positive else "danger", _is_dark(widget))[1])
 
 
@@ -466,23 +427,21 @@ def draw_badge(painter: QPainter, cell: QRect, text: str, tone: str, dark: bool,
 
 
 class _HoverTracker(QObject):
-    """Remembers the row under the mouse so delegates can highlight the whole row."""
-
     def __init__(self, view: QAbstractItemView) -> None:
         super().__init__(view)
         self._view = view
         view.setMouseTracking(True)
         view.viewport().installEventFilter(self)
 
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         kind = event.type()
         try:
             if kind == QEvent.Type.MouseMove:
-                row = self._view.rowAt(event.position().toPoint().y())  # type: ignore[attr-defined]
+                row = cast(QTableView, self._view).rowAt(cast(QMouseEvent, event).position().toPoint().y())
                 self._set(row)
             elif kind in (QEvent.Type.Leave, QEvent.Type.Hide):
                 self._set(-1)
-        except RuntimeError:  # the table is being destroyed
+        except RuntimeError:
             pass
         return False
 
@@ -493,8 +452,6 @@ class _HoverTracker(QObject):
 
 
 class EmptyMessage(QLabel):
-    """A message centred inside a table while it has no rows (the table stays in place)."""
-
     def __init__(self, table: QTableWidget, text: str) -> None:
         super().__init__(text, table.viewport())
         self.setObjectName("tableEmptyMessage")
@@ -503,18 +460,18 @@ class EmptyMessage(QLabel):
         self.setTextFormat(Qt.TextFormat.PlainText)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._table = table
-        self.suppressed = False  # a richer empty state is shown instead
+        self.suppressed = False
         table.viewport().installEventFilter(self)
         model = table.model()
         for signal in (model.rowsInserted, model.rowsRemoved, model.modelReset, model.layoutChanged):
             signal.connect(self.refresh)
         self.refresh()
 
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if event.type() == QEvent.Type.Resize:
             try:
                 self._place()
-            except RuntimeError:  # the table is being destroyed
+            except RuntimeError:
                 pass
         return False
 
@@ -532,7 +489,6 @@ class EmptyMessage(QLabel):
 
 
 def copy_selection(table: QTableWidget) -> str:
-    """Copy the selected rows (visible columns with text) as tab-separated lines, with a header row."""
     rows = sorted({index.row() for index in table.selectionModel().selectedRows()})
     if not rows:
         return ""
@@ -554,7 +510,6 @@ def copy_selection(table: QTableWidget) -> str:
 
 
 def align_headers(table: QTableWidget, numeric_columns: Iterable[int] = ()) -> None:
-    """Headers sit over their values: left for text, right for numbers."""
     numeric = set(numeric_columns)
     for column in range(table.columnCount()):
         item = table.horizontalHeaderItem(column)
@@ -586,11 +541,6 @@ def prepare_table(
     check_column: int | None = None,
     large_avatar_columns: Iterable[int] = (),
 ) -> TableDelegate:
-    """Apply the shared table style and behaviour; returns the table's delegate.
-
-    ``check_column`` adds the design's selection checkboxes at the start of that column
-    (and a select-all box in its header); they show and change the row selection.
-    """
     if check_column is not None and not isinstance(table.horizontalHeader(), CheckHeader):
         table.setHorizontalHeader(CheckHeader(table, check_column))
     table.setShowGrid(False)
@@ -609,7 +559,6 @@ def prepare_table(
     vertical.setVisible(False)
     vertical.setDefaultSectionSize(row_height)
     vertical.setMinimumSectionSize(min(row_height, 32))
-    # Measure at most 400 rows when sizing columns to their contents (large lists stay fast).
     vertical.setResizeContentsPrecision(400)
     header = table.horizontalHeader()
     header.setResizeContentsPrecision(400)
@@ -634,7 +583,7 @@ def prepare_table(
             EmptyMessage(table, empty_text)
         else:
             existing.setText(empty_text)
-    if not table.property("copyShortcut"):  # one shortcut per table, or Qt treats Ctrl+C as ambiguous
+    if not table.property("copyShortcut"):
         shortcut = QShortcut(QKeySequence.StandardKey.Copy, table)
         shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         shortcut.activated.connect(lambda: copy_selection(table))
@@ -643,16 +592,11 @@ def prepare_table(
 
 
 def _settings() -> QSettings:
-    # Explicit defaultFormat(), as in ThemeManager, so tests' settings redirects apply.
     return QSettings(QSettings.defaultFormat(), QSettings.Scope.UserScope, PARENT_BRAND, PRODUCT_NAME)
 
 
 def enable_column_choice(table: QTableWidget, key: str, *, locked: Iterable[int] = (),
                          hidden_by_default: Iterable[int] = ()) -> None:
-    """Right-click the header to show or hide columns; remembered under ``key``.
-
-    ``locked`` columns (the first column, row actions) are always shown.
-    """
     table.setProperty("columnKey", key)
     table.setProperty("lockedColumns", sorted(set(locked)))
     table.setProperty("defaultHidden", sorted(set(hidden_by_default)))
@@ -727,12 +671,11 @@ def _refit(table: QTableWidget) -> None:
 
 
 def fit_table_height(table: QTableWidget, *, max_rows: int = 12, min_rows: int = 3) -> None:
-    """Size a table to its rows (scrolling inside after ``max_rows``) instead of a fixed box."""
     rows = min(max(table.rowCount(), min_rows), max_rows)
     vertical = table.verticalHeader()
     height = table.horizontalHeader().height() + rows * vertical.defaultSectionSize() + 4
     if not table.rowCount() and table.viewport().findChild(EmptyOverlay) is not None:
-        height = max(height, 340)  # room for the empty state's icon, text and buttons
+        height = max(height, 340)
     scroll_bar = table.horizontalScrollBar()
     if scroll_bar.maximum() > 0:
         height += scroll_bar.sizeHint().height()
@@ -752,14 +695,6 @@ def set_empty_text(table: QTableWidget, text: str) -> None:
 def fit_columns(table: QTableWidget, *, stretch_column: int | None = None,
                 fixed_columns: dict[int, int] | None = None, max_width: int = MAX_AUTO_COLUMN_WIDTH,
                 min_widths: dict[int, int] | None = None, keep_columns: Iterable[int] = ()) -> None:
-    """Size columns to their contents (capped), stretch one, and fix action columns.
-
-    When the columns are wider than the table, text columns give up width in proportion
-    to how wide they are (long text is shortened with "…" and shown in full on hover), so
-    the last columns and the row actions stay on screen. Nothing shrinks below its header
-    or ``min_widths``, and ``keep_columns`` (like numbers and badges) and the stretched column are never shortened;
-    past that point the table scrolls sideways.
-    """
     header = table.horizontalHeader()
     fixed = fixed_columns or {}
     delegate = table.itemDelegate()
@@ -775,24 +710,21 @@ def fit_columns(table: QTableWidget, *, stretch_column: int | None = None,
         table.resizeColumnToContents(column)
         width = max(header.sectionSize(column), header.sectionSizeHint(column)) + 6
         if column in badge_columns:
-            width += 26  # a badge's dot and padding around the text
+            width += 26
         if column in avatar_columns:
-            width += 36  # the initials circle before the name
+            width += 36
         natural[column] = min(width, max_width)
     numeric = set(table.property("numericColumns") or ())
     fitter = table.findChild(_ColumnFitter)
     if fitter is None:
         fitter = _ColumnFitter(table)
-    # The stretched column names the rows (a person, a client): like numbers and badges, it is never cut.
     stretched = set() if stretch_column is None else {stretch_column}
     fitter.configure(natural, fixed, stretch_column, min_widths or {},
                      badge_columns | numeric | set(keep_columns) | stretched)
 
 
 class _ColumnFitter(QObject):
-    """Re-fits a table's columns to its width whenever the table is resized."""
-
-    SHORT = 120  # values up to this wide (dates, names, labels) are never shortened
+    SHORT = 120
 
     def __init__(self, table: QTableWidget) -> None:
         super().__init__(table)
@@ -801,7 +733,7 @@ class _ColumnFitter(QObject):
         self._fixed: dict[int, int] = {}
         self._stretch: int | None = None
         self._minimum: dict[int, int] = {}
-        self._protected: set[int] = set()  # badge and number columns keep their width
+        self._protected: set[int] = set()
         self._busy = False
         table.viewport().installEventFilter(self)
 
@@ -811,26 +743,20 @@ class _ColumnFitter(QObject):
         self._minimum, self._protected = minimum, set(protected)
         self.apply()
 
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if event.type() == QEvent.Type.Resize and self._natural:
             try:
                 self.apply()
-            except RuntimeError:  # the table is being destroyed
+            except RuntimeError:
                 pass
         return False
 
     def widths(self, available: int) -> dict[int, int]:
-        """Column widths that fit ``available`` pixels where possible.
-
-        The widest columns give up width first: every column is capped at one common
-        width, as high as still fits. Short values (dates, amounts, labels) are never cut,
-        numbers and badges keep their width, and nothing goes below ``min_widths``.
-        """
         table = self._table
         visible = {column: width for column, width in self._natural.items() if not table.isColumnHidden(column)}
         fixed_total = sum(width for column, width in self._fixed.items() if not table.isColumnHidden(column))
         target = available - fixed_total
-        if sum(visible.values()) <= target or available < 160:  # fits, or not laid out yet
+        if sum(visible.values()) <= target or available < 160:
             return dict(visible)
         floors = {}
         for column, width in visible.items():
@@ -841,7 +767,7 @@ class _ColumnFitter(QObject):
             return sum(max(floors[column], min(width, cap)) for column, width in visible.items())
 
         low, high = 0, max(visible.values())
-        while low < high:  # the highest cap that still fits
+        while low < high:
             middle = (low + high + 1) // 2
             if total(middle) <= target:
                 low = middle
@@ -863,8 +789,6 @@ class _ColumnFitter(QObject):
             for column, width in widths.items():
                 header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
                 header.resizeSection(column, width)
-            # A stretched column fills spare width; when nothing is spare it keeps its own
-            # width (Qt would otherwise squeeze it to the minimum, e.g. "Glo…").
             if self._stretch is not None and fits:
                 header.setSectionResizeMode(self._stretch, QHeaderView.ResizeMode.Stretch)
             header.setStretchLastSection(self._stretch is None and fits)
@@ -878,3 +802,4 @@ __all__ = [
     "paint_selection_edge", "prepare_table", "reset_columns", "set_column_shown", "set_empty_text", "set_header_tips",
     "tone_for",
 ]
+

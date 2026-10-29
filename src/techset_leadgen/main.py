@@ -1,5 +1,3 @@
-"""Techset LeadGen native PySide6 application entry point."""
-
 from __future__ import annotations
 
 import logging
@@ -26,7 +24,6 @@ _HANDLER_NAME = "techset-leadgen"
 
 
 def configure_logging() -> None:
-    """Configure console and rotating local application logs once."""
     root = logging.getLogger()
     if any(handler.get_name() == _HANDLER_NAME for handler in root.handlers):
         return
@@ -63,7 +60,6 @@ def configure_logging() -> None:
 
 
 def create_application(argv: Sequence[str] | None = None) -> QApplication:
-    """Return the process QApplication, creating it when necessary."""
     existing = QApplication.instance()
     if isinstance(existing, QApplication):
         return existing
@@ -75,14 +71,11 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
     QCoreApplication.setApplicationName(PRODUCT_NAME)
     QCoreApplication.setApplicationVersion(PRODUCT_VERSION)
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_DontShowIconsInMenus, False)
-    # The interface is English: date pickers and calendars show "23 Oct 2026" left to
-    # right even when the system locale is, for example, Urdu.
     QLocale.setDefault(QLocale(QLocale.Language.English, QLocale.Country.UnitedKingdom))
     return QApplication(list(argv) if argv is not None else sys.argv)
 
 
 def create_main_window(app: QApplication | None = None) -> MainWindow:
-    """Initialize persistence, theme, and the top-level desktop window."""
     application = app or create_application()
     theme_manager = ThemeManager(application)
     theme_manager.apply()
@@ -90,7 +83,6 @@ def create_main_window(app: QApplication | None = None) -> MainWindow:
 
 
 def run(argv: Sequence[str] | None = None) -> int:
-    """Start Techset LeadGen and return Qt's process exit code."""
     configure_logging()
     application = create_application(argv)
     try:
@@ -112,13 +104,12 @@ def run(argv: Sequence[str] | None = None) -> int:
 
 
 def run_admin_command(command: str, argument: str | None) -> int:
-    """Run an administrator command; windowed builds show the result in a dialog."""
     configure_logging()
     lines: list[str] = []
 
     def say(text: str) -> None:
         lines.append(text)
-        if sys.stdout is not None:  # None in the windowed Windows executable
+        if sys.stdout is not None:
             print(text, flush=True)
 
     if argument is not None and argument.startswith("--"):
@@ -129,9 +120,9 @@ def run_admin_command(command: str, argument: str | None) -> int:
     else:
         try:
             if command == "--issue-reset-code" and not load_settings().is_server:
-                init_db()  # the original local tables, as on a normal start
+                init_db()
             code = crm_cli.run(command, argument, say)
-        except Exception as exc:  # shown to the administrator, who has no other window to read it in
+        except Exception as exc:
             logger.exception("Administrator command %s failed", command)
             say(f"{command} failed: {exc}")
             code = 1
@@ -143,7 +134,6 @@ def run_admin_command(command: str, argument: str | None) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Start the desktop app, or run an administrator command given on the command line."""
     arguments = list(sys.argv if argv is None else argv)
     for command in crm_cli.COMMANDS:
         if command in arguments[1:]:
@@ -158,3 +148,4 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

@@ -1,7 +1,3 @@
-"""
-Funciones de análisis y helpers de fechas.
-"""
-
 from techset_leadgen.analytics.analysis.db_utils import get_db_connection
 import polars as pl
 import logging
@@ -9,7 +5,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 def get_date_range():
-    """Obtiene el rango de fechas disponibles en los datos."""
     try:
         conn = get_db_connection()
         query = "SELECT MIN(date) as min_date, MAX(date) as max_date FROM sales"
@@ -26,3 +21,4 @@ def get_date_range():
     except Exception:
         logger.exception("Could not load the date range")
         return None, None
+

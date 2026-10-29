@@ -1,5 +1,3 @@
-"""Choosing the shared team database: where its address comes from, and that its password never leaks."""
-
 from __future__ import annotations
 
 import pytest
@@ -19,7 +17,7 @@ def test_the_environment_selects_the_team_database(tmp_path, monkeypatch):
     assert settings.database_url.startswith("postgresql+psycopg://tslg_app:")
     assert settings.display_database == "Team database techset_leadgen on office-server:5432"
     assert SECRET not in settings.display_database
-    assert not load_settings({}).is_server  # nothing configured: the local file
+    assert not load_settings({}).is_server
 
 
 def test_database_ini_in_the_data_folder_selects_the_team_database(tmp_path, monkeypatch):
@@ -28,7 +26,6 @@ def test_database_ini_in_the_data_folder_selects_the_team_database(tmp_path, mon
     monkeypatch.setattr(local_db, "DB_PATH", tmp_path / "sales.db")
     (tmp_path / "database.ini").write_text(f"[database]\nurl = {URL}\n", encoding="utf-8")
     assert load_settings({}).is_server
-    # An explicit file always means that file (tests, tools), whatever is configured.
     assert not load_settings({"TSLG_DATABASE_URL": URL}, database_path=tmp_path / "other.db").is_server
 
 
@@ -52,3 +49,4 @@ def test_an_unreachable_server_is_reported_without_the_password():
         context.open()
     assert caught.value.message == "The team database server cannot be reached."
     assert SECRET not in caught.value.details and SECRET not in caught.value.message
+

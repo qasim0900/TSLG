@@ -1,11 +1,3 @@
-"""Alembic environment for the application database (``data/sales.db``).
-
-``core.db`` owns the original analytics tables; these migrations own everything
-added since. They always run on a plain connection with foreign-key enforcement
-off (SQLite's default), so no schema step can cascade into existing rows.
-Never use batch mode (table rebuilds) on ``clients``, ``leads``, or ``sales``.
-"""
-
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -13,7 +5,7 @@ from typing import Any, Literal
 from alembic import context
 from sqlalchemy import create_engine, pool
 
-import techset_leadgen.database.models  # noqa: F401  (registers every table on Base.metadata)
+import techset_leadgen.database.models
 from techset_leadgen.config import load_settings
 from techset_leadgen.database.engine import Base, UTCDateTime
 
@@ -26,13 +18,11 @@ def _database_url() -> str:
 
 
 def _render_item(type_: str, obj: Any, autogen_context: Any) -> str | Literal[False]:
-    # UTCDateTime is a Python-side conversion; the column is a plain DateTime.
     if type_ == "type" and isinstance(obj, UTCDateTime):
         return "sa.DateTime()"
     return False
 
 
-# Owned by core.db.create_base_tables(); autogenerate must never propose changes to them.
 _CORE_TABLES = frozenset({"sales", "marketing_spend", "import_metadata", "funnel_events"})
 
 
@@ -73,3 +63,4 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
+

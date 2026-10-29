@@ -1,18 +1,3 @@
-"""LinkedIn outreach: prospects, daily assignment batches, assignments, outreach events, notifications.
-
-Additive only. New tables are created; ``tasks`` gains optional columns so a
-follow-up is a task linked to a prospect; ``organization`` gains the team's
-business time zone. Existing rows are untouched apart from that time zone,
-which starts as the first administrator's (Settings can change it).
-
-Portable: the same DDL runs on SQLite and on the PostgreSQL team database
-(exercised by ``tests/integration/test_postgresql.py``).
-
-Revision ID: 0002
-Revises: 0001
-Create Date: 2026-10-27
-"""
-
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -167,10 +152,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Leaving the added task foreign keys in place while dropping their parent
-    # tables creates a corrupt revision-0001 schema.  Until a lossless table
-    # rebuild is implemented, fail before changing either schema or revision;
-    # operational rollback uses the verified pre-upgrade SQLite backup.
     raise RuntimeError(
         "Downgrade from revision 0002 is unsupported; restore the pre-upgrade database backup instead."
     )
+

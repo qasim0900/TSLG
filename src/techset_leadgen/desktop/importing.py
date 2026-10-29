@@ -1,5 +1,3 @@
-"""Qt-native import picker, schema preview, and worker-signal bridge."""
-
 from __future__ import annotations
 
 import logging
@@ -29,16 +27,12 @@ logger = logging.getLogger(__name__)
 
 
 class _InspectionSignals(QObject):
-    """Signals owned by a runnable so results return to Qt's UI thread."""
-
     succeeded = Signal(int, str, object)
     failed = Signal(int, str)
     finished = Signal(int)
 
 
 class _InspectionWorker(QRunnable):
-    """Inspect a potentially large spreadsheet without blocking the event loop."""
-
     def __init__(self, token: int, file_path: str) -> None:
         super().__init__()
         self.token = token
@@ -59,8 +53,6 @@ class _InspectionWorker(QRunnable):
 
 
 class ImportPreviewDialog(ModalDialog):
-    """Read-only confirmation dialog for a detected import schema."""
-
     def __init__(self, file_path: str, inspection: dict[str, Any], parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Import preview")
@@ -81,7 +73,7 @@ class ImportPreviewDialog(ModalDialog):
 
         form = QFormLayout()
         file_label = QLabel(Path(file_path).name)
-        file_label.setTextFormat(Qt.TextFormat.PlainText)  # file names are user data
+        file_label.setTextFormat(Qt.TextFormat.PlainText)
         form.addRow("File", file_label)
         detected = str(inspection.get("detected_type", "invalid")).replace("_", " ").title()
         form.addRow("Detected type", QLabel(detected))
@@ -106,8 +98,6 @@ class ImportPreviewDialog(ModalDialog):
 
 
 class ImportCoordinator(QObject):
-    """Keep the existing import engine while safely crossing into Qt's UI thread."""
-
     started = Signal()
     succeeded = Signal(str)
     failed = Signal(str)
@@ -136,7 +126,6 @@ class ImportCoordinator(QObject):
 
     @property
     def is_busy(self) -> bool:
-        """Return whether file inspection or a database import is in progress."""
         return self._inspection_running or self.controller.is_running
 
     def select_and_import(self, parent: QWidget | None = None) -> bool:
@@ -172,7 +161,7 @@ class ImportCoordinator(QObject):
         progress.setMinimumWidth(380)
         progress.canceled.connect(lambda: self._cancel_inspection(token))
         self._progress = progress
-        embed(progress)  # a card centred in the window, like the other dialogs
+        embed(progress)
         progress.show()
 
         worker = _InspectionWorker(token, path)
@@ -200,7 +189,6 @@ class ImportCoordinator(QObject):
             owner = self.parent()
             dialog_parent = owner if isinstance(owner, QWidget) else None
             if not inspection.get("headers"):
-                # Unreadable file: the inspector reports the read error itself.
                 problem = next(iter(inspection.get("missing_sales") or []), "The file has no column headers.")
                 show_message(
                     dialog_parent,
@@ -278,7 +266,6 @@ class ImportCoordinator(QObject):
             self._progress = None
 
     def shutdown(self, timeout_ms: int = 3000) -> bool:
-        """Drain inspection workers when the shell closes cleanly."""
         self._inspection_cancelled = True
         self._close_progress()
         inspections_done = self._thread_pool.waitForDone(timeout_ms)
@@ -297,3 +284,4 @@ class ImportCoordinator(QObject):
     @Slot(str)
     def _on_failed(self, message: str) -> None:
         self.failed.emit(message)
+

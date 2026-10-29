@@ -1,5 +1,3 @@
-"""Leads (the one lead record shared with imports and funnel analytics) and tasks."""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -35,7 +33,7 @@ def test_a_manual_lead_starts_new_with_history_and_audit(db, world, acme):
     actor = acme.actor("bdr")
     lead = world.lead(actor, "Portal rebuild", meeting_date="2026-11-03", priority="high")
     assert lead.id.startswith("L_") and (lead.status, lead.priority, lead.meeting_date) == ("new", "high", "2026-11-03")
-    assert lead.created_on == datetime.now(UTC).date().isoformat()  # the user's zone is UTC here
+    assert lead.created_on == datetime.now(UTC).date().isoformat()
     assert db.scalar(select(LeadStatusChange.to_status).where(LeadStatusChange.lead_id == lead.id)) == "new"
     assert db.scalar(select(AuditLog.action).where(AuditLog.entity_id == lead.id)) == "lead.created"
 
@@ -99,14 +97,14 @@ def test_marking_a_lead_client_requires_a_linked_client_and_meetings_get_their_d
 
 def test_roles_limit_who_edits_qualifies_and_assigns(db, world, acme):
     researcher_lead = world.lead(acme.actor("lead_researcher"), "Found by research")
-    with pytest.raises(PermissionDenied):  # researchers add leads but do not qualify them
+    with pytest.raises(PermissionDenied):
         _move(db, acme.actor("lead_researcher"), researcher_lead.id, "qualified", "Looks good")
     imported = world.imported_lead("ext-1")
-    with pytest.raises(PermissionDenied):  # unassigned imported leads belong to nobody yet
+    with pytest.raises(PermissionDenied):
         leads.update_lead(db, acme.actor("bdr"), imported, parse(LeadUpdate, {"priority": "high"}))
-    leads.assign(db, acme.actor("bdr"), imported, acme.users["bdr"].id)  # ...but a rep may take one
+    leads.assign(db, acme.actor("bdr"), imported, acme.users["bdr"].id)
     leads.update_lead(db, acme.actor("bdr"), imported, parse(LeadUpdate, {"priority": "high"}))
-    with pytest.raises(PermissionDenied):  # and cannot hand it to someone else
+    with pytest.raises(PermissionDenied):
         leads.assign(db, acme.actor("bdr"), imported, acme.users["account_executive"].id)
     with pytest.raises(PermissionDenied):
         leads.update_lead(db, acme.actor("account_executive"), imported, parse(LeadUpdate, {"notes": "x"}))
@@ -114,7 +112,7 @@ def test_roles_limit_who_edits_qualifies_and_assigns(db, world, acme):
         with pytest.raises(PermissionDenied):
             leads.create_lead(db, acme.actor(role), parse(LeadCreate, {"title": "x", "source": "manual_import"}))
     unclaimed = world.imported_lead("ext-2")
-    for role in ("marketing", "read_only"):  # roles that do not work leads cannot take one either
+    for role in ("marketing", "read_only"):
         with pytest.raises(PermissionDenied):
             leads.assign(db, acme.actor(role), unclaimed, acme.users[role].id)
 
@@ -148,7 +146,7 @@ def test_timeline_merges_activities_stage_changes_and_edits(db, world, acme):
 
 def test_follow_up_tasks_set_the_lead_follow_up_and_feed_my_work(db, world, acme):
     actor = acme.actor("bdr")
-    lead = world.lead(actor, "Needs a call", owner_id=actor.user_id)  # as the New lead form does
+    lead = world.lead(actor, "Needs a call", owner_id=actor.user_id)
     soon = datetime.now(UTC).replace(microsecond=0) + timedelta(days=1)
     later = soon + timedelta(days=3)
     first = world.task(actor, "Call", lead_id=lead.id, due_at=soon.isoformat())
@@ -181,3 +179,4 @@ def test_the_funnel_counts_qualified_leads_as_past_the_meeting_stage():
     stats = get_funnel_stats([{"status": status, "created_at": "2026-01-01"}
                               for status in ("new", "contacted", "meeting", "qualified", "nurture", "converted", "lost")])
     assert (stats["total"], stats["meetings"], stats["converted"], stats["lost"]) == (7, 3, 1, 1)
+

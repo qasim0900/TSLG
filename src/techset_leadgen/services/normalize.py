@@ -1,8 +1,3 @@
-"""Normalization and validation of identity fields used for duplicate detection.
-
-Nothing here performs network access: URLs and domains are parsed, never fetched.
-"""
-
 from __future__ import annotations
 
 import ipaddress
@@ -16,9 +11,7 @@ _TLD = re.compile(r"^(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$")
 _EMAIL_LOCAL = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}$")
 _PHONE = re.compile(r"^\+?[0-9 ().-]{5,40}$")
 _SPACES = re.compile(r"\s+")
-# "javascript:alert(1)" or "mailto:x@y.io"; a digit after the colon is a port ("example.com:8080").
 _OTHER_SCHEME = re.compile(r"^[a-z][a-z0-9+.-]*:(?!\d)", re.IGNORECASE)
-# Dotted initialisms such as "S.L." or "S.A.R.L." are compared without their dots.
 _INITIALISM_DOT = re.compile(r"\b([a-z])\.(?=[a-z]\b)")
 _LEGAL_SUFFIXES = {
     "inc", "incorporated", "llc", "ltd", "limited", "plc", "corp", "corporation", "co", "company",
@@ -29,11 +22,10 @@ _TIMEZONES = frozenset(available_timezones())
 
 
 class InvalidValue(ValueError):
-    """A value that cannot be normalized; the message is safe to show to users."""
+    pass
 
 
 def clean_text(value: str | None, *, max_length: int | None = None) -> str | None:
-    """Trim, collapse internal whitespace runs in single-line text, and map blanks to None."""
     if value is None:
         return None
     cleaned = _SPACES.sub(" ", value).strip()
@@ -79,7 +71,6 @@ def normalize_hostname(value: str) -> str:
 
 
 def normalize_domain(value: str | None) -> str | None:
-    """``https://www.Example.com/about`` -> ``example.com``."""
     if value is None or not value.strip():
         return None
     raw = value.strip()
@@ -96,7 +87,6 @@ def normalize_domain(value: str | None) -> str | None:
 
 
 def normalize_url(value: str | None, *, max_length: int = 500) -> str | None:
-    """Accept only absolute http(s) URLs with a valid host (blocks ``javascript:`` and friends)."""
     if value is None or not value.strip():
         return None
     raw = value.strip()
@@ -145,20 +135,6 @@ _PROFILE_NOT_PERSON = {
 
 
 def linkedin_profile(value: str | None) -> tuple[str, str]:
-    """``(key, url)`` identifying one LinkedIn member profile.
-
-    Policy: the identity is the first path segment after ``/in/`` (or the five
-    segments of an old ``/pub/`` address), compared case-insensitively. The
-    subdomain (``www``, ``uk``, ``m``), scheme, query string, fragment, and any
-    deeper path (``/details/experience``, ``/recent-activity``, a locale such as
-    ``/en``) are presentation only and dropped. Query parameters never identify a
-    member on these addresses (they are tracking or locale hints). Short links
-    (``lnkd.in``) and Sales Navigator/Recruiter IDs cannot be resolved offline and
-    are rejected with an explanation rather than guessed at.
-
-    ``key`` (``in/jane-doe-1a2b``) is unique per prospect; ``url`` is the
-    canonical ``https://www.linkedin.com/...`` address to open.
-    """
     raw = (value or "").strip().strip("<>\"'").strip()
     if not raw:
         raise InvalidValue("Enter a LinkedIn profile address.")
@@ -197,7 +173,6 @@ def linkedin_profile(value: str | None) -> tuple[str, str]:
 
 
 def normalize_email(value: str | None) -> str | None:
-    """Lower-case and validate a business email address. Dots and plus tags are kept."""
     if value is None or not value.strip():
         return None
     raw = value.strip()
@@ -214,12 +189,10 @@ def normalize_email(value: str | None) -> str | None:
 
 
 def email_lookup_key(value: str) -> str:
-    """Best-effort key for lookups of user-typed emails that are not validated (e.g. sign-in)."""
     return value.strip().lower()[:254]
 
 
 def normalize_company_name(name: str) -> str:
-    """Comparison key for possible-duplicate hints. Never used as a unique identifier."""
     text = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii").casefold()
     text = _INITIALISM_DOT.sub(r"\1", text)
     words = re.sub(r"[^a-z0-9]+", " ", text).split()
@@ -265,3 +238,4 @@ def is_valid_timezone(value: str) -> bool:
 
 def all_timezones() -> list[str]:
     return sorted(_TIMEZONES)
+

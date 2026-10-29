@@ -1,12 +1,3 @@
-"""
-Utilidades de formateo para presentación consistente de valores monetarios.
-
-Proporciona funciones centralizadas para formatear moneda en formato europeo (€)
-con período para miles y coma para decimales, garantizando consistencia entre
-UI y exportación HTML.
-"""
-
-
 import math
 from datetime import date, datetime
 
@@ -16,9 +7,6 @@ def pluralize(count: int, singular: str, plural: str | None = None) -> str:
     return f"{count} {word}"
 
 
-# English month abbreviations. ``strftime("%b")`` and ``"%p"`` follow the
-# process LC_TIME locale, which Qt applies at startup, so they would insert
-# e.g. Urdu or Arabic month names into English UI copy and reports.
 _MONTH_ABBREVIATIONS = (
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -26,7 +14,6 @@ _MONTH_ABBREVIATIONS = (
 
 
 def month_abbr(month: int) -> str:
-    """Return the locale-independent English abbreviation for ``month`` (1-12)."""
     return _MONTH_ABBREVIATIONS[month - 1]
 
 
@@ -37,7 +24,6 @@ def format_datetime_us(value: datetime) -> str:
 
 
 def format_day_month_year_time(value: datetime) -> str:
-    """Format as ``20 Oct 2026, 16:48`` regardless of the OS locale."""
     return f"{value.day:02d} {month_abbr(value.month)} {value.year}, {value.hour:02d}:{value.minute:02d}"
 
 
@@ -76,15 +62,6 @@ def parse_amount(value) -> float:
 
 
 def format_eur(value: float, decimals: int = 2) -> str:
-    """
-    Format a number as US-style euros: "€1,234.56" (negative: "-€1,234.56").
-
-    Example:
-        >>> format_eur(1234.56)
-        '€1,234.56'
-        >>> format_eur(-1234.56)
-        '-€1,234.56'
-    """
     try:
         number = float(value)
     except (ValueError, TypeError):
@@ -94,13 +71,6 @@ def format_eur(value: float, decimals: int = 2) -> str:
 
 
 def format_eur_no_symbol(value: float, decimals: int = 2) -> str:
-    """
-    Format a number with US separators and no currency symbol: "1,234.56".
-
-    Example:
-        >>> format_eur_no_symbol(1234.56)
-        '1,234.56'
-    """
     try:
         return f"{float(value):,.{decimals}f}"
     except (ValueError, TypeError):
@@ -108,13 +78,6 @@ def format_eur_no_symbol(value: float, decimals: int = 2) -> str:
 
 
 def format_eur_signed(value: float, decimals: int = 2) -> str:
-    """
-    Format a change with an explicit sign: "+1,234.56" or "-1,234.56".
-
-    Example:
-        >>> format_eur_signed(1234.56)
-        '+1,234.56'
-    """
     try:
         return f"{float(value):+,.{decimals}f}"
     except (ValueError, TypeError):
@@ -122,19 +85,7 @@ def format_eur_signed(value: float, decimals: int = 2) -> str:
 
 
 def mask_sensitive(value: str) -> str:
-    """
-    Enmascara un valor sensible para mostrar en UI con patrón hover-reveal.
-
-    Los valores vacíos y los placeholders ("—", "-") pasan sin cambios.
-    Todos los demás se reemplazan por "••••••••" hasta que el usuario
-    pase el cursor sobre el control (ver _make_masked_cell / _masked_info_row).
-
-    Args:
-        value: Valor a enmascarar (CIF, email, teléfono, persona de contacto…)
-
-    Returns:
-        "••••••••" o el valor original si está vacío / es placeholder.
-    """
     if not value or str(value).strip() in ("—", "-", ""):
         return value
     return "••••••••"
+

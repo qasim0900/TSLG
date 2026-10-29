@@ -1,7 +1,3 @@
-"""
-Funciones de análisis de ventas y productos.
-"""
-
 import logging
 import polars as pl
 
@@ -9,7 +5,6 @@ logger = logging.getLogger(__name__)
 from techset_leadgen.analytics.analysis.db_utils import get_db_connection
 
 def get_unique_products():
-    """Obtiene la lista de productos únicos de la tabla de ventas."""
     try:
         conn = get_db_connection()
         query = """
@@ -27,10 +22,6 @@ def get_unique_products():
         return []
 
 def get_sales_summary(start_date=None, end_date=None, client_name=None, product_type=None):
-    """
-    Obtiene resumen de ventas agrupado por tipo de producto.
-    Retorna tuplas: (product_type, total_vendido, cantidad_transacciones, precio_promedio, precio_min, precio_max)
-    """
     try:
         conn = get_db_connection()
         query = """
@@ -81,10 +72,6 @@ def get_sales_summary(start_date=None, end_date=None, client_name=None, product_
 
 
 def get_sales_with_client_info(start_date=None, end_date=None, client_name=None, product_type=None):
-    """
-    Obtiene ventas con información del cliente enriquecida.
-    A single LEFT JOIN avoids hidden cache loads and stale client details.
-    """
     conn = None
     try:
         conn = get_db_connection()
@@ -140,3 +127,4 @@ def get_sales_with_client_info(start_date=None, end_date=None, client_name=None,
     finally:
         if conn is not None:
             conn.close()
+

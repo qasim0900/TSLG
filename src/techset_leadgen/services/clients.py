@@ -1,10 +1,3 @@
-"""Clients: the single client record used by sales analytics, leads, and the Clients screen.
-
-Format and duplicate rules are the original ones (``models.client_validators``);
-this service adds permissions, ownership, the new CRM fields, optimistic
-locking, and the audit trail, in one transaction per change.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -25,7 +18,6 @@ from techset_leadgen.services import audit
 from techset_leadgen.services.access import Actor, get_record
 from techset_leadgen.services.common import check_version, drop_unset_defaults, require_values, resolve_owner
 
-# The analytics ``sales`` table, read here only for counts (it has no ORM model).
 _SALES = table("sales", column("client_id"), column("client_name"))
 
 AUDITED_FIELDS = (
@@ -36,8 +28,6 @@ AUDITED_FIELDS = (
 
 @dataclass(frozen=True)
 class ClientExtras:
-    """CRM fields shown next to the analytics columns of the client list."""
-
     owner_id: str | None
     owner_name: str | None
     account_status: str | None
@@ -71,7 +61,6 @@ def _check_rules(db: Session, values: dict[str, Any], *, exclude_id: str | None 
                                  values.get("contact_person") or "")
     if errors:
         raise ValidationFailed("Please correct the highlighted fields.", fields=errors)
-    # The original duplicate rules, run on this transaction's connection.
     connection = db.connection().connection.driver_connection
     cif = values.get("cif")
     if cif and cif != "-" and client_exists_by_cif(cif, exclude_id, connection):
@@ -125,7 +114,6 @@ def create_client(db: Session, actor: Actor, data: ClientCreate) -> Client:
 
 
 def _client_for_update(db: Session, client_id: Any) -> Client:
-    """The client row; an identity known only from older sales gets its row created (original behavior)."""
     client = db.get(Client, str(client_id))
     if client is not None:
         return client
@@ -170,13 +158,12 @@ def update_client(db: Session, actor: Actor, client_id: Any, data: ClientUpdate)
 
 
 def delete_client(db: Session, actor: Actor, client_id: Any) -> tuple[str, int]:
-    """Delete a client with its sales, contacts, tasks, and activities; its leads stay, unlinked."""
     client = get_client(db, actor, client_id)
     actor.require_on("clients.delete", client)
     sales = db.scalar(select(func.count()).select_from(_SALES).where(_SALES.c.client_id == client.id)) or 0
     leads = db.scalar(select(func.count()).select_from(Lead).where(Lead.client_id == client.id)) or 0
     name = client.name
-    db.delete(client)  # ON DELETE CASCADE / SET NULL in the database do the rest
+    db.delete(client)
     db.flush()
     audit.record(db, actor, "client.deleted", entity_type="client", entity_id=client_id,
                  changes={"name": name, "sales_deleted": sales, "leads_unlinked": leads})
@@ -185,7 +172,7 @@ def delete_client(db: Session, actor: Actor, client_id: Any) -> tuple[str, int]:
 
 def assign_client(db: Session, actor: Actor, client_id: Any, owner_id: str | None,
                   version: int | None = None) -> Client:
-    actor.require("clients.edit")  # even taking an unassigned client for oneself needs a role that edits clients
+    actor.require("clients.edit")
     client = get_client(db, actor, client_id)
     check_version(client, version)
     previous = client.owner_id
@@ -199,6 +186,6 @@ def assign_client(db: Session, actor: Actor, client_id: Any, owner_id: str | Non
 
 
 def choices(db: Session, actor: Actor) -> list[tuple[str, str]]:
-    """``[(id, name)]`` of every client, for pickers."""
     actor.require("clients.view")
     return [(client_id, name) for client_id, name in db.execute(select(Client.id, Client.name).order_by(Client.name))]
+

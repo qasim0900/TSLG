@@ -1,9 +1,3 @@
-"""Domain errors. Services raise these; the desktop screens show them to the user.
-
-Messages are written for end users: they never contain stack traces, SQL, or
-internal identifiers beyond what the caller already supplied.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -42,8 +36,6 @@ class PermissionDenied(DomainError):
 
 
 class NotFound(DomainError):
-    """Also used for records outside the caller's organization or visibility (no existence leak)."""
-
     status_code = 404
     code = "not_found"
 
@@ -59,3 +51,4 @@ class Conflict(DomainError):
 class RateLimited(DomainError):
     status_code = 429
     code = "rate_limited"
+

@@ -1,9 +1,3 @@
-"""Administrative maintenance: backups and the one-time carry-over of accounts.
-
-The application database holds everything (sales, clients, leads, accounts,
-audit trail), so a backup is a consistent copy of that one file.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -26,7 +20,6 @@ logger = logging.getLogger("techset.leadgen.crm")
 
 
 def copy_database(source: Path, destination: Path) -> Path:
-    """A consistent snapshot via SQLite's online backup API (safe while the app is in use)."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.unlink(missing_ok=True)
     with closing(sqlite3.connect(source)) as live, closing(sqlite3.connect(destination)) as copy:
@@ -35,7 +28,6 @@ def copy_database(source: Path, destination: Path) -> Path:
 
 
 def backup_before_migration(database: Path, current: str | None, head: str | None) -> Path | None:
-    """Copy the database aside before its schema changes; skipped for a new, empty file."""
     if not database.is_file() or database.stat().st_size == 0:
         return None
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -46,7 +38,6 @@ def backup_before_migration(database: Path, current: str | None, head: str | Non
 
 
 def backup(db: Session, actor: Actor, settings: Settings, target: str | Path) -> Path:
-    """Administrator backup to a file of their choice (Settings → Back up now)."""
     actor.require("org.manage")
     destination = Path(target)
     if destination.resolve() == settings.database_path.resolve():
@@ -61,25 +52,16 @@ _LEGACY_RECORD_TABLES = ("companies", "contacts", "leads", "tasks", "activities"
 
 
 class LegacyRecordsFound(ValidationFailed):
-    """The earlier build's ``crm.db`` holds business records that are not carried over automatically."""
+    pass
 
 
 def import_previous_accounts(db: Session, legacy_file: Path) -> int:
-    """Carry accounts over from the separate ``crm.db`` used by an earlier build (once).
-
-    Only runs while this database has no accounts. Copies the organization name
-    and each user's email, name, role, time zone, and password hash, so people
-    keep signing in with their existing passwords. The old file is left untouched.
-    If it also holds companies, contacts, leads, tasks, or activities, nothing is
-    carried over and ``LegacyRecordsFound`` explains why, so those records are
-    never silently left behind.
-    """
     if not legacy_file.is_file() or db.scalar(select(User.id).limit(1)) is not None:
         return 0
     try:
         with closing(sqlite3.connect(f"file:{legacy_file}?mode=ro", uri=True)) as old:
             existing = {row[0] for row in old.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-            records = {table: old.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608 - fixed names
+            records = {table: old.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
                        for table in _LEGACY_RECORD_TABLES if table in existing}
             organization = old.execute("SELECT name FROM organizations ORDER BY created_at LIMIT 1").fetchone()
             people = old.execute(
@@ -115,3 +97,4 @@ def import_previous_accounts(db: Session, legacy_file: Path) -> int:
 
 
 __all__ = ["backup", "backup_before_migration", "copy_database", "import_previous_accounts"]
+

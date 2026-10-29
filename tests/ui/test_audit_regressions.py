@@ -1,10 +1,3 @@
-"""Regression tests for defects found in the October 2026 desktop audit.
-
-Each test names its defect ID from ``docs/quality/DEFECT_LOG.md``. Tests drive
-the real widgets and production dialogs (via ``ModalPilot``) against pytest's
-sandboxed SQLite database; nothing here touches user data or settings.
-"""
-
 from __future__ import annotations
 
 import dataclasses
@@ -56,9 +49,6 @@ from techset_leadgen.utils.import_templates import write_template
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-# --------------------------------------------------------------------- fixtures
-
-
 @pytest.fixture(scope="module")
 def qapp(tmp_path_factory):
     QSettings.setDefaultFormat(QSettings.Format.IniFormat)
@@ -83,13 +73,13 @@ def _clear_database() -> None:
                 "import_metadata",
                 "clients",
             ):
-                connection.execute(f"DELETE FROM {table}")  # noqa: S608 - fixed whitelist
+                connection.execute(f"DELETE FROM {table}")
     invalidate_clients_cache()
 
 
 def _count(table: str) -> int:
     with closing(get_connection()) as connection:
-        return connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608
+        return connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
 
 
 @pytest.fixture()
@@ -122,7 +112,6 @@ def _button(root, text: str) -> QPushButton:
 
 
 def _import_through_gui(shell: MainWindow, path: Path, qapp) -> list:
-    """Click Sales overview > Import data, pick ``path`` in the file dialog, confirm the preview."""
     shell.navigate("sales_overview")
     qapp.processEvents()
     with ModalPilot(choose_file(path), click_button("Import data")) as pilot:
@@ -130,9 +119,6 @@ def _import_through_gui(shell: MainWindow, path: Path, qapp) -> list:
         assert wait_until(lambda: not shell.import_coordinator.is_busy, 15000)
         qapp.processEvents()
     return pilot.seen
-
-
-# ------------------------------------------------- DEF-001: teardown abort
 
 
 def _python_owned_children(root: QObject) -> list[str]:
@@ -144,7 +130,6 @@ def _python_owned_children(root: QObject) -> list[str]:
 
 
 def test_def001_widgets_are_owned_by_their_qt_parents(shell, qapp):
-    """Widgets added to parentless layouts stayed Python-owned and were freed twice."""
     for page in ("sales", "leads", "clients"):
         shell.navigate(page)
         qapp.processEvents()
@@ -163,7 +148,6 @@ def test_def001_widgets_are_owned_by_their_qt_parents(shell, qapp):
 
 
 def test_def001_destroying_rendered_sales_pages_exits_cleanly():
-    """The interpreter aborted with heap corruption after a rendered SalesPage existed."""
     script = textwrap.dedent(
         """
         import os
@@ -185,7 +169,7 @@ def test_def001_destroying_rendered_sales_pages_exits_cleanly():
             del page
         """
     )
-    result = subprocess.run(  # noqa: S603 - fixed interpreter and inline script
+    result = subprocess.run(
         [sys.executable, "-c", script],
         cwd=PROJECT_ROOT,
         env={**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [str(PROJECT_ROOT / "src"), str(PROJECT_ROOT), os.environ.get("PYTHONPATH", "")]))},
@@ -194,9 +178,6 @@ def test_def001_destroying_rendered_sales_pages_exits_cleanly():
         timeout=180,
     )
     assert result.returncode == 0, result.stderr[-2000:]
-
-
-# ------------------------------------- DEF-003: spend files imported as leads
 
 
 def test_def003_builtin_spend_template_is_detected_as_marketing_spend(tmp_path):
@@ -222,7 +203,7 @@ def test_def003_spend_and_lead_exports_are_told_apart(tmp_path, body, expected):
 
 def test_def003_downloaded_spend_template_round_trips_into_marketing_spend(shell, qapp, tmp_path):
     target = tmp_path / "spend.csv"
-    shell.navigate("sales_overview")  # the import templates live on the archive's overview
+    shell.navigate("sales_overview")
     qapp.processEvents()
     with ModalPilot(choose_file(target)):
         QTest.mouseClick(_button(shell.stack.currentWidget(), "Marketing spend CSV"), Qt.MouseButton.LeftButton)
@@ -238,9 +219,6 @@ def test_def003_downloaded_spend_template_round_trips_into_marketing_spend(shell
     assert _count("leads") == 0
 
 
-# ------------------------------------------ DEF-004: duplicate error dialogs
-
-
 def test_def004_page_errors_open_a_single_dialog(shell, qapp):
     shell.navigate("clients")
     page = shell.stack.currentWidget()
@@ -250,9 +228,6 @@ def test_def004_page_errors_open_a_single_dialog(shell, qapp):
     assert [item.text for item in pilot.message_boxes] == [
         "Client not found. Refresh the page and try again."
     ]
-
-
-# ------------------------------- DEF-005: rejected client form discarded input
 
 
 def test_def005_rejected_client_form_keeps_input_and_saves_after_correction(shell, qapp):
@@ -283,12 +258,7 @@ def test_def005_rejected_client_form_keeps_input_and_saves_after_correction(shel
     assert [client["name"] for client in page.visible_clients] == ["Delta Dynamics"]
 
 
-# ---------------------------------------- DEF-006: numeric columns sort as text
-
-
 class _ScaleLeadsController:
-    """Deterministic lead source data with totals that sort differently as text."""
-
     leads: list[dict] = []
 
     @classmethod
@@ -369,9 +339,6 @@ def test_def006_tables_open_in_a_meaningful_order(qapp):
     leads.deleteLater()
 
 
-# ------------------------------- DEF-007: OS locale leaked into English copy
-
-
 @pytest.fixture()
 def non_english_time_locale():
     previous = locale.setlocale(locale.LC_TIME)
@@ -396,9 +363,6 @@ def test_def007_dates_stay_english_under_a_non_english_locale(non_english_time_l
     assert [row["label"] for row in group_time_series([("2026-10-05", 1.0)], "month")] == ["Oct 26"]
 
 
-# ------------------------------------- DEF-017: one log line per inconsistent lead
-
-
 def test_def017_lead_consistency_is_logged_once_per_load(caplog):
     leads = [{"id": f"L{index}", "status": "new", "client_id": "C1"} for index in range(50)]
     with caplog.at_level(logging.DEBUG, logger="techset_leadgen.analytics.analysis.leads_analysis"):
@@ -407,9 +371,6 @@ def test_def017_lead_consistency_is_logged_once_per_load(caplog):
     assert len(warnings) == 1
     assert "50 with status='new' but client_id is set (e.g. L0, L1, L2)" in warnings[0].getMessage()
     assert sum(record.levelno == logging.DEBUG for record in caplog.records) == 50
-
-
-# ------------------------- DEF-019: ASCII-only case folding for duplicate names
 
 
 def test_def019_duplicate_client_names_are_caught_in_any_script(empty_db):
@@ -423,9 +384,6 @@ def test_def019_duplicate_client_names_are_caught_in_any_script(empty_db):
         assert "already exists" in message
     own_id = get_clients()[0][0]
     assert ClientsController.update_client_info(own_id, "CAFÉ MÜLLER", "", "", "", "")[0] is True
-
-
-# ------------------------------- DEF-008: per-row widgets made tables O(n^2)
 
 
 def _many_leads(count: int) -> list[dict]:
@@ -461,7 +419,6 @@ def test_def008_lead_rows_are_painted_not_widgets_and_stay_linear(qapp, monkeypa
 
     assert page.leads_table.rowCount() == 2000
     assert page.leads_table.findChildren(QToolButton) == []
-    # Quadratic column re-measurement made millions of calls; linear work stays far below one per row.
     assert calls["size_hint"] < 2000
 
     table = page.leads_table
@@ -476,7 +433,6 @@ def test_def008_lead_rows_are_painted_not_widgets_and_stay_linear(qapp, monkeypa
             QPoint(cell.left() + 12, cell.center().y()),
         )
         qapp.processEvents()
-    # The painted "Open" button ran the action; without a signed-in session it explains instead.
     assert pilot.seen == []
     assert page.status_label.text() == "Sign in to change leads."
     page.close()
@@ -484,7 +440,7 @@ def test_def008_lead_rows_are_painted_not_widgets_and_stay_linear(qapp, monkeypa
 
 
 def test_def008_client_row_actions_reachable_by_keyboard(qapp, tmp_path):
-    context = signed_in_context(tmp_path / "app.db")  # deleting needs a signed-in session
+    context = signed_in_context(tmp_path / "app.db")
     page = ClientsPage(controller=_ScaleClientsController, latest_leads_provider=dict, context=context)
     page.resize(1200, 800)
     page.show()
@@ -515,9 +471,6 @@ def test_def008_client_row_actions_reachable_by_keyboard(qapp, tmp_path):
     page.deleteLater()
 
 
-# ----------------------------------- DEF-009: Sales page overflowed narrow windows
-
-
 def test_def009_sales_page_fits_the_minimum_window_after_shrinking(shell, qapp):
     shell.navigate("sales")
     shell.resize(1360, 860)
@@ -527,11 +480,7 @@ def test_def009_sales_page_fits_the_minimum_window_after_shrinking(shell, qapp):
     page = shell.stack.currentWidget()
     body = page.scroll_area.widget()
     assert body.minimumSizeHint().width() <= page.scroll_area.viewport().width()
-    # Collapsing the sidebar while shrinking queues a second layout pass.
     assert wait_until(lambda: not page.scroll_area.horizontalScrollBar().isVisible(), 2000)
-
-
-# ------------------------------------------- DEF-010 / DEF-015: shell polish
 
 
 def test_def010_product_name_is_not_clipped(shell, qapp):
@@ -577,14 +526,11 @@ def test_def016_navigation_icons_follow_the_theme(shell, qapp):
     assert all(before[name] != after[name] for name in before)
 
 
-# --------------------- DEF-020..022: features lost in the Flet -> Qt migration
-
-
 def test_def020_marketing_spend_can_be_added_corrected_and_deleted(shell, qapp):
     shell.navigate("leads")
     qapp.processEvents()
     page = shell.stack.currentWidget()
-    assert page._marketing_summary_values["avg_cpl"].text() == "—"  # undefined without spend
+    assert page._marketing_summary_values["avg_cpl"].text() == "—"
     observed: dict[str, object] = {}
 
     def edit_spend(dialog):
@@ -592,7 +538,7 @@ def test_def020_marketing_spend_can_be_added_corrected_and_deleted(shell, qapp):
         dialog.amount_edit.setText("not money")
         dialog.save_button.click()
         observed["invalid"] = (dialog.isVisible(), dialog.error_label.text(), dialog.amount_edit.text())
-        dialog.amount_edit.setText("1.250,50")  # European separators are accepted
+        dialog.amount_edit.setText("1.250,50")
         dialog.date_edit.setDate(QDate(2026, 2, 1))
         dialog.save_button.click()
         record_id = str(dialog._records[0]["id"])
@@ -603,7 +549,7 @@ def test_def020_marketing_spend_can_be_added_corrected_and_deleted(shell, qapp):
             observed["stored"] = connection.execute(
                 "SELECT source, amount, date FROM marketing_spend"
             ).fetchall()
-        dialog._run_row_action("delete", record_id)  # answered with Cancel
+        dialog._run_row_action("delete", record_id)
         observed["after_cancel"] = _count("marketing_spend")
         dialog.accept()
 
@@ -643,7 +589,6 @@ def _sales_snapshot_with(top_clients, product_labels):
 
 
 def _bar_positions(chart) -> int:
-    """Separate bars drawn by a horizontal bar chart (one row each)."""
     return len(chart.rows)
 
 
@@ -663,9 +608,8 @@ def test_def021_sales_page_shows_top_clients_without_merging_equal_names(qapp):
     )
     tabs = [page.chart_tabs.tabText(index) for index in range(page.chart_tabs.count())]
     assert "Top clients" in tabs
-    # Equal category labels must stay separate bars, not be merged into one.
-    assert _bar_positions(page.top_clients_chart) == 3  # two "Acme Ltd" bars kept apart
-    assert _bar_positions(page.product_chart) == 2  # equal truncated labels kept apart
+    assert _bar_positions(page.top_clients_chart) == 3
+    assert _bar_positions(page.product_chart) == 2
     assert "Acme Ltd €900.00" in page.top_clients_chart.accessibleDescription()
     page.close()
     page.deleteLater()
@@ -718,7 +662,7 @@ def test_def023_any_date_picker_opens_on_the_current_month(qapp):
     try:
         assert calendar.isVisible()
         assert (calendar.yearShown(), calendar.monthShown()) == (today.year(), today.month())
-        assert editor.text() == "Any date"  # opening the picker does not set a filter
+        assert editor.text() == "Any date"
     finally:
         calendar.window().close()
         page.close()
@@ -746,11 +690,11 @@ def test_def024_keyboard_focus_is_visible_on_every_control_variant(shell, qapp, 
     qapp.processEvents()
     search = shell.stack.currentWidget().search_edit
     settings = shell.navigate("settings")
-    settings.tabs.setCurrentIndex(settings.danger_index)  # data clearing lives under Settings > Danger zone
+    settings.tabs.setCurrentIndex(settings.danger_index)
     qapp.processEvents()
     danger = settings.clear_buttons["sales"]
     shell.navigate("sales_overview")
-    shell.activateWindow()  # keyboard focus needs the active window (see the dialog test above)
+    shell.activateWindow()
     qapp.processEvents()
     dashboard = shell.stack.currentWidget()
     targets = {
@@ -786,7 +730,7 @@ def test_def025_user_data_is_never_rendered_as_rich_text(qapp):
     markup = "<b>Bold</b> <i>Co</i>"
     dialog = ClientDetailDialog({"client_id": "C1", "name": markup, "address": markup}, {"sales": []})
     labels = [label for label in dialog.findChildren(QLabel) if label.text() == markup]
-    assert len(labels) == 2  # title and address show the literal text
+    assert len(labels) == 2
     assert all(label.textFormat() == Qt.TextFormat.PlainText for label in labels)
     dialog.deleteLater()
 
@@ -799,7 +743,6 @@ def test_def025_user_data_is_never_rendered_as_rich_text(qapp):
 
 
 def test_def026_dialogs_are_released_after_use(shell, qapp, tmp_path):
-    """exec() hands parented dialogs to Python; a retained one is owned twice."""
     import gc
 
     from PySide6.QtWidgets import QDialog
@@ -832,24 +775,17 @@ def test_def026_dialogs_are_released_after_use(shell, qapp, tmp_path):
         qapp.processEvents()
         assert shell.findChildren(QDialog) == [], name
         assert _python_owned_children(shell) == [], name
-        # A closed dialog is detached from the window, so also check that none lives on.
         alive = [type(obj).__name__ for obj in gc.get_objects()
                  if isinstance(obj, QDialog) and Shiboken.isValid(obj)]
         assert alive == [], name
 
 
-# ---------------------------------- dialogs open as cards centred in the window
-
-
 def test_dialogs_open_centred_inside_the_window_and_keep_the_keyboard(shell, qapp):
-    """On Wayland, dialog windows opened wherever the compositor put them (top-left)."""
     from PySide6.QtWidgets import QWidget
 
     from techset_leadgen.desktop.modal import Backdrop, current_modal
 
     shell.navigate("clients")
-    # A person pressing keys is in the active window; the offscreen test platform drops activation
-    # after the outreach dashboard is hidden (see docs/IMPLEMENTATION_LOG.md, open risks).
     shell.activateWindow()
     qapp.processEvents()
     seen: dict[str, object] = {}
@@ -866,7 +802,7 @@ def test_dialogs_open_centred_inside_the_window_and_keep_the_keyboard(shell, qap
         seen["focus inside"] = dialog.isAncestorOf(QApplication.focusWidget())
         close = next(button for button in dialog.findChildren(QToolButton)
                      if button.accessibleName() == "Close dialog")
-        close.setFocus()  # the last stop in the card's Tab order
+        close.setFocus()
         QTest.keyClick(close, Qt.Key.Key_Tab)
         seen["tab wraps"] = dialog.isAncestorOf(QApplication.focusWidget())
         QTest.keyClick(QApplication.focusWidget(), Qt.Key.Key_K, Qt.KeyboardModifier.ControlModifier)
@@ -882,15 +818,12 @@ def test_dialogs_open_centred_inside_the_window_and_keep_the_keyboard(shell, qap
 
     assert seen["current"] and seen["window"] is False
     for key in ("offset", "offset after resize"):
-        dx, dy = seen[key]  # type: ignore[misc]
+        dx, dy = seen[key]
         assert abs(dx) <= 1 and abs(dy) <= 1, (key, seen[key])
     assert seen["focus inside"] and seen["tab wraps"]
-    assert seen["search focused"] is False  # Ctrl+K did nothing behind the dialog
+    assert seen["search focused"] is False
     assert current_modal() is None
     assert [backdrop for backdrop in shell.findChildren(Backdrop) if backdrop.isVisible()] == []
-
-
-# ------------------------------------------------ end-to-end business workflow
 
 
 def test_end_to_end_import_edit_delete_and_restart(shell, qapp, tmp_path):
@@ -921,7 +854,6 @@ def test_end_to_end_import_edit_delete_and_restart(shell, qapp, tmp_path):
     qapp.processEvents()
     assert shell.stack.currentWidget().transactions_card.value.text() == "3"
 
-    # Edit the lead through its painted row button and the real dialog.
     shell.navigate("leads")
     qapp.processEvents()
     leads_page = shell.stack.currentWidget()
@@ -936,7 +868,6 @@ def test_end_to_end_import_edit_delete_and_restart(shell, qapp, tmp_path):
     with closing(get_connection()) as connection:
         assert connection.execute("SELECT status, meeting_date FROM leads").fetchall() == [("meeting", "2030-01-15")]
 
-    # Delete a client: Cancel keeps it, Delete cascades its sales and unlinks nothing else.
     shell.navigate("clients")
     qapp.processEvents()
     clients_page = shell.stack.currentWidget()
@@ -948,7 +879,6 @@ def test_end_to_end_import_edit_delete_and_restart(shell, qapp, tmp_path):
     assert _count("sales") == 2
     assert [client["client_id"] for client in clients_page.visible_clients] == ["C-1"]
 
-    # The sales overview reflects the change, and a fresh window reads the persisted state.
     shell.navigate("sales_overview")
     qapp.processEvents()
     assert shell.stack.currentWidget().sales_card.value_label.text() == "2"
@@ -961,3 +891,4 @@ def test_end_to_end_import_edit_delete_and_restart(shell, qapp, tmp_path):
         assert stages == ["Meeting"]
     finally:
         restarted.deleteLater()
+

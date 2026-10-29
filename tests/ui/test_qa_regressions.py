@@ -1,5 +1,3 @@
-"""Regression tests for the defects found by the QA run of 27 Oct 2026 (qa_artifacts/reports/BUGS.md)."""
-
 from __future__ import annotations
 
 import locale
@@ -42,7 +40,7 @@ def context(tmp_path: Path, qapp):
 def test_bug001_team_summary_date_ignores_the_system_language(qapp, context):
     previous = locale.setlocale(locale.LC_TIME)
     try:
-        locale.setlocale(locale.LC_TIME, "ur_PK.UTF-8")  # month names in Urdu script
+        locale.setlocale(locale.LC_TIME, "ur_PK.UTF-8")
     except locale.Error:
         pytest.skip("the ur_PK locale is not installed")
     try:
@@ -52,7 +50,7 @@ def test_bug001_team_summary_date_ignores_the_system_language(qapp, context):
     finally:
         locale.setlocale(locale.LC_TIME, previous)
     day = note.split(" in ")[0].removeprefix("Business day ")
-    assert day.isascii() and len(day.split()) == 3, note  # "27 Oct 2026"
+    assert day.isascii() and len(day.split()) == 3, note
 
 
 def test_bug002_dashboard_cards_fill_the_row_after_narrowing(qapp, context):
@@ -60,7 +58,7 @@ def test_bug002_dashboard_cards_fill_the_row_after_narrowing(qapp, context):
     page.resize(1500, 900)
     page.show()
     qapp.processEvents()
-    page.resize(1100, 900)  # 2 columns, as at 1366×768 with the sidebar
+    page.resize(1100, 900)
     qapp.processEvents()
     assert [page.kpi_grid.columnStretch(column) for column in range(4)] == [1, 1, 0, 0]
     page.close()
@@ -104,8 +102,6 @@ def test_bug006_batch_workload_columns_stay_visible(qapp, context):
     assert used <= table.viewport().width() + 1, (used, table.viewport().width())
     assert header.sectionSize(3) >= header.sectionSizeHint(3), "the After column is cut"
     dialog.reject()
-    # Deleted now, while the application exists: a window left for interpreter shutdown crashed the
-    # whole test run on exit ("pure virtual method called"), after every test had passed (QA BUG-108).
     dialog.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
@@ -122,3 +118,4 @@ def test_bug007_team_summary_names_are_not_cut(qapp, context):
     needed = page.table.fontMetrics().horizontalAdvance("Muhammad Abdullah Siddiqui")
     assert page.table.columnWidth(0) >= needed + 16
     page.close()
+

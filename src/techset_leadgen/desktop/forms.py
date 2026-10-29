@@ -1,11 +1,3 @@
-"""Declarative record forms with inline, per-field validation messages.
-
-A ``FormDialog`` is built from ``FieldSpec`` items. Saving calls the page's
-``submit`` function inside the dialog; a ``DomainError`` raised by the business
-service keeps the dialog open and shows each field's message under that field,
-so validation rules live in one place (the service layer), not in the screens.
-"""
-
 from __future__ import annotations
 
 import weakref
@@ -52,21 +44,20 @@ Options = Sequence[tuple[str, str]]
 class FieldSpec:
     name: str
     label: str
-    kind: str = "text"  # text, password, multiline, choice, multi, tags, int, bool, date, datetime
+    kind: str = "text"
     options: Options = ()
     required: bool = False
     hint: str = ""
     placeholder: str = ""
-    span: bool = False  # use the full width of a two-column form
-    blank: str | None = "—"  # label of the empty choice; None when a value is mandatory
-    searchable: bool = False  # type-to-filter for long choice lists
+    span: bool = False
+    blank: str | None = "—"
+    searchable: bool = False
     read_only: bool = False
-    rules: bool = False  # a new password: show the live password-policy checklist under it
-    rules_owner: tuple[str, str] = ("", "")  # (email, name) of the account, for the similarity rule
+    rules: bool = False
+    rules_owner: tuple[str, str] = ("", "")
 
 
 def _set_text(label: str) -> str:
-    """ "Set a due date", "Set a meeting date": the checkbox that turns an optional date on."""
     words = label.strip().lower()
     return f"Set a {words}" if "date" in words else f"Set a {words} date"
 
@@ -92,7 +83,6 @@ class _Field:
         self.error.setAccessibleName(f"{spec.label} error")
         self.rules = PasswordRules(email=spec.rules_owner[0], name=spec.rules_owner[1]) if spec.rules else None
 
-    # --------------------------------------------------------------- widgets
 
     def _build(self) -> QWidget:
         spec = self.spec
@@ -101,7 +91,7 @@ class _Field:
             editor.setPlaceholderText(spec.placeholder or ("Comma-separated" if spec.kind == "tags" else ""))
             if spec.kind == "password":
                 editor.setEchoMode(QLineEdit.EchoMode.Password)
-                RevealButton(editor)  # the eye button shows or hides what was typed
+                RevealButton(editor)
             if spec.kind == "int":
                 editor.setValidator(QIntValidator(0, 100, editor))
             editor.setReadOnly(spec.read_only)
@@ -167,7 +157,6 @@ class _Field:
             self.picker = QDateTimeEdit()
             self.picker.setCalendarPopup(True)
             self.picker.setDisplayFormat("dd MMM yyyy  HH:mm")
-            # The picker shows wall-clock time in the user's profile time zone.
             tomorrow = datetime.now(ZoneInfo(self.timezone)) + timedelta(days=1)
             self._show_local(tomorrow.replace(hour=9, minute=0))
             self.picker.setEnabled(False)
@@ -192,7 +181,6 @@ class _Field:
         self.editor.blockSignals(False)
         self.set_value(current)
 
-    # ---------------------------------------------------------------- values
 
     def value(self) -> Any:
         kind, editor = self.spec.kind, self.editor
@@ -212,7 +200,7 @@ class _Field:
             assert isinstance(editor, QComboBox)
             index = editor.currentIndex()
             if editor.isEditable() and editor.currentText() != editor.itemText(index):
-                return None  # typed text that matches no option
+                return None
             return editor.itemData(index) if index >= 0 else None
         if kind == "multi":
             assert isinstance(editor, QListWidget)
@@ -224,7 +212,7 @@ class _Field:
         if kind == "date":
             if not self.enabled_box.isChecked():
                 return None
-            return self.date_picker.date().toString(Qt.DateFormat.ISODate)  # YYYY-MM-DD
+            return self.date_picker.date().toString(Qt.DateFormat.ISODate)
         if kind == "datetime":
             if not self.enabled_box.isChecked():
                 return None
@@ -282,13 +270,11 @@ class _Field:
         self.error.setVisible(bool(message))
         target = self.focus_target()
         target.setProperty("invalid", bool(message))
-        target.style().unpolish(target)  # re-apply the stylesheet for the new property value
+        target.style().unpolish(target)
         target.style().polish(target)
 
 
 class FormDialog(ModalDialog):
-    """A record form. ``submit(dialog)`` saves; raising ``DomainError`` keeps the dialog open."""
-
     def __init__(
         self,
         parent: QWidget | None,
@@ -361,7 +347,6 @@ class FormDialog(ModalDialog):
         scroll.setWidget(body)
         main.addWidget(scroll, 1)
 
-        # The design's footer: the safe choice first, the action on the right.
         footer = QFrame()
         footer.setObjectName("modalFooter")
         buttons = QHBoxLayout(footer)
@@ -432,7 +417,6 @@ class FormDialog(ModalDialog):
         layout.addWidget(field.error)
         return cell
 
-    # ---------------------------------------------------------------- API
 
     def editor(self, name: str) -> QWidget:
         return self._fields[name].editor
@@ -447,19 +431,12 @@ class FormDialog(ModalDialog):
         return {name: field.value() for name, field in self._fields.items()}
 
     def changed(self) -> dict[str, Any]:
-        """Only the fields the user changed (updates send nothing else)."""
         return {name: value for name, value in self.values().items() if value != self._initial.get(name)}
 
     def set_options(self, name: str, options: Options) -> None:
         self._fields[name].set_options(options)
 
     def on_change(self, name: str, callback: Callable[[FormDialog, Any], None]) -> None:
-        """Call ``callback(dialog, value)`` when field ``name`` changes.
-
-        The dialog is passed in (held weakly here) rather than captured by the
-        caller's lambda: a Qt connection holding a lambda that references its
-        dialog keeps the dialog alive after it closes (DEF-026).
-        """
         editor = self._fields[name].editor
         dialog_ref = weakref.ref(self)
 
@@ -514,10 +491,11 @@ class FormDialog(ModalDialog):
             self.reject()
         except DomainError as exc:
             self.show_errors(exc)
-        except Exception as exc:  # database or unexpected errors: reported and logged, the form stays open
+        except Exception as exc:
             report(self, exc)
         else:
             self.accept()
 
 
 __all__ = ["FieldSpec", "FormDialog", "Options"]
+

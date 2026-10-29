@@ -1,12 +1,3 @@
-"""Native PySide6 client management page.
-
-The list and sales figures come from the established controller/analysis layers.
-Adding, editing, and deleting clients, their contacts, activities, and tasks go
-through the business services via the signed-in session (format and duplicate
-rules from ``models.client_validators``, plus roles and the audit trail).
-Duplicate merging keeps its original implementation, guarded the same way.
-"""
-
 from __future__ import annotations
 
 from functools import partial
@@ -122,7 +113,6 @@ def _blank(value: Any) -> str | None:
 
 
 def _problem(exc: Exception) -> str:
-    """The message a client form shows for a failed save (field messages first)."""
     from techset_leadgen.errors import DomainError
 
     if isinstance(exc, DomainError) and exc.fields:
@@ -145,7 +135,6 @@ def _mask_sensitive(value: Any) -> str:
 
 
 def _item(value: Any, *, numeric: float | int | None = None, sort_key: Any = None) -> QTableWidgetItem:
-    """A read-only cell; ``numeric`` right-aligns and sorts by number, ``sort_key`` only sorts."""
     result = sortable_item(_display(value), numeric if numeric is not None else sort_key)
     result.setFlags(result.flags() & ~Qt.ItemFlag.ItemIsEditable)
     if numeric is not None:
@@ -154,13 +143,6 @@ def _item(value: Any, *, numeric: float | int | None = None, sort_key: Any = Non
 
 
 class ClientFormDialog(ModalDialog):
-    """Add/edit form with optional linked-lead editing.
-
-    ``on_submit`` performs the save while the dialog is still open. When it
-    returns ``(False, message)`` the message is shown inline and the user's
-    input is kept, instead of closing the form and discarding what was typed.
-    """
-
     def __init__(
         self,
         *,
@@ -251,8 +233,6 @@ class ClientFormDialog(ModalDialog):
         self._set_account(self._account_initial)
 
         if lead:
-            # Shown for reference. Stage changes follow the lead workflow (allowed moves,
-            # reasons, history) from the Leads page or the client profile.
             lead_tab = QWidget()
             lead_form = QFormLayout(lead_tab)
             lead_form.setContentsMargins(16, 16, 16, 16)
@@ -307,7 +287,7 @@ class ClientFormDialog(ModalDialog):
             return
         if self._on_submit is not None:
             save_button = self.buttons.button(QDialogButtonBox.StandardButton.Save)
-            save_button.setEnabled(False)  # no duplicate submissions while saving
+            save_button.setEnabled(False)
             try:
                 success, message = self._on_submit(self)
             finally:
@@ -354,13 +334,11 @@ class ClientFormDialog(ModalDialog):
         }
 
     def changed_account_values(self) -> dict[str, Any]:
-        """Only the account fields the user changed (so unchanged owners need no permission)."""
         return {key: value for key, value in self.account_values().items()
                 if value != (self._account_initial.get(key) or (None if key != "account_status" else "prospect"))}
 
 
 def client_profile_snapshot(db: Any, actor: Any, client_id: str) -> dict[str, Any]:
-    """Account fields, people, leads, activity, and tasks of one client, with the allowed actions."""
     zone = actor.timezone
     record = db.get(Client, client_id)
     snapshot: dict[str, Any] = {"exists": record is not None, "account": {}, "contacts": [], "leads": [],
@@ -402,9 +380,6 @@ def client_profile_snapshot(db: Any, actor: Any, client_id: str) -> dict[str, An
 
 
 class ClientDetailDialog(ModalDialog):
-    """Accessible client profile: account, purchase history, and (when signed in) people,
-    leads, activity, and tasks, with the actions the user's role allows."""
-
     export_requested = Signal(str)
 
     def __init__(
@@ -438,9 +413,6 @@ class ClientDetailDialog(ModalDialog):
         export_button = QPushButton("Export HTML")
         export_button.setObjectName("primaryButton")
         export_button.setAccessibleName(f"Export report for {client.get('name', 'client')}")
-        # A bound method, not a lambda capturing self: PySide keeps lambdas
-        # alive, which kept every profile dialog alive and, after exec(),
-        # owned by both Python and its parent page.
         export_button.clicked.connect(self._request_export)
         header.addWidget(export_button)
         root.addLayout(header)
@@ -492,7 +464,7 @@ class ClientDetailDialog(ModalDialog):
             lead_form.addRow(QLabel("No linked lead."))
         overview_layout.addWidget(lead_group)
         overview_layout.addStretch(1)
-        overview_scroll = QScrollArea()  # account rows added below need room on small screens
+        overview_scroll = QScrollArea()
         overview_scroll.setWidgetResizable(True)
         overview_scroll.setFrameShape(QFrame.Shape.NoFrame)
         overview_scroll.setWidget(overview)
@@ -516,7 +488,7 @@ class ClientDetailDialog(ModalDialog):
                 _item(f"€{float(sale.get('price') or 0):,.2f}", numeric=float(sale.get("price") or 0)),
             )
         history.setSortingEnabled(True)
-        history.sortItems(0, Qt.SortOrder.DescendingOrder)  # newest first
+        history.sortItems(0, Qt.SortOrder.DescendingOrder)
         tabs.addTab(history, f"Purchase history ({len(sales)})")
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
@@ -529,7 +501,6 @@ class ClientDetailDialog(ModalDialog):
             self._build_work_tabs()
             self.reload()
 
-    # ------------------------------------------------------------ people, leads, activity, tasks
 
     def _tab(self, columns: tuple[str, ...] | list[str], actions: list[tuple[str, Callable[[], object]]],
              *, empty: str, badges: tuple[int, ...] = ()) -> tuple[QWidget, QTableWidget, dict[str, QPushButton]]:
@@ -540,7 +511,7 @@ class ClientDetailDialog(ModalDialog):
         for text, handler in actions:
             button = QPushButton(text)
             button.setObjectName("compactButton")
-            button.clicked.connect(handler)  # bound methods only (DEF-026)
+            button.clicked.connect(handler)
             row.addWidget(button)
             buttons[text] = button
         row.addStretch(1)
@@ -697,8 +668,6 @@ class ClientDetailDialog(ModalDialog):
 
 
 class ClientsPage(QWidget):
-    """Searchable client list with CRUD, profile, merge, and export flows."""
-
     notification_requested = Signal(str, str)
     data_changed = Signal()
 
@@ -818,18 +787,12 @@ class ClientsPage(QWidget):
             8: "Date of the client's latest lead",
             10: "Account status",
         })
-        # Tax ID and email are masked in this list for every role (the profile shows them),
-        # so they start hidden to leave room; right-click the header to show them.
         enable_column_choice(self.clients_table, "clients", locked=(1, _ACTIONS_COLUMN),
                              hidden_by_default=(2, 3))
         self.clients_table.setSortingEnabled(True)
         self.clients_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.clients_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        # Explicit default: enabling sorting otherwise re-sorts by ID, descending.
         self.clients_table.sortItems(1, Qt.SortOrder.AscendingOrder)
-        # Enter or double-click opens the profile. Row buttons are painted by a
-        # delegate (no widget per row); the context menu and Delete key give
-        # keyboard users the same actions.
         self.clients_table.activated.connect(self._client_activated)
         self._client_row_actions = (
             RowAction("view", "View", "View client profile", icon="eye"),
@@ -885,7 +848,7 @@ class ClientsPage(QWidget):
         self.search_edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
         self.search_edit.selectAll()
 
-    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._reflow_toolbar()
 
@@ -895,7 +858,7 @@ class ClientsPage(QWidget):
             return
         self._layout_columns = columns
         for widget in self._toolbar_widgets:
-            self._toolbar_grid.removeWidget(widget)  # takeAt() leaked the item
+            self._toolbar_grid.removeWidget(widget)
         if columns == 1:
             for row, widget in enumerate(self._toolbar_widgets):
                 self._toolbar_grid.addWidget(widget, row, 0)
@@ -903,7 +866,6 @@ class ClientsPage(QWidget):
             self._toolbar_grid.addWidget(self.add_button, 0, 0)
             self._toolbar_grid.addWidget(self.merge_button, 0, 1)
             self._toolbar_grid.addWidget(self.search_edit, 0, 2)
-        # Reset all columns so stretch from the other layout cannot linger.
         for column in range(3):
             self._toolbar_grid.setColumnStretch(column, 1 if column == (2 if columns > 1 else 0) else 0)
 
@@ -914,7 +876,6 @@ class ClientsPage(QWidget):
         self.empty_add_client.setVisible(context is None or context.can("clients.create"))
 
     def _load_extras(self) -> None:
-        """Owner and account status of each client, from the same client rows."""
         self._extras = {}
         if self.context is not None and self.context.is_signed_in:
             try:
@@ -963,8 +924,6 @@ class ClientsPage(QWidget):
 
     def _populate_table(self) -> None:
         table = self.clients_table
-        # With twelve columns the Name column was once squeezed to "Glo…" (OPEN-06); it keeps
-        # a readable minimum while wider columns such as Email give up space first.
         with bulk_table_update(
             table,
             stretch_column=1,
@@ -991,7 +950,7 @@ class ClientsPage(QWidget):
                     _item(ACCOUNT_STATUSES.get(self._extras[client_id].account_status or "", "—")
                           if client_id in self._extras else "—"),
                 )
-                cells[0].setFont(mono_font(12))  # the delegate paints IDs in the monospace font
+                cells[0].setFont(mono_font(12))
                 cells[0].setForeground(QColor(tokens()["text2"]))
                 for column, item in enumerate(cells):
                     item.setData(_CLIENT_ID_ROLE, client_id)
@@ -1014,7 +973,7 @@ class ClientsPage(QWidget):
     def _run_client_action(self, key: str, client_id: str) -> None:
         if not client_id:
             return
-        if key == "more":  # the ⋯ button: the same actions as the context menu
+        if key == "more":
             menu = QMenu(self.clients_table)
             for action in self._client_menu_actions:
                 entry = menu.addAction(action.label, partial(self._run_client_action, action.key, client_id))
@@ -1265,7 +1224,6 @@ class ClientsPage(QWidget):
         return str(generated) if success and generated else None
 
     def _notify(self, message: str, level: str) -> None:
-        """Show inline feedback; the hosting shell decides whether to pop up errors."""
         self.status_label.setText(message)
         self.status_label.setProperty("level", level)
         self.status_label.style().unpolish(self.status_label)
@@ -1274,3 +1232,4 @@ class ClientsPage(QWidget):
 
 
 __all__ = ["ClientDetailDialog", "ClientFormDialog", "ClientsPage"]
+

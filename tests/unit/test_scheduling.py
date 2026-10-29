@@ -1,5 +1,3 @@
-"""The pure scheduling rules: conflict kinds, buffer gaps, free slots, time zones, and wording."""
-
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
@@ -49,8 +47,8 @@ def test_candidates_fit_business_hours_and_skip_non_working_days():
     rules = SchedulingRules(day_start=9 * 60 + 10, day_end=10 * 60 + 30)
     starts = candidate_starts(MONDAY.date(), timedelta(minutes=30), rules)
     assert [value.strftime("%H:%M") for value in starts] == ["09:15", "09:30", "09:45", "10:00"]
-    assert candidate_starts(date(2026, 11, 7), timedelta(minutes=30), rules) == []  # Saturday
-    assert candidate_starts(MONDAY.date(), timedelta(hours=2), rules) == []  # longer than the day
+    assert candidate_starts(date(2026, 11, 7), timedelta(minutes=30), rules) == []
+    assert candidate_starts(MONDAY.date(), timedelta(hours=2), rules) == []
 
 
 def test_suggest_prefers_the_requested_day_then_the_next_working_day():
@@ -76,12 +74,12 @@ def test_suggestions_are_never_in_the_past():
 def test_business_hours_follow_the_time_zone_and_daylight_saving():
     zone = ZoneInfo("Europe/London")
     rules = SchedulingRules(timezone="Europe/London")
-    summer = candidate_starts(date(2026, 10, 23), timedelta(minutes=30), rules)  # BST, UTC+1
-    winter = candidate_starts(date(2026, 10, 26), timedelta(minutes=30), rules)  # GMT after 25 Oct
+    summer = candidate_starts(date(2026, 10, 23), timedelta(minutes=30), rules)
+    winter = candidate_starts(date(2026, 10, 26), timedelta(minutes=30), rules)
     assert summer[0] == datetime(2026, 10, 23, 8, tzinfo=UTC)
     assert winter[0] == datetime(2026, 10, 26, 9, tzinfo=UTC)
     assert summer[0].astimezone(zone).hour == winter[0].astimezone(zone).hour == 9
-    assert local_instant(date(2026, 3, 29), 60 + 30, zone) is None  # 01:30 does not exist that night
+    assert local_instant(date(2026, 3, 29), 60 + 30, zone) is None
 
 
 def test_wording_is_locale_independent():
@@ -93,3 +91,4 @@ def test_wording_is_locale_independent():
     assert duration_text(timedelta(minutes=45)) == "45 min"
     assert duration_text(timedelta(minutes=90)) == "90 min (1 h 30 min)"
     assert SchedulingRules().hours_text() == "9:00 AM–6:00 PM, Monday–Friday"
+

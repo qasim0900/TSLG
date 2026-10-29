@@ -1,10 +1,3 @@
-"""Native Qt sales analytics page for Techset LeadGen.
-
-The page deliberately consumes the existing :class:`AnalysisSnapshot` contract.
-Data queries, filtering rules, comparison maths, and HTML report generation stay
-in the established controller, service, and report layers.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -78,18 +71,11 @@ _GROUPING_WORDS = {"day": "daily", "week": "weekly", "month": "monthly", "quarte
 
 
 class _OpenOnCurrentMonth(QObject):
-    """Open an "Any date" editor's calendar on today's month instead of January 1900.
-
-    The optional filters store "no date" as the editor's minimum date, so the
-    popup otherwise opened 126 years in the past. Only the page shown changes;
-    the value stays "Any date" until the user picks a day.
-    """
-
     def __init__(self, editor: QDateEdit) -> None:
         super().__init__(editor)
         self._editor = editor
 
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if event.type() == QEvent.Type.Show and self._editor.date() == self._editor.minimumDate():
             today = QDate.currentDate()
             calendar = self._editor.calendarWidget()
@@ -102,7 +88,6 @@ _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
 
 
 def _short_label(label: Any) -> str:
-    """ "2026-09-02" -> "2 Sep" for the chart axis (other groupings keep their own labels)."""
     text = str(label)
     parsed = QDate.fromString(text[:10], Qt.DateFormat.ISODate)
     if len(text) >= 10 and parsed.isValid():
@@ -111,42 +96,6 @@ def _short_label(label: Any) -> str:
 
 
 class SalesPage(QWidget):
-    """Sales filtering, analytics, comparison, import, and export page.
-
-    Parameters
-    ----------
-    controller:
-        Optional ``VentasController``-compatible object. Supplying it makes the
-        widget straightforward to test and keeps persistence outside the page.
-    compare_controller:
-        Optional ``CompareController``-compatible state holder.
-    on_import_requested:
-        Shell callback for the application-wide import flow. Return ``True``
-        when a synchronous import changed the dataset; return ``False``/``None``
-        for cancel or an asynchronous flow. Async owners should call
-        :meth:`refresh_after_import` after commit.
-    on_status:
-        Optional callback receiving human-readable status messages.
-    clients_provider, products_provider, date_range_provider:
-        Optional query callables used to isolate the widget from persistence in
-        tests or alternate shells.
-    report_generator:
-        Optional branded report writer with the existing
-        ``(snapshot, filename) -> (success, message, path)`` contract.
-
-    Signals
-    -------
-    importRequested:
-        Emitted whenever the user requests an import, even if a callback exists.
-    statusMessage:
-        Legacy single-argument feedback signal.
-    notification_requested:
-        Emitted with a message and one of ``info``, ``success``, ``warning``,
-        or ``error`` for the application shell.
-    snapshotChanged:
-        Emitted after a successful snapshot refresh.
-    """
-
     importRequested = Signal()
     statusMessage = Signal(str)
     notification_requested = Signal(str, str)
@@ -169,7 +118,7 @@ class SalesPage(QWidget):
         super().__init__(parent)
         self.setObjectName("salesPage")
         self.setAccessibleName("Sales analytics")
-        self.context = context  # AppContext: decides who may import and export
+        self.context = context
 
         self.controller = controller or VentasController()
         self.compare_controller = compare_controller or CompareController()
@@ -187,7 +136,6 @@ class SalesPage(QWidget):
         self._load_filter_options()
         self.reload_data(announce=False)
 
-    # ------------------------------------------------------------------ UI
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -209,10 +157,6 @@ class SalesPage(QWidget):
         body_layout.setSpacing(20)
         self.scroll_area.setWidget(body)
 
-        # Attach each nested layout to its parent before populating it. PySide
-        # only transfers widget ownership to the widget tree when the layout
-        # already has a parent widget; otherwise Python and Qt both "own" the
-        # child and the process can abort while tearing the page down.
         self.header = PageHeader(
             "Sales intelligence",
             "Filter revenue, compare periods, inspect product performance and export a branded report.",
@@ -319,7 +263,7 @@ class SalesPage(QWidget):
             self._quick_group.addButton(button)
             self._quick_buttons.append(button)
             quick_row.addWidget(button)
-        quick_row.addStretch(1)  # keep the chips compact
+        quick_row.addStretch(1)
 
         self._filter_fields = [
             self._field("From", self.start_date_edit),
@@ -401,8 +345,6 @@ class SalesPage(QWidget):
             self.clients_card,
             self.products_card,
         ]
-        # Preserve the former private card's label attributes for callers that
-        # inspect the rendered value while all updates use KpiCard's shared API.
         for card in self._kpi_cards:
             card.label = card.title_label
             card.value = card.value_label
@@ -424,7 +366,6 @@ class SalesPage(QWidget):
         header.setStretchLastSection(False)
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        # Largest totals first; enabling sorting otherwise sorts by product, Z-A.
         self.table.sortItems(2, Qt.SortOrder.DescendingOrder)
         self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.table_panel.body.addWidget(self.table)
@@ -450,7 +391,6 @@ class SalesPage(QWidget):
         self.chart_tabs.addTab(self._chart_page(self.trend_chart, (20, 24, 20, 20)), "Trend")
         self.chart_tabs.addTab(self._chart_page(self.product_chart), "Products")
         self.chart_tabs.addTab(self._chart_page(self.top_clients_chart), "Top clients")
-        # Period B appears beside Period A in the trend (paired bars), not in a separate tab.
         self.chart_tabs.currentChanged.connect(lambda index: self.chart_legend.setVisible(index == 0))
         self.chart_tabs.currentChanged.connect(lambda _index: self._replay_current_chart())
         self.chart_panel.body.addWidget(self.chart_tabs)
@@ -515,10 +455,8 @@ class SalesPage(QWidget):
     def _field(label_text: str, editor: QWidget) -> QWidget:
         return labeled_field(label_text, editor)
 
-    # ---------------------------------------------------------- data state
 
     def _load_filter_options(self) -> None:
-        """Load distinct clients/products while preserving the selection."""
         try:
             clients_provider = self._clients_provider
             products_provider = self._products_provider
@@ -644,7 +582,6 @@ class SalesPage(QWidget):
         self.reload_data()
 
     def reload_data(self, *, announce: bool = True) -> AnalysisSnapshot | Any | None:
-        """Query one fresh snapshot from the existing sales controller."""
         self._set_busy(True)
         try:
             grouping = self.grouping_combo.currentData() or "day"
@@ -675,7 +612,6 @@ class SalesPage(QWidget):
             self._set_busy(False)
 
     def refresh_after_import(self) -> None:
-        """Public shell hook to call after an import transaction commits."""
         try:
             self.controller.invalidate_snapshot_cache()
         except AttributeError:
@@ -804,7 +740,6 @@ class SalesPage(QWidget):
 
     @staticmethod
     def _vs_b_item() -> QTableWidgetItem:
-        """ "—" in a neutral badge: turn on the comparison to compare products with Period B."""
         item = QTableWidgetItem("—")
         item.setData(TONE_ROLE, "neutral")
         item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -812,7 +747,6 @@ class SalesPage(QWidget):
         return item
 
     def _label_columns(self, headers: tuple[str, ...]) -> None:
-        """Set the columns for the summary or comparison view; numbers are right-aligned."""
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(list(headers))
         align_headers(self.table, range(1, len(headers)))
@@ -831,10 +765,8 @@ class SalesPage(QWidget):
         )
         return item
 
-    # --------------------------------------------------------------- charts
 
     def _render_charts(self, snapshot: AnalysisSnapshot | Any | None) -> None:
-        """Fill the trend, product and top-client charts (they animate in on change)."""
         has_data = snapshot is not None and bool(snapshot.period_a.table_data)
         self.chart_tabs.setVisible(has_data)
         self.chart_empty.setVisible(not has_data)
@@ -851,7 +783,7 @@ class SalesPage(QWidget):
         grouping = snapshot.metadata.grouping.value
         self.chart_panel.set_subtitle(f"Revenue grouped {_GROUPING_WORDS.get(grouping, 'by period')}")
         comparison = snapshot.comparison if snapshot.is_compare_mode() else None
-        money = lambda value: format_eur(value, 0)  # noqa: E731 - a short formatter
+        money = lambda value: format_eur(value, 0)
         if comparison is not None and comparison.evolution.points:
             points = list(comparison.evolution.points)
             self.trend_chart.set_data([_short_label(point.label) for point in points],
@@ -872,7 +804,6 @@ class SalesPage(QWidget):
                        key=lambda item: item[1], reverse=True)[:12]
         total = sum(value for _label, value in pairs) or 1.0
         top = max((value for _label, value in pairs), default=1.0) or 1.0
-        # Separate rows even when two (shortened) product names are equal.
         self.product_chart.set_rows(
             [BarRow(label, value / top, format_eur(value), f"{value / total * 100:.0f}%")
              for label, value in pairs],
@@ -880,7 +811,6 @@ class SalesPage(QWidget):
         )
 
     def _render_top_clients_chart(self, snapshot: AnalysisSnapshot | Any) -> None:
-        """Rank period A's top clients by revenue (restored from the Flet UI)."""
         ranking = sorted(snapshot.period_a.top_clients or [], key=lambda client: float(client.total_sales),
                          reverse=True)
         top = max((float(client.total_sales) for client in ranking), default=1.0) or 1.0
@@ -896,7 +826,6 @@ class SalesPage(QWidget):
             "Top clients by sales: " + "; ".join(
                 f"{client.client_name} {format_eur(client.total_sales)}" for client in ranking))
 
-    # -------------------------------------------------------------- actions
 
     @Slot()
     def _request_import(self) -> None:
@@ -930,7 +859,6 @@ class SalesPage(QWidget):
             self.export_report(filename)
 
     def export_report(self, filename: str | Path) -> tuple[bool, str, str | None]:
-        """Write the visible snapshot to ``filename`` without querying again."""
         if self.current_snapshot is None:
             result = (False, "There is no sales analysis to export.", None)
             self._notify(result[1], error=True)
@@ -949,8 +877,6 @@ class SalesPage(QWidget):
                 self._notify(result[1], error=True)
                 return result
         try:
-            # Lazy import avoids coupling Qt canvas setup to the report module's
-            # intentionally headless Matplotlib backend.
             report_generator = self._report_generator
             if report_generator is None:
                 from techset_leadgen.reports.report_html import generate_html_report_from_snapshot
@@ -981,7 +907,6 @@ class SalesPage(QWidget):
         if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._last_report_path))):
             self._notify("The operating system could not open the report.", error=True)
 
-    # ----------------------------------------------------------- date ranges
 
     @Slot(bool)
     def _comparison_toggled(self, enabled: bool) -> None:
@@ -1038,30 +963,26 @@ class SalesPage(QWidget):
         self.start_date_edit.setDate(QDate(year, 1, 1))
         self.end_date_edit.setDate(QDate(year, 12, 31))
 
-    # ---------------------------------------------------------- responsiveness
 
-    def changeEvent(self, event: QEvent) -> None:  # noqa: N802 - Qt API
+    def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)
         if event.type() not in {
             QEvent.Type.PaletteChange,
             QEvent.Type.ApplicationPaletteChange,
         }:
             return
-        if hasattr(self, "trend_chart"):  # the native charts paint with the current theme
+        if hasattr(self, "trend_chart"):
             for chart in (self.trend_chart, self.product_chart, self.top_clients_chart):
                 chart.update()
             self._update_legend()
-        if hasattr(self, "table"):  # gain/loss colours follow the theme
+        if hasattr(self, "table"):
             self._populate_table(self.current_snapshot)
 
-    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - Qt API
+    def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         self._reflow()
 
     def _reflow(self, *, force: bool = False) -> None:
-        # The page's own width: the scroll area's viewport is resized after this
-        # widget, so reading it here gave the previous (often tiny) width.
-        # Match breakpoints against usable content (page margins and scroll bar).
         width = max(0, self.width() - 70)
         field_columns = 4 if width >= 880 else 2 if width >= 520 else 1
         compare_columns = field_columns
@@ -1073,14 +994,11 @@ class SalesPage(QWidget):
         self._place_filter_fields(field_columns)
         self._replace_grid(self.compare_grid, self._compare_fields, compare_columns)
         self._replace_grid(self.kpi_grid, self._kpi_cards, kpi_columns)
-        # Recompute the nested layouts now: the scroll area otherwise keeps the
-        # previous (wider) minimum until a later event-loop pass.
         for layout in (self.filter_grid, self.filter_group.card_layout, self._body_layout):
             layout.invalidate()
             layout.activate()
 
     def _place_filter_fields(self, columns: int) -> None:
-        """Four fields per row; the quick-range chips fill the rest of the last row."""
         layout = self.filter_grid
         for widget in self._filter_fields:
             layout.removeWidget(widget)
@@ -1091,7 +1009,7 @@ class SalesPage(QWidget):
             layout.addWidget(widget, index // columns, index % columns)
         used = len(fields) % columns
         row = len(fields) // columns
-        if used == 0 or columns < 4:  # narrow: the chips get a row of their own
+        if used == 0 or columns < 4:
             layout.addWidget(quick, row + (1 if used else 0), 0, 1, columns)
         else:
             layout.addWidget(quick, row, used, 1, columns - used)
@@ -1122,8 +1040,6 @@ class SalesPage(QWidget):
         widgets: Sequence[QWidget],
         columns: int,
     ) -> None:
-        # removeWidget() deletes the layout item; takeAt() leaked it (PySide
-        # marks the returned item C++-owned, so nothing ever frees it).
         for widget in widgets:
             layout.removeWidget(widget)
         for column in range(6):
@@ -1133,7 +1049,6 @@ class SalesPage(QWidget):
         for column in range(max(1, columns)):
             layout.setColumnStretch(column, 1)
 
-    # -------------------------------------------------------------- feedback
 
     def _set_busy(self, busy: bool) -> None:
         self.apply_button.setEnabled(not busy)
@@ -1147,7 +1062,7 @@ class SalesPage(QWidget):
         self.status_label.setText(message)
         self.status_label.setProperty("severity", "error" if error else "info")
         self.status_label.setAccessibleDescription(message)
-        self.status_label.setVisible(error)  # routine updates are announced by the shell instead
+        self.status_label.setVisible(error)
         repolish(self.status_label)
         self.statusMessage.emit(message)
         if self._on_status is not None:

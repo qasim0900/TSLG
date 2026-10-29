@@ -1,5 +1,3 @@
-"""Error reporting and display formatting shared by the desktop screens."""
-
 from __future__ import annotations
 
 import logging
@@ -30,7 +28,6 @@ INTEGRITY_MESSAGE = (
 
 
 def explain(exc: BaseException) -> tuple[str, str]:
-    """``(heading, message)`` describing ``exc`` for the user, without internals."""
     if isinstance(exc, DomainError):
         details = "\n".join(f"• {message}" for message in exc.fields.values() if message != exc.message)
         return exc.message, details
@@ -54,13 +51,11 @@ def explain(exc: BaseException) -> tuple[str, str]:
 
 
 def _remote(exc: SQLAlchemyError) -> bool:
-    """The error came from the PostgreSQL driver (the team server), not from the local SQLite file."""
     origin = getattr(exc, "orig", None)
     return origin is not None and type(origin).__module__.startswith("psycopg")
 
 
 def report(parent: QWidget | None, exc: BaseException, *, title: str = "Action") -> None:
-    """Show ``exc`` to the user. Session endings are announced by the sign-in screen instead."""
     if isinstance(exc, SessionEnded):
         return
     if not isinstance(exc, DomainError | ConnectionProblem | SQLAlchemyError):
@@ -74,27 +69,19 @@ def report(parent: QWidget | None, exc: BaseException, *, title: str = "Action")
 
 def attempt(parent: QWidget | None, context: AppContext, work: Callable[..., T], *, kind: str | None = None,
             title: str = "Action", **options: Any) -> tuple[bool, T | None]:
-    """Run a unit of work and report failures; returns ``(succeeded, result)``."""
     try:
         if kind is not None:
             return True, context.write(kind, work)
         return True, context.run(work, **options)
-    except Exception as exc:  # every failure is shown; nothing is silently swallowed
+    except Exception as exc:
         report(parent, exc, title=title)
         return False, None
 
-
-# --- formatting ---------------------------------------------------------------
 
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
 def local_time(value: datetime | None, timezone: str, *, with_time: bool = True) -> str:
-    """``21 Oct 2026, 14:05`` in the user's time zone.
-
-    Not ``strftime("%b")``: Qt applies the system locale, so month names would
-    come out in, e.g., Urdu script inside English sentences and reorder the text.
-    """
     if value is None:
         return ""
     local = value.astimezone(ZoneInfo(timezone))
@@ -103,7 +90,6 @@ def local_time(value: datetime | None, timezone: str, *, with_time: bool = True)
 
 
 def date_text(value: Any) -> str:
-    """``YYYY-MM-DD`` (the original date columns) as ``09 Oct 2026``; other text is returned as is."""
     raw = str(value or "").strip()[:10]
     try:
         parsed = datetime.strptime(raw, "%Y-%m-%d")
@@ -135,10 +121,10 @@ def person(user: Any, default: str = "Unassigned") -> str:
 
 
 def options(mapping: Mapping[str, str] | Iterable[str]) -> list[tuple[str, str]]:
-    """``[(value, label)]`` for a vocabulary dict or a tuple of plain values."""
     if isinstance(mapping, Mapping):
         return list(mapping.items())
     return [(value, value) for value in mapping]
 
 
 __all__ = ["attempt", "explain", "label", "labels", "local_time", "options", "person", "report", "text"]
+

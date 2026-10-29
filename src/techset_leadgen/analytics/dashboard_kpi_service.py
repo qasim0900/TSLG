@@ -1,9 +1,3 @@
-"""Servicio de KPIs del Dashboard.
-
-Construye DashboardKPISnapshot consultando directamente SQLite
-para máximo rendimiento en la pantalla de inicio.
-"""
-
 from datetime import date, datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from typing import Optional
@@ -13,13 +7,7 @@ from techset_leadgen.domain.dashboard_kpi_snapshot import DashboardKPISnapshot
 from techset_leadgen.utils.formatting import format_datetime_us
 
 
-
 class DashboardKPIService:
-    """
-    Servicio responsable de construir el snapshot del Dashboard (Home).
-    NO reutiliza lógica de análisis.
-    """
-
     @staticmethod
     def build_snapshot() -> DashboardKPISnapshot:
         conn = get_connection()
@@ -83,7 +71,6 @@ class DashboardKPIService:
 
     @staticmethod
     def weekly_revenue(weeks: int = 8, today: Optional[date] = None) -> list[tuple[str, float]]:
-        """Revenue per ISO week for the last ``weeks`` weeks, oldest first, labelled "W35"."""
         current = today or date.today()
         this_monday = current - timedelta(days=current.weekday())
         mondays = [this_monday - timedelta(weeks=offset) for offset in range(weeks - 1, -1, -1)]
@@ -116,3 +103,4 @@ class DashboardKPIService:
             return format_datetime_us(dt)
         except Exception:
             return value
+

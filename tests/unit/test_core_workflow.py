@@ -1,5 +1,3 @@
-"""Core workflow integration tests against pytest's temporary SQLite database."""
-
 from contextlib import closing
 from pathlib import Path
 
@@ -13,9 +11,7 @@ from techset_leadgen.analytics.models.client_manager import invalidate_clients_c
 
 
 def _clear_database() -> None:
-    """Reset tables in dependency order; the configured DB is pytest-only."""
     init_db()
-    # sqlite3.Connection's context manager commits/rolls back but does not close.
     with closing(get_connection()) as connection:
         with connection:
             for table in (
@@ -26,7 +22,7 @@ def _clear_database() -> None:
                 "import_metadata",
                 "clients",
             ):
-                connection.execute(f"DELETE FROM {table}")  # noqa: S608 - fixed whitelist
+                connection.execute(f"DELETE FROM {table}")
     invalidate_clients_cache()
 
 
@@ -100,3 +96,4 @@ def test_sales_dry_run_validates_without_persisting(tmp_path: Path) -> None:
     with closing(get_connection()) as connection:
         assert connection.execute("SELECT COUNT(*) FROM sales").fetchone()[0] == 0
         assert connection.execute("SELECT COUNT(*) FROM clients").fetchone()[0] == 0
+

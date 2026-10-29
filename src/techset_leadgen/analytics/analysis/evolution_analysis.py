@@ -1,6 +1,3 @@
-"""
-Funciones de análisis de evolución/series temporales.
-"""
 import logging
 from typing import Optional, TypedDict, List, Tuple
 
@@ -31,27 +28,9 @@ def get_sales_evolution(
     product_type: Optional[str] = None,
     grouping: str = "day",
 ):
-    """
-    Obtiene la evolución de ventas agrupado según el grouping especificado.
-    Retorna tuplas: (date_key, total_vendido)
-
-    Args:
-        grouping: 'day', 'week', 'month', 'quarter', 'year'
-
-    Nota:
-    - Mantiene compatibilidad: si no se pasan filtros de cliente/producto,
-      el comportamiento es idéntico al anterior.
-    - El formato de date_key depende del grouping:
-      - day: 'YYYY-MM-DD'
-      - week: 'YYYY-Wnn' (ej: '2024-W01')
-      - month: 'YYYY-MM'
-      - quarter: 'YYYY-Qn' (ej: '2024-Q1')
-      - year: 'YYYY'
-    """
     try:
         conn = get_db_connection()
 
-        # Agregar filtros si existen (fechas + segmentación)
         clauses = []
         params = []
         if start_date:
@@ -73,7 +52,6 @@ def get_sales_evolution(
             where_clause = ""
 
         if grouping == "week":
-            # Semanas ISO: agrupar en Python para compartir semantica con regrouping local.
             query = f"""
             SELECT
                 date,
@@ -102,21 +80,17 @@ def get_sales_evolution(
                 }
             ) if grouped_rows else pl.DataFrame(schema={"date": pl.Utf8, "total": pl.Float64})
         else:
-            # Determinar la expresión de agrupación SQL según grouping
             if grouping == "day":
                 group_expr = "date"
             elif grouping == "month":
                 group_expr = "strftime('%Y-%m', date)"
             elif grouping == "quarter":
-                # Calcular trimestre: Q1 (ene-mar), Q2 (abr-jun), Q3 (jul-sep), Q4 (oct-dic)
                 group_expr = "strftime('%Y', date) || '-Q' || CAST((CAST(strftime('%m', date) AS INTEGER) - 1) / 3 + 1 AS TEXT)"
             elif grouping == "year":
                 group_expr = "strftime('%Y', date)"
             else:
-                # Fallback a día
                 group_expr = "date"
-            
-            # Query: agrupar según grouping y sumar price
+
             query = f"""
             SELECT 
                 {group_expr} as date, 
@@ -143,35 +117,13 @@ def get_compare_evolution_rows(
     end_a: str,
     start_b: str,
     end_b: str,
-    grouping: str = "day",  # day | week | month | quarter | year
+    grouping: str = "day",
     client_a: Optional[str] = None,
     product_a: Optional[str] = None,
     client_b: Optional[str] = None,
     product_b: Optional[str] = None,
 ) -> CompareEvolutionResult:
-    """
-    Devuelve filas comparables A vs B ya alineadas temporalmente.
-
-    Retorna:
-    {
-        "rows": [
-            {
-                "label": str,
-                "A": float,
-                "B": float,
-            },
-            ...
-        ],
-        "meta": {
-            "grouping": str,
-            "range_a": (start_a, end_a),
-            "range_b": (start_b, end_b),
-        }
-    }
-    """
-
     def _fetch_raw(start, end, client, product) -> List[tuple[str, float]]:
-        """Obtiene (date, total) sin agrupar."""
         conn = get_db_connection()
         query = """
         SELECT
@@ -210,25 +162,12 @@ def get_compare_evolution_rows(
 
         return [(row["date"], float(row["total"])) for row in df.to_dicts()]
 
-    # -----------------------------
-    # 1️⃣ Datos crudos A y B
-    # -----------------------------
     raw_a = _fetch_raw(start_a, end_a, client_a, product_a)
     raw_b = _fetch_raw(start_b, end_b, client_b, product_b)
 
-    # -----------------------------
-    # 2️⃣ Agrupación temporal
-    # -----------------------------
     grouped_a = group_time_series(raw_a, grouping)
     grouped_b = group_time_series(raw_b, grouping)
 
-    # grouped_* = [
-    #   {
-    #     "key": sortable_key,
-    #     "label": str,
-    #     "value": float
-    #   }
-    # ]
 
     map_a = {row["key"]: row["total"] for row in grouped_a}
     map_b = {row["key"]: row["total"] for row in grouped_b}
@@ -237,9 +176,6 @@ def get_compare_evolution_rows(
     for row in grouped_a + grouped_b:
         labels_map[row["key"]] = row["label"]
 
-    # -----------------------------
-    # 3️⃣ Unión ordenada de periodos
-    # -----------------------------
     all_keys = sorted(set(map_a.keys()) | set(map_b.keys()))
 
     rows: List[CompareRow] = []
@@ -252,9 +188,6 @@ def get_compare_evolution_rows(
             }
         )
 
-    # -----------------------------
-    # 4️⃣ Resultado final
-    # -----------------------------
     return {
         "rows": rows,
         "meta": {
@@ -263,3 +196,4 @@ def get_compare_evolution_rows(
             "range_b": (start_b, end_b),
         },
     }
+

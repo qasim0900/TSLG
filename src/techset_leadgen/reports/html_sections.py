@@ -1,6 +1,3 @@
-"""
-Helpers para secciones HTML del informe de ventas.
-"""
 from html import escape
 
 from techset_leadgen.reports.charts_generator import generate_pie_chart, generate_horizontal_bar_chart
@@ -13,22 +10,6 @@ def render_chart_container(
     *,
     subtitle: str | None = None
 ) -> str:
-    """
-    Renderiza un contenedor HTML estándar para gráficos.
-    
-    Formaliza la decisión arquitectónica:
-    - El título vive en HTML (semántica, única fuente de verdad)
-    - El gráfico es solo imagen base64 (visual puro)
-    - Estructura consistente en todo el reporte
-    
-    Args:
-        title: Título del gráfico (obligatorio, se renderiza en <h3>)
-        image_base64: String base64 de la imagen PNG
-        subtitle: Subtítulo o contexto adicional (opcional)
-    
-    Returns:
-        HTML string listo para insertar en el reporte
-    """
     safe_title = escape(str(title))
     subtitle_html = (
         f'<p style="color: #666; font-size: 12px; margin: 4px 0 12px 0;">'
@@ -36,7 +17,7 @@ def render_chart_container(
         if subtitle
         else ""
     )
-    
+
     return f'''
     <div class="chart-container">
         <h3>{safe_title}</h3>
@@ -173,3 +154,4 @@ def render_table_rows(rows):
         except (IndexError, ValueError):
             pass
     return html
+

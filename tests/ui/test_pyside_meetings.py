@@ -1,8 +1,3 @@
-"""The Meetings page and form, driven through the real PySide6 widgets (offscreen) on a fresh database.
-
-Set ``TSLG_MEETINGS_SCREENSHOT_DIR`` to also save captures of the page and the form.
-"""
-
 from __future__ import annotations
 
 import os
@@ -35,7 +30,7 @@ SHOTS = os.environ.get("TSLG_MEETINGS_SCREENSHOT_DIR")
 @pytest.fixture(scope="module")
 def qapp():
     application = QApplication.instance() or QApplication([])
-    QLocale.setDefault(QLocale(QLocale.Language.English, QLocale.Country.UnitedKingdom))  # as main.py does
+    QLocale.setDefault(QLocale(QLocale.Language.English, QLocale.Country.UnitedKingdom))
     theme_manager = None
     if SHOTS:
         from techset_leadgen.desktop.theme import ThemeManager
@@ -79,13 +74,11 @@ def _next_monday() -> date:
 
 
 def _pilot(errors: list[BaseException], steps: Callable[[MeetingDialog], None]) -> Callable[[QWidget], None]:
-    """Run ``steps`` on the open form; a failure is kept for the test and closes the form."""
-
     def action(widget: QWidget) -> None:
         assert isinstance(widget, MeetingDialog)
         try:
             steps(widget)
-        except BaseException as exc:  # re-raised by the test after the dialog closes
+        except BaseException as exc:
             errors.append(exc)
             widget.reject()
 
@@ -152,7 +145,7 @@ def test_create_detect_conflict_pick_suggestion_filter_cancel_and_persist(qapp, 
     def first(dialog: MeetingDialog) -> None:
         dialog.title.setText("Discovery call")
         _pick_client(dialog, "smith", "M_SMITH1")
-        assert dialog.client_email.text() == "john@example.com"  # filled in from the client record
+        assert dialog.client_email.text() == "john@example.com"
         _choose(dialog, [people["ali"]])
         _set_time(dialog, monday, 10, 0, 30)
         assert dialog.end.time() == QTime(10, 30)
@@ -175,7 +168,7 @@ def test_create_detect_conflict_pick_suggestion_filter_cancel_and_persist(qapp, 
 
     def conflicting(dialog: MeetingDialog) -> None:
         dialog.title.setText("Contract review")
-        _pick_client(dialog, "JOHN@EXAMPLE", "M_SMITH1")  # found by email
+        _pick_client(dialog, "JOHN@EXAMPLE", "M_SMITH1")
         _choose(dialog, [people["sara"]])
         _set_time(dialog, monday, 10, 15, 30)
         _wait_text(dialog.availability, "This time slot is unavailable")
@@ -194,7 +187,7 @@ def test_create_detect_conflict_pick_suggestion_filter_cancel_and_persist(qapp, 
         page.create_record()
     if errors:
         raise errors[0]
-    assert chosen[0][0] == datetime(monday.year, monday.month, monday.day, 12, 30, tzinfo=UTC)  # 10:30 + 120 min
+    assert chosen[0][0] == datetime(monday.year, monday.month, monday.day, 12, 30, tzinfo=UTC)
     assert _count(context, Meeting.starts_at == chosen[0][0], Meeting.title == "Contract review") == 1
     assert page.records.table.rowCount() == 2
     _grab(page, "meetings-page.png")
@@ -207,7 +200,7 @@ def test_create_detect_conflict_pick_suggestion_filter_cancel_and_persist(qapp, 
     page.records.reload(page=1)
     assert page.records.table.rowCount() == 0 and page.records.empty_state.isVisible()
     page.clear_filters()
-    assert page.records.table.rowCount() == 2  # "All meetings" after clearing
+    assert page.records.table.rowCount() == 2
 
     contract_id = context.run(lambda db, _actor: db.scalar(select(Meeting.id).where(
         Meeting.title == "Contract review")), commit=False)
@@ -221,7 +214,7 @@ def test_create_detect_conflict_pick_suggestion_filter_cancel_and_persist(qapp, 
     assert page.records.table.rowCount() == 1 and page.view_filter.currentData() == "cancelled"
     page.close()
 
-    reopened = AppContext(load_settings({}, database_path=database))  # restart: the data is still there
+    reopened = AppContext(load_settings({}, database_path=database))
     reopened.open()
     reopened.sign_in(TEST_ADMIN_EMAIL, TEST_PASSWORD)
     again = MeetingsPage(reopened)
@@ -248,7 +241,6 @@ def test_the_save_rechecks_and_explains_a_slot_taken_after_the_preview(qapp, mee
         _choose(dialog, [people["sara"]])
         _set_time(dialog, monday, 15, 0, 30)
         _wait_text(dialog.availability, "Available")
-        # Someone else books Sara for 15:00 while this form is open.
         context.write("meeting", lambda db, actor: meetings.create_meeting(db, actor, parse(MeetingCreate, {
             "title": "Booked elsewhere", "client_id": "M_SMITH1", "attendee_ids": [people["sara"]],
             "starts_at": start, "ends_at": start + timedelta(minutes=30), "request_id": uuid4().hex})))
@@ -310,7 +302,7 @@ def test_form_validation_reschedule_and_new_client(qapp, meeting_context):
     def reschedule(dialog: MeetingDialog) -> None:
         assert not dialog.title.isEnabled() and not dialog.attendee_list.isEnabled()
         _set_time(dialog, monday, 16, 0, 45)
-        _wait_text(dialog.availability, "Available")  # it does not conflict with itself
+        _wait_text(dialog.availability, "Available")
         dialog.save_button.click()
 
     page.show_record(kickoff)
@@ -333,7 +325,7 @@ def test_an_administrator_changes_the_scheduling_rules_in_settings(qapp, meeting
     page = SettingsPage(context)
     page.show()
     page.ensure_loaded()
-    assert not page.organization_buttons["Meeting scheduling…"].isHidden()  # on the Organization tab
+    assert not page.organization_buttons["Meeting scheduling…"].isHidden()
     errors: list[BaseException] = []
 
     def edit(widget: QWidget) -> None:
@@ -359,3 +351,4 @@ def test_an_administrator_changes_the_scheduling_rules_in_settings(qapp, meeting
     assert shown["Meeting buffer"].text().startswith("60-minute buffer before and after each meeting")
     assert shown["Meeting hours"].text().startswith("8:00 AM–6:00 PM, Monday, Tuesday, Wednesday")
     page.close()
+

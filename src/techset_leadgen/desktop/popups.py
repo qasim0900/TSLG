@@ -1,14 +1,3 @@
-"""Drop-down lists and date-picker pop-ups drawn like the redesign's custom controls.
-
-``PopupStyler`` (installed app-wide by :func:`desktop_ui.motion.install`) gives:
-
-* every ``QComboBox`` list: 38 px rows with rounded hover, the chosen option tinted
-  green, in bold, with a check mark at the right; and
-* every pop-up calendar of a ``QDateEdit``: Monday-first weeks without a grid,
-  outlined previous/next month buttons, today ringed in brand green, the chosen
-  day filled, and a footer with "Clear" (for optional dates) and "Today".
-"""
-
 from __future__ import annotations
 
 from PySide6.QtCore import QDate, QEvent, QModelIndex, QObject, QPersistentModelIndex, QRectF, QSize, Qt, QTimer
@@ -32,14 +21,10 @@ from techset_leadgen.desktop.theme import calendar_stylesheet, is_dark, tokens
 
 
 class ComboDelegate(QStyledItemDelegate):
-    """One option of a drop-down list: hover, the chosen option (tint, bold, check mark)."""
-
     def __init__(self, combo: QComboBox) -> None:
-        super().__init__(combo)  # the combo is read back from the parent, not kept in Python:
-        # a combo Qt built inside one of its own dialogs has no lasting Python wrapper, and
-        # attributes on this object would be lost with it.
+        super().__init__(combo)
 
-    def sizeHint(self, option: QStyleOptionViewItem,  # noqa: N802 - Qt API
+    def sizeHint(self, option: QStyleOptionViewItem,
                  index: QModelIndex | QPersistentModelIndex) -> QSize:
         hint = super().sizeHint(option, index)
         return QSize(hint.width() + 36, max(hint.height(), 38))
@@ -65,7 +50,7 @@ class ComboDelegate(QStyledItemDelegate):
         painter.setFont(font)
         color = t["primaryInk"] if chosen else t["text"] if enabled else t["text2"]
         painter.setPen(QColor(color))
-        shift = 2 if hovered and not chosen else 0  # the design's 2 px nudge under the mouse
+        shift = 2 if hovered and not chosen else 0
         text_rect = rect.adjusted(10 + shift, 0, -34, 0)
         text = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
@@ -77,8 +62,6 @@ class ComboDelegate(QStyledItemDelegate):
 
 
 class _CalendarFooter(QFrame):
-    """ "Clear" (optional dates only) and "Today" under a date picker."""
-
     def __init__(self, calendar: QCalendarWidget, editor: QDateEdit) -> None:
         super().__init__(calendar)
         self.setObjectName("calendarFooter")
@@ -125,7 +108,6 @@ def style_calendar(calendar: QCalendarWidget, editor: QDateEdit | None = None) -
 
 
 def refresh_calendar(calendar: QCalendarWidget) -> None:
-    """Theme colours inside the month view: weekday headers, weekends, and today's ring."""
     t = tokens()
     header = QTextCharFormat()
     header.setForeground(QColor(t["text2"]))
@@ -147,23 +129,17 @@ def refresh_calendar(calendar: QCalendarWidget) -> None:
 
 
 class PopupStyler(QObject):
-    """Attach the drop-down delegate and the calendar styling as widgets are polished."""
-
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         kind = event.type()
         try:
             if kind == QEvent.Type.Polish:
                 if isinstance(watched, QComboBox) and not isinstance(watched.view().itemDelegate(), ComboDelegate):
                     watched.view().setItemDelegate(ComboDelegate(watched))
                 elif isinstance(watched, QCalendarWidget) and not watched.property("designCalendar"):
-                    # Styled just before its pop-up first opens (the pop-up window's parent is the
-                    # date field): building every calendar up front made theme changes slower.
                     editor = watched.window().parentWidget()
                     style_calendar(watched, editor if isinstance(editor, QDateEdit) else None)
             elif kind == QEvent.Type.Show and isinstance(watched, QCalendarWidget) \
                     and watched.property("calendarDark") != is_dark():
-                # The theme changed since it was styled; restyling inside the show event
-                # would hide the pop-up again, so wait until it is on screen.
                 calendar = watched
                 QTimer.singleShot(0, lambda: refresh_calendar(calendar) if Shiboken.isValid(calendar) else None)
         except RuntimeError:
@@ -172,3 +148,4 @@ class PopupStyler(QObject):
 
 
 __all__ = ["ComboDelegate", "PopupStyler", "refresh_calendar", "style_calendar"]
+

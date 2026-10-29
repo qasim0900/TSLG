@@ -1,11 +1,3 @@
-"""Meetings: summary cards, a searchable and filterable list, details with history, and the scheduling form.
-
-The form finds existing clients and team members, previews the availability of the client and every
-attendee while the time is chosen, explains each conflict, and offers free slots to pick from. The
-preview is informational: saving checks the shared schedule again inside the transaction
-(``services.meetings``), so a slot taken a moment ago by someone else is refused with the reason.
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -74,8 +66,6 @@ class _WorkerSignals(QObject):
 
 
 class _Worker(QRunnable):
-    """Run a short authenticated read without blocking the window (searches, availability)."""
-
     def __init__(self, number: int, operation: Callable[[], Any]) -> None:
         super().__init__()
         self.number = number
@@ -85,14 +75,13 @@ class _Worker(QRunnable):
     def run(self) -> None:
         try:
             result = self.operation()
-        except Exception as exc:  # handed to the window, which shows it
+        except Exception as exc:
             self.signals.completed.emit(self.number, None, exc)
         else:
             self.signals.completed.emit(self.number, result, None)
 
 
 def _wall_time(day: QDate, moment: QTime, timezone: str) -> datetime:
-    """A date and clock time in the business time zone, as UTC; refuses times skipped by DST."""
     zone = ZoneInfo(timezone)
     local = datetime(day.year(), day.month(), day.day(), moment.hour(), moment.minute(), tzinfo=zone)
     instant = local.astimezone(UTC)
@@ -111,8 +100,6 @@ def _list_height(widget: QListWidget, rows: int) -> None:
 
 
 class MeetingDialog(ModalDialog):
-    """Create, edit, or reschedule a meeting, with a live availability preview and suggested slots."""
-
     MODES = {
         "create": ("Create meeting", "Save meeting"),
         "edit": ("Edit meeting", "Save changes"),
@@ -126,19 +113,19 @@ class MeetingDialog(ModalDialog):
         self.mode = mode
         self.values = values or {}
         self.meeting_id: str | None = self.values.get("id")
-        self.request_id = uuid.uuid4().hex  # one ID for every attempt: a retried save is stored once
+        self.request_id = uuid.uuid4().hex
         self.result_value: str | None = None
         self.rules = SchedulingRules()
         self.client_id: str | None = self.values.get("client_id")
         self.client_name = str(self.values.get("client_name") or "")
         self.new_client = bool(self.client_name and not self.client_id)
-        self.chosen: dict[str, tuple[str, str]] = {}  # attendee id -> (name, email), kept across searches
+        self.chosen: dict[str, tuple[str, str]] = {}
         self.last_availability: meetings.Availability | None = None
         self._numbers = {"clients": 0, "attendees": 0, "check": 0, "schedule": 0}
         self._sequence = 0
         self._pending: dict[int, tuple[str, int, Callable[[Any, BaseException | None], None]]] = {}
         self._senders: dict[int, _WorkerSignals] = {}
-        self._quiet = False  # set while the form fills itself in, so no change handlers run
+        self._quiet = False
         heading, save_text = self.MODES[mode]
         self.setWindowTitle(heading)
         self.setAccessibleName(heading)
@@ -157,7 +144,6 @@ class MeetingDialog(ModalDialog):
             self.search_clients()
         self._schedule_check()
 
-    # ------------------------------------------------------------ layout
 
     def _build(self, heading: str, save_text: str) -> None:
         root = QVBoxLayout(self)
@@ -251,7 +237,7 @@ class MeetingDialog(ModalDialog):
         self.end.setObjectName("meetingEndTime")
         self.end.setDisplayFormat("h:mm AP")
         self.end.setAccessibleName("End time")
-        for editor in (self.start, self.end):  # typed, or changed with the arrow keys and mouse wheel
+        for editor in (self.start, self.end):
             editor.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
             editor.setToolTip("Type a time, or use the Up and Down arrow keys")
         for column, (caption, widget) in enumerate((("Meeting date *", self.date), ("Start time *", self.start),
@@ -379,7 +365,6 @@ class MeetingDialog(ModalDialog):
         self.end.timeChanged.connect(lambda _time: self._time_changed())
         self.duration.currentIndexChanged.connect(lambda _index: self._duration_chosen())
 
-    # ------------------------------------------------------------ initial values
 
     def _load_rules(self) -> None:
         ok, rules = attempt(self, self.context, meetings.get_scheduling_rules, commit=False, touch=False,
@@ -402,7 +387,7 @@ class MeetingDialog(ModalDialog):
         starts_at, ends_at = values.get("starts_at"), values.get("ends_at")
         if starts_at and ends_at:
             local_start, local_end = starts_at.astimezone(zone), ends_at.astimezone(zone)
-        else:  # the next full hour, 30 minutes
+        else:
             local_start = (self._now_local() + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
             local_end = local_start + timedelta(minutes=30)
         earliest = today if self.mode != "edit" else min(today, local_start.date())
@@ -418,7 +403,7 @@ class MeetingDialog(ModalDialog):
             self.chosen[user_id] = (name, email)
         actor = self.context.actor
         if self.mode == "create" and actor is not None:
-            self.chosen.setdefault(actor.user_id, (actor.full_name, actor.email))  # the organizer attends
+            self.chosen.setdefault(actor.user_id, (actor.full_name, actor.email))
         if self.client_name:
             self.client_search.setText(self.client_name)
         self._quiet = False
@@ -428,7 +413,6 @@ class MeetingDialog(ModalDialog):
         if self.client_id:
             self.load_client_schedule()
 
-    # ------------------------------------------------------------ background reads
 
     def _start(self, kind: str, operation: Callable[[Session, Actor], Any],
                callback: Callable[[Any, BaseException | None], None]) -> None:
@@ -436,8 +420,6 @@ class MeetingDialog(ModalDialog):
         self._sequence += 1
         self._pending[self._sequence] = (kind, self._numbers[kind], callback)
         worker = _Worker(self._sequence, lambda: self.context.run(operation, commit=False, busy=False, touch=False))
-        # A bound method of this dialog (a QObject) receives the answer on the GUI thread; the sender is
-        # kept until then, as a queued call from an already deleted sender would be dropped.
         worker.signals.completed.connect(self._finished)
         self._senders[self._sequence] = worker.signals
         QThreadPool.globalInstance().start(worker)
@@ -447,10 +429,9 @@ class MeetingDialog(ModalDialog):
         if sender is not None:
             sender.deleteLater()
         kind, number, callback = self._pending.pop(sequence)
-        if number == self._numbers[kind] and self.isVisible():  # only the latest answer of each kind counts
+        if number == self._numbers[kind] and self.isVisible():
             callback(result, error)
 
-    # ------------------------------------------------------------ client
 
     def search_clients(self) -> None:
         query = self.client_search.text()
@@ -559,7 +540,6 @@ class MeetingDialog(ModalDialog):
             parts += ["", "Recent:"] + lines(schedule.past, True)
         self.schedule_text.setText("\n".join(parts))
 
-    # ------------------------------------------------------------ attendees
 
     def search_attendees(self) -> None:
         query = self.attendee_filter.text()
@@ -595,7 +575,6 @@ class MeetingDialog(ModalDialog):
         self._schedule_check()
 
     def set_attendee(self, user_id: str, attending: bool) -> bool:
-        """Tick or untick a listed team member (as a click would)."""
         for row in range(self.attendee_list.count()):
             item = self.attendee_list.item(row)
             if item.data(Qt.ItemDataRole.UserRole) == user_id:
@@ -608,10 +587,8 @@ class MeetingDialog(ModalDialog):
         self.attendee_summary.setText(f"{len(names)} attending: " + ", ".join(names) if names
                                       else "No attendees chosen.")
 
-    # ------------------------------------------------------------ time
 
     def _sync_duration(self) -> None:
-        """Show the calculated duration and select the matching preset (or Custom)."""
         try:
             start, end = self.interval()
         except ValueError as exc:
@@ -639,7 +616,7 @@ class MeetingDialog(ModalDialog):
         if self._quiet:
             return
         minutes = self.duration.currentData()
-        if minutes is not None:  # keep the chosen length
+        if minutes is not None:
             self._quiet = True
             self.end.setTime(self.start.time().addSecs(int(minutes) * 60))
             self._quiet = False
@@ -673,7 +650,6 @@ class MeetingDialog(ModalDialog):
         self._time_changed(load_schedule=True)
         self.save_button.setFocus()
 
-    # ------------------------------------------------------------ availability
 
     def _schedule_check(self) -> None:
         if not self._quiet:
@@ -758,7 +734,6 @@ class MeetingDialog(ModalDialog):
             button.show()
             self.suggestion_buttons.append(button)
 
-    # ------------------------------------------------------------ saving
 
     def _mark(self, widget: QWidget, invalid: bool) -> None:
         if bool(widget.property("invalid")) != invalid:
@@ -818,7 +793,7 @@ class MeetingDialog(ModalDialog):
                     db, actor, create).id)
         except ValueError as exc:
             self.error.set_message(str(exc), "error")
-        except DomainError as exc:  # the service's own explanation, shown in the form
+        except DomainError as exc:
             heading, details = explain(exc)
             self.error.set_message(f"{heading}\n{details}".strip(), "error")
             for field in exc.fields:
@@ -826,8 +801,8 @@ class MeetingDialog(ModalDialog):
                 if isinstance(widget, QWidget):
                     self._mark(widget, True)
             if isinstance(exc, Conflict):
-                self.check_availability()  # show the current conflicts and free slots
-        except Exception as exc:  # connection problems and the unexpected: the standard message box
+                self.check_availability()
+        except Exception as exc:
             report(self, exc, title="Save meeting")
         else:
             self.result_value = saved
@@ -885,7 +860,6 @@ class MeetingsPage(RecordPage):
         self._shortcuts.append(QShortcut(QKeySequence("Ctrl+R"), self, self.refresh))
         self._shortcuts.append(QShortcut(QKeySequence("Ctrl+N"), self, self.create_record))
 
-    # ------------------------------------------------------------ layout
 
     def _build_summary(self) -> None:
         strip = QWidget()
@@ -923,7 +897,7 @@ class MeetingsPage(RecordPage):
         self.view_filter.addItem("All meetings", None)
         for key, text in meetings.VIEWS.items():
             self.view_filter.addItem(text, key)
-        self.view_filter.setCurrentIndex(self.view_filter.findData("upcoming"))  # the next meetings first
+        self.view_filter.setCurrentIndex(self.view_filter.findData("upcoming"))
         self.status_filter = QComboBox()
         self.status_filter.setAccessibleName("Meeting status")
         self.status_filter.addItem("All statuses", None)
@@ -975,7 +949,6 @@ class MeetingsPage(RecordPage):
         grid.setColumnStretch(0, 2)
         grid.setColumnStretch(1, 2)
 
-    # ------------------------------------------------------------ filters
 
     def list_filters(self) -> dict[str, Any]:
         filters = super().list_filters()
@@ -991,7 +964,6 @@ class MeetingsPage(RecordPage):
         return filters
 
     def show_view(self, view: str | None) -> None:
-        """Show one summary card's meetings."""
         self.view_filter.blockSignals(True)
         self.set_combo(self.view_filter, view)
         self.view_filter.blockSignals(False)
@@ -1031,7 +1003,6 @@ class MeetingsPage(RecordPage):
             card.setAccessibleDescription(f"{card.title_label.text()}{' (shown)' if key == current else ''}")
             repolish(card)
 
-    # ------------------------------------------------------------ list
 
     def fetch(self, db: Session, actor: Actor, request: PageRequest, filters: dict[str, Any]) -> RowPage:
         page = meetings.list_meetings(db, actor, page=request, **filters)
@@ -1059,7 +1030,6 @@ class MeetingsPage(RecordPage):
                    emphasis="failed" if conflict else ("muted" if meeting.status != "scheduled" else ""),
                    colors={9: "danger" if conflict else (tone_for(status) or "neutral")})
 
-    # ------------------------------------------------------------ details
 
     def describe(self, db: Session, actor: Actor, record_id: str) -> DetailView:
         meeting = meetings.get_meeting(db, actor, record_id)
@@ -1139,7 +1109,6 @@ class MeetingsPage(RecordPage):
         self.open_link_button.setEnabled(link)
         self.copy_link_button.setEnabled(link)
 
-    # ------------------------------------------------------------ actions
 
     def run_row_action(self, key: str, record_id: str) -> None:
         if not record_id:
@@ -1266,7 +1235,6 @@ class MeetingsPage(RecordPage):
 
 
 def _change_summary(changes: dict[str, Any] | None, zone: ZoneInfo) -> str:
-    """A short description of an audit entry's changes (times in the business time zone)."""
     if not changes:
         return ""
     parts = []
@@ -1275,7 +1243,7 @@ def _change_summary(changes: dict[str, Any] | None, zone: ZoneInfo) -> str:
         if field in ("starts_at", "ends_at") and isinstance(value, list) and len(value) == 2:
             old, new = (datetime.fromisoformat(item).astimezone(zone) if item else None for item in value)
             parts.append(f"{name}: {_moment(old)} → {_moment(new)}")
-        elif field in ("starts_at", "ends_at") and isinstance(value, str):  # the created entry
+        elif field in ("starts_at", "ends_at") and isinstance(value, str):
             parts.append(f"{name}: {_moment(datetime.fromisoformat(value).astimezone(zone))}")
         elif field == "status" and isinstance(value, list):
             parts.append(f"Status: {label(MEETING_STATUSES, value[0])} → {label(MEETING_STATUSES, value[1])}")
@@ -1293,3 +1261,4 @@ def _moment(value: datetime | None) -> str:
 
 
 __all__ = ["MeetingDialog", "MeetingsPage"]
+

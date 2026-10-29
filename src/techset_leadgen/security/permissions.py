@@ -1,15 +1,3 @@
-"""Role-based permissions with ownership scopes, for the whole application.
-
-Each role maps a permission to a scope:
-
-* ``all`` – any record;
-* ``own`` – only records the user owns (see ``crm.services.access.owns``).
-
-A permission missing from a role is denied. These checks run in the service
-layer (``crm.services``), so every path that changes data is covered; the
-screens only hide or disable controls as a convenience.
-"""
-
 from __future__ import annotations
 
 from enum import StrEnum
@@ -64,14 +52,13 @@ A, O = Scope.ALL, Scope.OWN
 
 _READ = {"sales.view": A, "clients.view": A, "leads.view": A}
 
-# Outreach team members: they see and work the prospects assigned to them.
 _OUTREACH_MEMBER = {
     "prospects.view": O,
     "prospects.edit": O,
     "outreach.record": O,
 }
 
-_FRONT_LINE = {  # business development reps and account executives
+_FRONT_LINE = {
     **_READ,
     **_OUTREACH_MEMBER,
     "clients.view_sensitive": A,
@@ -142,5 +129,6 @@ ROLE_PERMISSIONS: dict[str, dict[str, Scope]] = {
 
 def scope_for(role: str, permission: str) -> Scope | None:
     if permission not in PERMISSIONS:
-        raise KeyError(f"Unknown permission {permission!r}")  # programming error, not user input
+        raise KeyError(f"Unknown permission {permission!r}")
     return ROLE_PERMISSIONS.get(role, {}).get(permission)
+

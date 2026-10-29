@@ -1,12 +1,3 @@
-"""Painted per-row action buttons for large Qt tables.
-
-Creating a ``QToolButton`` with ``setCellWidget`` for every row is O(rows) in
-widgets, style polishing and layout work: filtering 5,000 leads took about half
-a second per keystroke. ``RowActionDelegate`` paints the same buttons and
-hit-tests clicks, so its cost is proportional to the rows actually on screen.
-Keyboard users reach the same actions through ``install_row_action_menu``.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
@@ -27,7 +18,7 @@ from PySide6.QtWidgets import (
 from techset_leadgen.desktop.icons import pixmap
 from techset_leadgen.desktop.theme import BUTTON_HEIGHT, ERROR, ERROR_ON_DARK, tokens
 
-_PADDING_X = 16  # as the app's other buttons
+_PADDING_X = 16
 _SPACING = 6
 _MARGIN = 6
 _BUTTON_HEIGHT = BUTTON_HEIGHT
@@ -39,14 +30,13 @@ class RowAction:
     label: str
     tooltip: str = ""
     destructive: bool = False
-    icon: str = ""  # shown as an icon-only button (the label becomes its tooltip)
+    icon: str = ""
 
 
-_ICON_BUTTON = 32  # a borderless glyph's hit area
+_ICON_BUTTON = 32
 
 
 def _label_font(base: QFont) -> QFont:
-    """The app's button lettering (13 px semibold), not the table's."""
     font = QFont(base)
     font.setPixelSize(13)
     font.setWeight(QFont.Weight.DemiBold)
@@ -54,8 +44,6 @@ def _label_font(base: QFont) -> QFont:
 
 
 class RowActionDelegate(QStyledItemDelegate):
-    """Paint ``actions`` as buttons in one column and emit ``triggered(key, record_id)``."""
-
     triggered = Signal(str, str)
 
     def __init__(
@@ -69,10 +57,9 @@ class RowActionDelegate(QStyledItemDelegate):
         self.actions = tuple(actions)
         self._id_role = id_role
         self._view = view
-        self._hovered: tuple[int, int] | None = None  # (row, action index)
+        self._hovered: tuple[int, int] | None = None
         view.setMouseTracking(True)
 
-    # ------------------------------------------------------------ geometry
 
     def _button_rects(self, cell: QRect, option: QStyleOptionViewItem) -> list[QRect]:
         metrics = QFontMetrics(_label_font(option.font))
@@ -98,10 +85,9 @@ class RowActionDelegate(QStyledItemDelegate):
         return width + _SPACING * (len(self.actions) - 1) + 2 * _MARGIN
 
     def column_width(self) -> int:
-        """Width for a fixed-size action column, computed once instead of per row."""
         return self._width_for(QFontMetrics(_label_font(self._view.font())))
 
-    def sizeHint(  # noqa: N802
+    def sizeHint(
         self, option: QStyleOptionViewItem, index: QModelIndex | QPersistentModelIndex
     ) -> QSize:
         return QSize(self._width_for(QFontMetrics(_label_font(option.font))), _BUTTON_HEIGHT + 8)
@@ -112,7 +98,6 @@ class RowActionDelegate(QStyledItemDelegate):
                 return action_index
         return None
 
-    # ------------------------------------------------------------ painting
 
     def paint(
         self,
@@ -120,7 +105,7 @@ class RowActionDelegate(QStyledItemDelegate):
         option: QStyleOptionViewItem,
         index: QModelIndex | QPersistentModelIndex,
     ) -> None:
-        from techset_leadgen.desktop.tables import row_entrance  # the shared row entrance (tables imports nothing from here)
+        from techset_leadgen.desktop.tables import row_entrance
 
         entrance = row_entrance(self._view, index.row())
         if entrance is not None and entrance < 1:
@@ -141,7 +126,7 @@ class RowActionDelegate(QStyledItemDelegate):
         background = QStyleOptionViewItem(option)
         self.initStyleOption(background, index)
         background.text = ""
-        from techset_leadgen.desktop.tables import paint_hover  # the shared row hover (tables imports nothing from here)
+        from techset_leadgen.desktop.tables import paint_hover
 
         paint_hover(painter, option.rect, self._view, index.row(),
                     bool(option.state & QStyle.StateFlag.State_Selected))
@@ -180,16 +165,14 @@ class RowActionDelegate(QStyledItemDelegate):
                 fill.setAlpha(36)
             painter.setPen(QPen(border, 1))
             painter.setBrush(fill)
-            # Drawn like the app's other buttons: same height, radius, border, and lettering.
             painter.drawRoundedRect(QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5), 10, 10)
             painter.setFont(_label_font(option.font))
             painter.setPen(accent)
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, action.label)
         painter.restore()
 
-    # ------------------------------------------------------------ interaction
 
-    def editorEvent(self, event, model, option, index) -> bool:  # noqa: N802
+    def editorEvent(self, event, model, option, index) -> bool:
         if isinstance(event, QMouseEvent):
             hit = self._hit(option, event.position().toPoint())
             hovered = (index.row(), hit) if hit is not None else None
@@ -204,10 +187,10 @@ class RowActionDelegate(QStyledItemDelegate):
                 self.triggered.emit(self.actions[hit].key, str(index.data(self._id_role) or ""))
                 return True
             if event.type() in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonDblClick) and hit is not None:
-                return True  # a button press must not also start a row double-click
+                return True
         return super().editorEvent(event, model, option, index)
 
-    def helpEvent(self, event: QHelpEvent, view, option, index) -> bool:  # noqa: N802
+    def helpEvent(self, event: QHelpEvent, view, option, index) -> bool:
         hit = self._hit(option, event.pos())
         if hit is not None and (self.actions[hit].tooltip or self.actions[hit].icon):
             QToolTip.showText(event.globalPos(), self.actions[hit].tooltip or self.actions[hit].label, view)
@@ -221,8 +204,6 @@ def install_row_action_menu(
     record_id: Callable[[QModelIndex], str],
     on_triggered: Callable[[str, str], object],
 ) -> None:
-    """Offer the same row actions from a context menu (right-click, Menu key, Shift+F10)."""
-
     def show_menu(position: QPoint) -> None:
         index = view.indexAt(position)
         if not index.isValid():
@@ -234,10 +215,11 @@ def install_row_action_menu(
         for action in actions:
             menu.addAction(action.label, partial(on_triggered, action.key, identifier))
         menu.exec(view.viewport().mapToGlobal(position))
-        menu.deleteLater()  # one menu per right-click would otherwise accumulate
+        menu.deleteLater()
 
     view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
     view.customContextMenuRequested.connect(show_menu)
 
 
 __all__ = ["RowAction", "RowActionDelegate", "install_row_action_menu"]
+

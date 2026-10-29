@@ -1,5 +1,3 @@
-"""PySide6 dashboard: sales and lead intelligence, plus the signed-in user's work."""
-
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -41,7 +39,6 @@ _MONTHS = ("January", "February", "March", "April", "May", "June", "July", "Augu
 
 
 def _long_date(day: date) -> str:
-    """"Thursday, 22 October 2026" in English whatever the system locale (strftime follows it)."""
     return f"{_DAYS[day.weekday()]}, {day.day} {_MONTHS[day.month - 1]} {day.year}"
 
 
@@ -54,8 +51,6 @@ def _link_button(text: str, handler: Callable[[], object]) -> QPushButton:
 
 
 class DashboardPage(QWidget):
-    """Overview: KPIs, the signed-in user's work, the revenue trend, import help, and data status."""
-
     data_changed = Signal()
     status_requested = Signal(str, str)
 
@@ -122,7 +117,6 @@ class DashboardPage(QWidget):
         self._kpi_columns = 0
         self._place_kpis(4)
 
-        # The signed-in user's work: their tasks and leads, counted live.
         self.work_card = SectionCard("My work", divider=False)
         self.work_card.header_layout.setContentsMargins(20, 18, 20, 0)
         self.work_card.body.setContentsMargins(19, 12, 19, 18)
@@ -144,7 +138,6 @@ class DashboardPage(QWidget):
             self._work_buttons[key] = button
         work_row.addStretch(1)
         self.work_card.body.addLayout(work_row)
-        # The next few tasks are listed in the "Open tasks" chip's tooltip (the card shows only counts).
         self.upcoming_label = QLabel()
         self.upcoming_label.setObjectName("sectionSubtitle")
         self.upcoming_label.setWordWrap(True)
@@ -201,7 +194,7 @@ class DashboardPage(QWidget):
         self._layout.addStretch(1)
 
     def _template_row(self, label: str, template_type: str, icon_name: str, tone: str) -> QPushButton:
-        row = QPushButton(label)  # the style draws the label; the chip and download icon sit on top
+        row = QPushButton(label)
         row.setObjectName("listRow")
         row.setCursor(Qt.CursorShape.PointingHandCursor)
         row.setAccessibleName(f"Download the {label} template")
@@ -220,7 +213,6 @@ class DashboardPage(QWidget):
         row.clicked.connect(lambda _checked=False, kind=template_type: self._save_template(kind))
         return row
 
-    # ------------------------------------------------------------ layout
 
     def _place_kpis(self, columns: int) -> None:
         if columns == self._kpi_columns:
@@ -247,13 +239,12 @@ class DashboardPage(QWidget):
             self._lower_grid.setColumnStretch(0, 1)
             self._lower_grid.setColumnStretch(1, 0)
 
-    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         width = event.size().width()
         self._place_kpis(4 if width >= 1000 else 2)
         self._place_lower(wide=width >= 900)
 
-    # ------------------------------------------------------------ data
 
     def _refresh_work(self) -> None:
         context = self.context
@@ -374,3 +365,4 @@ class DashboardPage(QWidget):
             self.status_requested.emit(f"Could not save template: {exc}", "error")
         else:
             self.status_requested.emit(f"Template saved to {destination}", "success")
+

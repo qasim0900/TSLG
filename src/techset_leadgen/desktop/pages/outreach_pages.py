@@ -1,11 +1,3 @@
-"""My Work and Follow-ups: a team member's daily outreach screens, and the dialogs they share.
-
-The member opens a profile in the browser, does the outreach on LinkedIn by
-hand, and records what happened here. Nothing in this application contacts
-LinkedIn. Each dialog sends one ``request_id`` for every attempt to save, so a
-save retried after a network error is not recorded twice.
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -44,8 +36,7 @@ def _timezone(context: AppContext) -> str:
 
 def record_outcome(parent: QWidget, context: AppContext, prospect_id: str, *, title: str,
                    can_complete: bool) -> bool:
-    """Ask what happened with a prospect and save it (optionally completing the assignment). True when saved."""
-    request_id = uuid.uuid4().hex  # one per dialog: retrying after an error never records twice
+    request_id = uuid.uuid4().hex
     fields = [
         FieldSpec("event_type", "What happened", "choice", options=list(OUTREACH_EVENTS.items()), required=True,
                   blank=None, span=True),
@@ -81,7 +72,6 @@ def record_outcome(parent: QWidget, context: AppContext, prospect_id: str, *, ti
 
 def schedule_follow_up(parent: QWidget, context: AppContext, prospect_id: str, *, title: str,
                        version: int | None = None, note: str | None = None) -> bool:
-    """Set (or move) the prospect's one follow-up. ``version`` guards against someone else's change."""
     request_id = uuid.uuid4().hex
 
     def submit(dialog: FormDialog) -> None:
@@ -103,11 +93,7 @@ def open_profile(page: RecordPage, view: DetailView | None) -> None:
         page.status_requested.emit("The LinkedIn profile could not be opened in your browser.")
 
 
-# --- My Work ---------------------------------------------------------------------------------
-
 class MyWorkPage(RecordPage):
-    """The member's assigned profiles: open, record what happened, follow up, complete."""
-
     title = "My Work"
     subtitle = ("LinkedIn profiles assigned to you. Open a profile, do the outreach on LinkedIn, then record "
                 "what happened.")
@@ -246,19 +232,14 @@ class MyWorkPage(RecordPage):
 
 
 def _iso_today(now: datetime, actor: Actor) -> str:
-    """Today's date where the member is, as ``YYYY-MM-DD`` (assignment due dates are business days)."""
     return now.astimezone(ZoneInfo(actor.timezone)).date().isoformat()
 
-
-# --- Follow-ups --------------------------------------------------------------------------------
 
 FOLLOW_UP_VIEWS = (("today", "Due today"), ("overdue", "Overdue"), ("upcoming", "Next 7 days"),
                    ("done", "Completed"), ("cancelled", "Cancelled"))
 
 
 class FollowUpsPage(RecordPage):
-    """Scheduled reminders to contact a prospect again; overdue ones stay until done or cancelled."""
-
     title = "Follow-ups"
     subtitle = "Prospects to contact again. An overdue follow-up stays here until it is done or cancelled."
     noun = "follow-up"
@@ -415,3 +396,4 @@ class FollowUpsPage(RecordPage):
 
 
 __all__ = ["FollowUpsPage", "MyWorkPage", "record_outcome", "schedule_follow_up"]
+
