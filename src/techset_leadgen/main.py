@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from logging.handlers import RotatingFileHandler
 
 from PySide6.QtCore import QCoreApplication, QLocale, Qt
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication
 
 from techset_leadgen.branding import PARENT_BRAND, PRODUCT_NAME, PRODUCT_VERSION
@@ -70,6 +71,7 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
     QCoreApplication.setOrganizationDomain("techsetsolutions.com")
     QCoreApplication.setApplicationName(PRODUCT_NAME)
     QCoreApplication.setApplicationVersion(PRODUCT_VERSION)
+    QGuiApplication.setDesktopFileName(_HANDLER_NAME)
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_DontShowIconsInMenus, False)
     QLocale.setDefault(QLocale(QLocale.Language.English, QLocale.Country.UnitedKingdom))
     return QApplication(list(argv) if argv is not None else sys.argv)

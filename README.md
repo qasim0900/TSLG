@@ -66,7 +66,9 @@ poetry run python scripts/benchmark_outreach.py [--postgres ADMIN_URL]
 ```
 
 Windows build: `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1` (or the
-`Build Windows app` GitHub workflow).
+`Build Windows app` GitHub workflow). The script copies the project's `.env` next to
+`TechsetLeadGen.exe`, so its folder and zip connect to the team database; the GitHub build never
+contains it, so put `.env` next to the downloaded exe yourself.
 
 ## Project map
 
